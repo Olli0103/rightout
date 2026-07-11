@@ -50,6 +50,18 @@ python3 -m unittest tests.skills.test_data_broker_removal_skill
 
 No network calls or provider writes are required for the dummy validation path.
 
+## Install
+
+```bash
+git clone https://github.com/Olli0103/rightout.git
+cd rightout
+./install.sh
+```
+
+This installs the skill to `~/.openclaw/workspace/skills/data-broker-removal` and runs the validator.
+
+For custom workspaces, updates, and validation details, read `INSTALL.md`.
+
 ## OpenClaw Usage
 
 Install or copy `skills/data-broker-removal/` into an OpenClaw workspace skill directory, then load the skill when a user asks for data-broker audit, opt-out planning, removal staging, or privacy exposure review.
@@ -100,4 +112,3 @@ Read `skills/data-broker-removal/THIRD_PARTY_NOTICES.md` before expanding the ca
 ## Community Status
 
 RightOut is ready as a conservative, approval-gated OpenClaw workflow. The starter broker catalog is intentionally extensible. Contributions should add provenance, freshness dates, official URLs, license review notes, and tests.
-

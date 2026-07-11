@@ -1,4 +1,4 @@
-.PHONY: test validate doctor scan-only-dummy e2e-dummy
+.PHONY: test validate doctor scan-only-dummy e2e-dummy install
 
 SKILL_DIR := skills/data-broker-removal
 
@@ -17,3 +17,5 @@ validate:
 test: validate
 	python3 -m unittest tests.skills.test_data_broker_removal_skill
 
+install:
+	./install.sh
