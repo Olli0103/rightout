@@ -3,21 +3,39 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
-import datetime as dt
 from pathlib import Path
 
 
-def run(cmd: list[str], cwd: Path, expect: int = 0) -> dict:
-    env = {**os.environ, "OPENCLAW_ALLOW_TEST_RECEIPTS": "1"}
+def run_json(cmd: list[str], cwd: Path, expect: int = 0) -> dict:
+    env = {**os.environ, "PYTHONNOUSERSITE": "1"}
     proc = subprocess.run(cmd, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != expect:
-        raise SystemExit(f"command returned {proc.returncode}, expected {expect}: {' '.join(cmd)}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        raise SystemExit(
+            f"validation command returned {proc.returncode}, expected {expect}\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
     if not proc.stdout.strip():
-        return {"ok": proc.returncode == 0, "stderr": proc.stderr}
+        return {"stderr": proc.stderr}
     return json.loads(proc.stdout)
+
+
+def run_text(cmd: list[str], cwd: Path, expect: int = 0) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        cmd,
+        cwd=cwd,
+        env={**os.environ, "PYTHONNOUSERSITE": "1"},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != expect:
+        raise SystemExit(f"validation command returned {proc.returncode}, expected {expect}")
+    return proc
 
 
 def main() -> None:
@@ -29,107 +47,112 @@ def main() -> None:
 
     skill_dir = Path(args.skill_dir).expanduser().resolve()
     runner = skill_dir / "scripts" / "data_broker_removal.py"
-    doctor = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "doctor"], skill_dir)
-    validation = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "validate"], skill_dir)
-    with tempfile.TemporaryDirectory(prefix="dbroker-e2e-") as tmp:
-        e2e_dir = str(Path(tmp) / "e2e")
-        scan_dir = str(Path(tmp) / "scan-only")
-        e2e = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "e2e-dummy", "--workdir", e2e_dir], skill_dir)
-        subject_id = e2e["report"]["subject_id"]
-        scan_only = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "scan-only-dummy", "--workdir", scan_dir], skill_dir)
-        actions = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "next", "--workdir", e2e_dir, "--subject-id", subject_id], skill_dir)
-        tasks = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "tasks", "--workdir", e2e_dir, "--subject-id", subject_id], skill_dir)
-        hibp_input = Path(tmp) / "hibp.json"
-        hibp_input.write_text(json.dumps([{
-            "Name": "ExampleBreach",
-            "Title": "Example Breach",
-            "Domain": "example.invalid",
-            "BreachDate": "2026-01-01",
-            "DataClasses": ["Email addresses", "Phone numbers", "Physical addresses"],
-            "IsVerified": True,
-            "IsSpamList": True
-        }]), encoding="utf-8")
-        hibp = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "import-hibp", "--workdir", e2e_dir, "--subject-id", subject_id, "--hibp-json", str(hibp_input)], skill_dir)
-        report2 = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "report", "--workdir", e2e_dir, "--subject-id", subject_id], skill_dir)
-        link_ok = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "verify-link", "--url", "https://privacy.example.invalid/verify/token", "--allowed-domain", "example.invalid"], skill_dir)
-        link_bad = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "verify-link", "--url", "http://evil.invalid/verify/token", "--allowed-domain", "example.invalid"], skill_dir)
-        real = {
-            "subject_id": "subj_1111111111111111",
-            "dummy": False,
-            "consent": True,
-            "consent_scope": ["audit", "plan"],
-            "jurisdictions": ["US"],
-            "profile": {
-                "name": "Realish Example",
-                "state": "NY",
-                "contact_email": "realish@example.invalid"
-            },
-            "created_at": "2026-07-11T00:00:00+00:00"
-        }
-        real_dir = Path(e2e_dir) / "subjects" / real["subject_id"]
-        real_dir.mkdir(parents=True)
-        (real_dir / "dossier.json").write_text(json.dumps(real), encoding="utf-8")
-        (real_dir / "metadata.json").write_text(json.dumps({k: real[k] for k in ["subject_id", "dummy", "consent", "consent_scope", "jurisdictions"]}), encoding="utf-8")
-        gate_denied = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "plan", "--workdir", e2e_dir, "--subject-id", real["subject_id"]], skill_dir, expect=1)
-        storage_marker = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "mark-storage", "--workdir", e2e_dir, "--method", "filevault", "--note", "dummy validation marker"], skill_dir)
-        receipts = []
-        for gate in ["process_real_pii", "store_dossier"]:
-            path = Path(tmp) / f"{gate}.json"
-            path.write_text(json.dumps({
-                "approval_id": f"test-{gate}",
-                "subject_id": real["subject_id"],
-                "gate": gate,
-                "issued_by": "openclaw-approval-boundary",
-                "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-                "scope": {"broker_id": "*", **({"allow_unencrypted_local": True} if gate == "store_dossier" else {})},
-                "expires_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)).isoformat(),
-                "non_goals": ["no external writes"]
-            }), encoding="utf-8")
-            receipts.extend(["--approval-receipt", str(path)])
-        live_disabled = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "plan", "--workdir", e2e_dir, "--subject-id", real["subject_id"], *receipts], skill_dir, expect=1)
-    report = e2e["report"]
+    doctor = run_json([sys.executable, str(runner), "--skill-dir", str(skill_dir), "doctor"], skill_dir)
+    validation = run_json([sys.executable, str(runner), "--skill-dir", str(skill_dir), "validate"], skill_dir)
+    help_text = run_text([sys.executable, str(runner), "--help"], skill_dir).stdout
+
     errors: list[str] = []
-    if not doctor.get("ok"):
-        errors.append("doctor failed")
-    if not validation.get("ok"):
-        errors.append("schema validation failed")
-    if report["mode"] != "dummy":
-        errors.append("dummy e2e did not run in dummy mode")
-    if report.get("report_version") != 2:
-        errors.append("report v2 fields missing")
-    if not report.get("broker_statuses"):
-        errors.append("report has no broker_statuses")
-    if "removal_summary" not in report:
-        errors.append("report removal_summary missing")
-    if scan_only["report"].get("scan_only") is not True:
-        errors.append("scan-only dummy did not produce scan_only report")
-    if scan_only["report"].get("removal_summary", {}).get("requests_submitted") != 0:
-        errors.append("scan-only dummy reported submitted requests")
-    if not hibp.get("summary", {}).get("risk_counts"):
-        errors.append("HIBP import produced no risk counts")
-    if "hibp" not in report2:
-        errors.append("report did not include imported HIBP summary")
-    if "approval_required" not in report["state_counts"]:
-        errors.append("dummy e2e did not exercise approval_required")
-    if "provider_write" not in report["approval_gates_present"]:
-        errors.append("provider_write gate missing")
-    if "send_request" not in report["approval_gates_present"]:
-        errors.append("send_request gate missing")
-    if not actions.get("actions"):
-        errors.append("next produced no actions")
-    if not tasks.get("tasks"):
-        errors.append("tasks produced no approval/human task digest")
-    if report2["subject_id"] != subject_id:
-        errors.append("report subject mismatch")
-    if not link_ok.get("ok") or link_bad.get("ok"):
-        errors.append("verification link scoping failed")
-    if "requires process_real_pii" not in gate_denied.get("stderr", ""):
-        errors.append("real PII planning denial did not mention required gates")
-    if not storage_marker.get("ok"):
-        errors.append("encrypted storage marker failed")
-    if "public RightOut disables live PII" not in live_disabled.get("stderr", ""):
-        errors.append("live PII planning with receipts was not disabled by public runner")
-    print(json.dumps({"ok": not errors, "errors": errors, "doctor": doctor, "validation": validation, "e2e_report": report, "actions_checked": len(actions.get("actions", [])), "tasks_checked": len(tasks.get("tasks", []))}, indent=2, sort_keys=True))
+    unsafe_commands = {
+        "intake-subject",
+        "record",
+        "render-email",
+        "import-hibp",
+        "mark-storage",
+        "report",
+        "tasks",
+        "due",
+        "next",
+    }
+    for command in unsafe_commands:
+        if command in help_text:
+            errors.append(f"unsafe public command is exposed: {command}")
+
+    with tempfile.TemporaryDirectory(prefix="rightout-validation-") as tmp_raw:
+        tmp = Path(tmp_raw).resolve()
+        e2e_dir = tmp / "e2e"
+        scan_dir = tmp / "scan-only"
+        e2e = run_json([sys.executable, str(runner), "--skill-dir", str(skill_dir), "e2e-dummy", "--workdir", str(e2e_dir)], skill_dir)
+        scan = run_json([sys.executable, str(runner), "--skill-dir", str(skill_dir), "scan-only-dummy", "--workdir", str(scan_dir)], skill_dir)
+        blocked = run_text([sys.executable, str(runner), "intake-subject"], skill_dir, expect=2)
+        if "invalid choice" not in blocked.stderr:
+            errors.append("unsafe command denial is not parser-enforced")
+
+        subject_id = e2e["report"]["subject_id"]
+        artifact_dir = e2e_dir / "subjects" / subject_id
+        if stat.S_IMODE(artifact_dir.stat().st_mode) != 0o700:
+            errors.append("artifact directory is not mode 0700")
+        for name in ["dossier.json", "metadata.json", "plan.json", "report.json", "audit.jsonl"]:
+            path = artifact_dir / name
+            if stat.S_IMODE(path.stat().st_mode) != 0o600:
+                errors.append(f"artifact is not mode 0600: {name}")
+        if list(tmp.rglob("*.tmp.*")):
+            errors.append("atomic-write temporary files remain")
+
+        outside = tmp / "outside"
+        outside.mkdir()
+        symlink = tmp / "symlink-workdir"
+        symlink.symlink_to(outside, target_is_directory=True)
+        denied = run_text(
+            [sys.executable, str(runner), "--skill-dir", str(skill_dir), "scan-only-dummy", "--workdir", str(symlink)],
+            skill_dir,
+            expect=1,
+        )
+        if "symlink" not in denied.stderr:
+            errors.append("symlink workdir was not rejected")
+
+    e2e_report = e2e["report"]
+    scan_report = scan["report"]
+    if not doctor.get("ok") or doctor.get("capability_posture") != "approval_gated_live_plugin_plus_dummy_runner":
+        errors.append("doctor did not prove the split live-plugin/dummy-runner posture")
+    if doctor.get("live_approval_adapter") != "native_openclaw_plugin_permission_allow_once":
+        errors.append("doctor did not prove the native approval boundary")
+    if doctor.get("live_pii_input") != "secretref_profile_not_tool_params":
+        errors.append("doctor did not prove the private-profile boundary")
+    if not validation.get("ok") or validation.get("catalog_schema_version") != 2:
+        errors.append("catalog validation failed")
+    if e2e_report.get("report_version") != 3:
+        errors.append("report v3 is missing")
+    for section in ["scan_report", "removal_report", "user_summary", "hibp"]:
+        if section not in e2e_report:
+            errors.append(f"report section missing: {section}")
+    if set(e2e_report["removal_report"]) < {
+        "submitted",
+        "awaiting_verification",
+        "awaiting_processing",
+        "confirmed_removed",
+        "reappeared",
+        "human_tasks",
+        "proof_reference_policy",
+    }:
+        errors.append("removal report status matrix is incomplete")
+    if scan_report.get("scan_only") is not True:
+        errors.append("scan-only report posture missing")
+    if scan_report.get("removal_summary", {}).get("requests_submitted") != 0:
+        errors.append("scan-only report contains submitted requests")
+    scan_sections = scan_report.get("scan_report", {})
+    if not scan_sections.get("found") or not scan_sections.get("not_found") or not scan_sections.get("inconclusive"):
+        errors.append("scan-only report does not exercise found/not-found/inconclusive")
+    invariants = scan_sections.get("invariants", {})
+    if invariants != {"network_calls": 0, "provider_writes": 0, "real_pii_processed": False, "submissions": 0}:
+        errors.append("scan-only invariant matrix failed")
+    if e2e_report.get("hibp", {}).get("raw_leaked_values_included") is not False:
+        errors.append("HIBP section does not prove sanitized posture")
+
+    print(
+        json.dumps(
+            {
+                "ok": not errors,
+                "errors": errors,
+                "doctor": doctor,
+                "validation": validation,
+                "report_version": e2e_report.get("report_version"),
+                "scan_only_invariants": invariants,
+                "removal_state_counts": e2e_report.get("removal_summary"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     if errors:
         raise SystemExit(1)
 

@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+*.pyo
+skills/data-broker-removal/scripts/__pycache__/
+skills/data-broker-removal/scripts/*.pyc
+.git/**
+.github/**
+.tmp/**
+node_modules/**
+tests/**
+index.ts
+lib/**
+scripts/**
+tsconfig*.json

@@ -1,0 +1,55 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "name": "openclaw-rightout-0.2.0-rc.1",
+  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/plugin/0.2.0-rc.1",
+  "creationInfo": {
+    "created": "2026-07-11T00:00:00Z",
+    "creators": ["Tool: RightOut release process"]
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-RightOut",
+      "name": "@olli0103/openclaw-rightout",
+      "versionInfo": "0.2.0-rc.1",
+      "downloadLocation": "https://github.com/Olli0103/rightout",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright 2026 RightOut contributors",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE-MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.2.0-rc.1"
+      }]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-TypeBox",
+      "name": "typebox",
+      "versionInfo": "1.3.6",
+      "downloadLocation": "https://registry.npmjs.org/typebox/-/typebox-1.3.6.tgz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE-MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:npm/typebox@1.3.6"
+      }]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-RightOut"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-RightOut",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-TypeBox"
+    }
+  ]
+}

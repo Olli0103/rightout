@@ -1,493 +1,488 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import datetime as dt
-import hashlib
-import hmac
+import argparse
+import ast
+import copy
+import contextlib
+import importlib.util
+import io
 import json
 import os
+import re
+import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "skills" / "data-broker-removal"
 RUNNER = SKILL / "scripts" / "data_broker_removal.py"
 VALIDATOR = SKILL / "scripts" / "validate_data_broker_removal.py"
+INSTALLER = ROOT / "install.sh"
 DUMMY_SUBJECT_ID = "subj_314c841b03067a74"
 
+SPEC = importlib.util.spec_from_file_location("rightout_runner", RUNNER)
+assert SPEC and SPEC.loader
+rightout = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(rightout)
 
-def run(args: list[str], expect: int = 0, cwd: Path = ROOT, env_extra: dict[str, str] | None = None) -> dict:
-    env = {**os.environ, "OPENCLAW_ALLOW_TEST_RECEIPTS": "1"}
+
+def run(args: list[str], expect: int = 0, env_extra: dict[str, str] | None = None) -> dict:
+    env = {**os.environ, "PYTHONNOUSERSITE": "1"}
     if env_extra:
         env.update(env_extra)
-    proc = subprocess.run(args, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(args, cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != expect:
         raise AssertionError(
-            f"expected {expect}, got {proc.returncode}: {' '.join(map(str, args))}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+            f"expected {expect}, got {proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
-    if not proc.stdout.strip():
-        return {"stderr": proc.stderr}
-    return json.loads(proc.stdout)
+    result = {"stdout": proc.stdout, "stderr": proc.stderr, "returncode": proc.returncode}
+    if proc.stdout.strip().startswith("{"):
+        result.update(json.loads(proc.stdout))
+    return result
 
 
-def signed_receipt(data: dict, key: str) -> dict:
-    payload = json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return {**data, "signature": hmac.new(key.encode("utf-8"), payload, hashlib.sha256).hexdigest()}
+def load_catalog() -> dict:
+    return json.loads((SKILL / "references" / "brokers" / "core.json").read_text(encoding="utf-8"))
 
 
-def live_subject(subject_id: str = "subj_1111111111111111", scopes: list[str] | None = None) -> dict:
-    return {
-        "subject_id": subject_id,
-        "dummy": False,
-        "consent": True,
-        "consent_scope": scopes or ["audit", "plan", "breach_intelligence", "live_scan", "send_request"],
-        "jurisdictions": ["US", "US-CA", "EU", "DE"],
-        "profile": {"name": "Live Example", "state": "CA", "contact_email": "live.example@example.invalid"},
-        "created_at": "2026-07-11T00:00:00+00:00",
-    }
-
-
-def write_subject(workdir: Path, subject: dict) -> None:
-    subject_dir = workdir / "subjects" / subject["subject_id"]
-    subject_dir.mkdir(parents=True)
-    (subject_dir / "dossier.json").write_text(json.dumps(subject), encoding="utf-8")
-    (subject_dir / "metadata.json").write_text(
-        json.dumps({k: subject[k] for k in ["subject_id", "dummy", "consent", "consent_scope", "jurisdictions"]}),
-        encoding="utf-8",
+def fixture_case(*, human_only: bool = False, fields: list[str] | None = None) -> dict:
+    return rightout.make_case(
+        DUMMY_SUBJECT_ID,
+        {
+            "id": "dummy_fixture_unit",
+            "name": "Synthetic unit fixture",
+            "category": "test_fixture",
+            "lane": "human_task" if human_only else "web_form",
+            "approval_gate": "send_request",
+            "required_fields": fields or ["name", "contact_email"],
+            "official_url": "https://example.invalid/rightout-dummy-fixture",
+            "human_only": human_only,
+            "fixture_only": True,
+        },
     )
 
 
-class DataBrokerRemovalSkillTest(unittest.TestCase):
-    def test_validator_and_dummy_e2e(self) -> None:
+class PublicBoundaryTests(unittest.TestCase):
+    def test_validator_and_doctor_prove_split_live_plugin_boundary(self) -> None:
         result = run([sys.executable, str(VALIDATOR), "--skill-dir", str(SKILL)])
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["doctor"]["broker_count"], 3)
-        self.assertIn("send_request", result["e2e_report"]["approval_gates_present"])
-        self.assertEqual(result["e2e_report"]["report_version"], 2)
-        self.assertIn("broker_statuses", result["e2e_report"])
+        self.assertEqual(result["doctor"]["capability_posture"], "approval_gated_live_plugin_plus_dummy_runner")
+        self.assertEqual(result["doctor"]["live_approval_adapter"], "native_openclaw_plugin_permission_allow_once")
+        self.assertEqual(result["doctor"]["live_pii_input"], "secretref_profile_not_tool_params")
 
-    def test_skill_dir_is_accepted_before_or_after_subcommand(self) -> None:
-        before = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "doctor"])
-        after = run([sys.executable, str(RUNNER), "doctor", "--skill-dir", str(SKILL)])
-        self.assertTrue(before["ok"])
-        self.assertEqual(before["broker_count"], after["broker_count"])
+    def test_public_command_surface_excludes_live_and_mutating_commands(self) -> None:
+        help_result = run([sys.executable, str(RUNNER), "--help"])
+        unsafe = {"intake-subject", "record", "render-email", "import-hibp", "mark-storage", "report", "tasks", "due", "next"}
+        for command in unsafe:
+            self.assertNotIn(command, help_result["stdout"])
+        self.assertIn("scan-only-dummy", help_result["stdout"])
 
-    def test_public_runner_disables_live_intake_even_with_receipts(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-live-intake-") as tmp_raw:
-            tmp = Path(tmp_raw)
-            subject = live_subject()
-            source = tmp / "subject.json"
-            source.write_text(json.dumps(subject), encoding="utf-8")
-            receipts = []
-            for gate in ["process_real_pii", "store_dossier"]:
-                receipt = tmp / f"{gate}.json"
-                receipt.write_text(
-                    json.dumps(
-                        {
-                            "approval_id": f"test-{gate}",
-                            "subject_id": subject["subject_id"],
-                            "gate": gate,
-                            "issued_by": "openclaw-approval-boundary",
-                            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-                            "scope": {"broker_id": "*", "allow_unencrypted_local": True},
-                            "expires_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)).isoformat(),
-                            "non_goals": ["no external writes"],
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-                receipts.extend(["--approval-receipt", str(receipt)])
-            denied = run(
-                [sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "intake-subject", "--workdir", tmp_raw, "--subject-file", str(source), *receipts],
-                expect=1,
-            )
-            self.assertIn("public community runner", denied["stderr"])
+    def test_dead_live_command_handlers_are_absent(self) -> None:
+        text = RUNNER.read_text(encoding="utf-8")
+        for name in ["cmd_intake_subject", "cmd_record", "cmd_render_email", "cmd_import_hibp", "cmd_mark_storage"]:
+            self.assertNotIn(f"def {name}(", text)
 
-    def test_external_subject_cannot_claim_dummy_mode(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-dummy-bypass-") as tmp_raw:
-            subject = {
-                "subject_id": "subj_2222222222222222",
-                "dummy": True,
-                "consent": True,
-                "consent_scope": ["audit", "plan"],
-                "jurisdictions": ["US"],
-                "profile": {"name": "Fake Dummy", "contact_email": "fake@example.invalid"},
-            }
-            source = Path(tmp_raw) / "subject.json"
-            source.write_text(json.dumps(subject), encoding="utf-8")
-            denied = run(
-                [sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "intake-subject", "--workdir", tmp_raw, "--subject-file", str(source)],
-                expect=1,
-            )
-            self.assertIn("cannot declare dummy:true", denied["stderr"])
+    def test_environment_flag_cannot_enable_live_command(self) -> None:
+        denied = run(
+            [sys.executable, str(RUNNER), "intake-subject"],
+            expect=2,
+            env_extra={"RIGHTOUT_ENABLE_UNSAFE_LOCAL_LIVE": "1", "OPENCLAW_APPROVAL_RECEIPT_KEY": "dummy-not-a-secret"},
+        )
+        self.assertIn("invalid choice", denied["stderr"])
 
-    def test_live_plan_is_disabled_even_with_signed_receipts(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-live-plan-") as tmp_raw:
-            tmp = Path(tmp_raw)
-            key = "unit-test-approval-key"
-            subject = live_subject("subj_3333333333333333")
-            write_subject(tmp, subject)
-            receipts = []
-            for gate in ["process_real_pii", "store_dossier"]:
-                body = {
-                    "approval_id": f"signed-{gate}",
-                    "subject_id": subject["subject_id"],
-                    "gate": gate,
-                    "issued_by": "openclaw-approval-boundary",
-                    "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-                    "scope": {"broker_id": "*", "allow_unencrypted_local": True},
-                    "expires_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)).isoformat(),
-                    "non_goals": ["no external writes"],
-                }
-                receipt = tmp / f"{gate}.json"
-                receipt.write_text(json.dumps(signed_receipt(body, key)), encoding="utf-8")
-                receipts.extend(["--approval-receipt", str(receipt)])
-            denied = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "plan",
-                    "--workdir",
-                    tmp_raw,
-                    "--subject-id",
-                    subject["subject_id"],
-                    *receipts,
-                ],
-                expect=1,
-                env_extra={"OPENCLAW_APPROVAL_RECEIPT_KEY": key},
-            )
-            self.assertIn("public community runner", denied["stderr"])
+    def test_runner_contains_no_receipt_or_hmac_security_boundary(self) -> None:
+        text = RUNNER.read_text(encoding="utf-8")
+        tree = ast.parse(text)
+        imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+        self.assertNotIn("hmac", imports)
+        self.assertNotIn("OPENCLAW_APPROVAL_RECEIPT_KEY", text)
+        self.assertNotIn("RIGHTOUT_ENABLE_UNSAFE_LOCAL_LIVE", text)
+        self.assertNotIn("--approval-receipt", text)
 
-    def test_live_hibp_import_is_disabled(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-hibp-live-") as tmp_raw:
-            tmp = Path(tmp_raw)
-            subject = live_subject("subj_4444444444444444")
-            write_subject(tmp, subject)
-            hibp = tmp / "hibp.json"
-            hibp.write_text(json.dumps([{"Name": "ExampleBreach", "DataClasses": ["Email addresses"]}]), encoding="utf-8")
-            denied = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "import-hibp",
-                    "--workdir",
-                    tmp_raw,
-                    "--subject-id",
-                    subject["subject_id"],
-                    "--hibp-json",
-                    str(hibp),
-                ],
-                expect=1,
-            )
-            self.assertIn("public community runner", denied["stderr"])
+    def test_internal_real_subject_persistence_is_hard_disabled(self) -> None:
+        subject = rightout.dummy_subject()
+        subject["dummy"] = False
+        with tempfile.TemporaryDirectory(prefix="rightout-boundary-") as tmp, self.assertRaises(SystemExit) as error:
+            rightout.save_subject(Path(tmp).resolve(), subject)
+        self.assertIn("Python runner has no live capability", str(error.exception))
 
+    def test_non_fixture_catalog_transition_is_hard_disabled(self) -> None:
+        case = rightout.make_case(DUMMY_SUBJECT_ID, load_catalog()["brokers"][0])
+        with self.assertRaises(SystemExit) as error:
+            rightout.transition(case, "searching", "synthetic check")
+        self.assertIn("Python runner has no live capability", str(error.exception))
+
+    def test_live_capability_functions_are_not_public_commands(self) -> None:
+        doctor = run([sys.executable, str(RUNNER), "doctor"])
+        self.assertEqual(set(doctor["public_commands"]), rightout.PUBLIC_COMMANDS)
+
+
+class FilesystemSecurityTests(unittest.TestCase):
     def test_invalid_subject_ids_are_rejected(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-id-") as tmp:
-            denied = run(
-                [sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "plan", "--workdir", tmp, "--subject-id", "../escape"],
-                expect=1,
-            )
-            self.assertIn("invalid subject_id", denied["stderr"])
+        for value in ["../escape", "subj_name", "subj_123", "SUBJ_1111111111111111", "subj_1111111111111111/extra"]:
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                rightout.validate_subject_id(value)
 
-    def test_symlink_subject_directory_is_rejected(self) -> None:
+    def test_invalid_broker_ids_are_rejected(self) -> None:
+        for value in ["../escape", "UPPER", "a", "space value", "slash/value"]:
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                rightout.validate_broker_id(value)
+
+    def test_symlink_workdir_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rightout-symlink-") as tmp_raw:
-            tmp = Path(tmp_raw)
-            target = tmp / "outside"
-            target.mkdir()
-            subjects = tmp / "subjects"
-            subjects.mkdir()
-            (subjects / DUMMY_SUBJECT_ID).symlink_to(target, target_is_directory=True)
-            denied = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "intake-dummy", "--workdir", tmp_raw], expect=1)
-            self.assertIn("refusing to follow symlink", denied["stderr"])
+            tmp = Path(tmp_raw).resolve()
+            outside = tmp / "outside"
+            outside.mkdir()
+            link = tmp / "workdir"
+            link.symlink_to(outside, target_is_directory=True)
+            denied = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(link)], expect=1)
+            self.assertIn("symlink", denied["stderr"])
 
-    def test_dummy_e2e_outputs_are_private_mode(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-perms-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            base = Path(e2e["workdir"])
+    def test_symlink_artifact_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-artifact-link-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            base = tmp / "subjects" / DUMMY_SUBJECT_ID
+            base.mkdir(parents=True)
+            outside = tmp / "outside.json"
+            outside.write_text("unchanged", encoding="utf-8")
+            (base / "report.json").symlink_to(outside)
+            with self.assertRaises(SystemExit):
+                rightout.write_json(base / "report.json", {"ok": True})
+            self.assertEqual(outside.read_text(encoding="utf-8"), "unchanged")
+
+    def test_dummy_outputs_are_private_and_atomic(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-private-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            result = run([sys.executable, str(RUNNER), "e2e-dummy", "--workdir", str(tmp)])
+            base = tmp / "subjects" / result["report"]["subject_id"]
             self.assertEqual(stat.S_IMODE(base.stat().st_mode), 0o700)
-            for rel in ["dossier.json", "metadata.json", "plan.json", "report.json", "audit.jsonl"]:
-                self.assertEqual(stat.S_IMODE((base / rel).stat().st_mode), 0o600, rel)
+            for name in ["dossier.json", "metadata.json", "plan.json", "report.json", "audit.jsonl"]:
+                self.assertEqual(stat.S_IMODE((base / name).stat().st_mode), 0o600)
+            self.assertFalse(list(tmp.rglob("*.tmp.*")))
 
-    def test_scan_only_dummy_reports_without_submission_actions(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-scan-only-") as tmp:
-            result = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "scan-only-dummy", "--workdir", tmp])
-            report = result["report"]
-            self.assertTrue(report["scan_only"])
-            self.assertEqual(report["removal_summary"]["requests_submitted"], 0)
-            self.assertGreater(report["state_counts"].get("found", 0), 0)
-            self.assertNotIn("submitted", report["state_counts"])
-            blocked_actions = {"queue_human_task", "prepare_web_form", "prepare_web_form_or_email", "prepare_email", "await_approval_for_web_form"}
-            self.assertFalse(blocked_actions & {action["action"] for action in report["user_next_steps"]})
+    def test_plan_revision_conflict_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-revision-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            subject = rightout.dummy_subject()
+            rightout.save_subject(tmp, subject)
+            plan = rightout.plan_for_subject(SKILL, subject)
+            rightout.save_plan(tmp, plan, event="created")
+            stale = copy.deepcopy(plan)
+            rightout.save_plan(tmp, plan, event="updated", expected_revision=1)
+            with self.assertRaises(SystemExit) as error:
+                rightout.save_plan(tmp, stale, event="stale", expected_revision=1)
+            self.assertIn("revision conflict", str(error.exception))
 
-    def test_scan_only_plan_rejects_submission_transitions(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-scan-only-submit-") as tmp:
-            result = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "scan-only-dummy", "--workdir", tmp])
-            subject_id = result["report"]["subject_id"]
-            denied = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "record",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "california_drop",
-                    "--state",
-                    "submitted",
-                    "--note",
-                    "request submitted",
-                    "--disclosed",
-                    "name",
-                    "--evidence",
-                    '{"source_url":"https://privacy.ca.gov/drop/","confirmation_status":"submitted","redacted_proof":"dummy-confirmation","human_completed":true}',
-                ],
-                expect=1,
+    def test_cli_output_uses_opaque_relative_artifact_reference(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-ref-") as tmp:
+            result = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(Path(tmp).resolve())])
+            self.assertEqual(result["artifact_ref"], f"subjects/{DUMMY_SUBJECT_ID}/report.json")
+            self.assertNotIn(str(Path(tmp).resolve()), result["stdout"])
+
+
+class ReportingAndStateTests(unittest.TestCase):
+    def test_scan_only_report_is_complete_and_read_only(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-scan-report-") as tmp:
+            report = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
+        self.assertTrue(report["scan_only"])
+        scan = report["scan_report"]
+        self.assertTrue(scan["found"])
+        self.assertTrue(scan["not_found"])
+        self.assertTrue(scan["inconclusive"])
+        self.assertTrue(scan["not_checked"])
+        self.assertTrue(scan["coverage_gaps"])
+        self.assertEqual(scan["invariants"], {"network_calls": 0, "provider_writes": 0, "real_pii_processed": False, "submissions": 0})
+        self.assertEqual(report["removal_summary"]["requests_submitted"], 0)
+
+    def test_removal_report_exercises_full_dummy_status_matrix(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-removal-report-") as tmp:
+            report = run([sys.executable, str(RUNNER), "e2e-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
+        removal = report["removal_report"]
+        for key in ["submitted", "awaiting_verification", "awaiting_processing", "confirmed_removed", "reappeared", "human_tasks"]:
+            self.assertTrue(removal[key], key)
+            self.assertTrue(all(item["fixture_only"] for item in removal[key]))
+
+    def test_report_distinguishes_catalog_coverage_from_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-coverage-") as tmp:
+            report = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
+        self.assertEqual(report["coverage"]["catalog_case_count"], 5)
+        self.assertEqual(report["coverage"]["fixture_case_count"], 3)
+        self.assertTrue(all(not item["fixture_only"] for item in report["scan_report"]["not_checked"]))
+
+    def test_proof_references_are_opaque(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-proof-") as tmp:
+            report = run([sys.executable, str(RUNNER), "e2e-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
+        refs = [ref for bucket in report["removal_report"].values() if isinstance(bucket, list) for item in bucket for ref in item["proof_references"]]
+        self.assertTrue(refs)
+        self.assertTrue(all(re.fullmatch(r"dummy-proof-[a-z0-9-]+", ref) for ref in refs))
+        self.assertNotIn("listing", " ".join(refs))
+
+    def test_hibp_metadata_is_sanitized_and_attributed(self) -> None:
+        items = rightout.normalize_hibp_items(
+            [{"Name": "SyntheticBreach", "Domain": "example.invalid", "BreachDate": "2026-01-01", "DataClasses": ["Email addresses", "Passwords"], "IsVerified": True}]
+        )
+        summary = rightout.summarize_hibp(items)
+        self.assertIn("credential_exposure", summary["risk_counts"])
+        plan = rightout.add_dummy_fixture_cases(rightout.plan_for_subject(SKILL, rightout.dummy_subject()), ["submitted"])
+        report = rightout.build_report(plan, {"summary": summary, "imported_at": "2026-07-11T00:00:00+00:00"})
+        self.assertEqual(report["hibp"]["source_name"], "Have I Been Pwned")
+        self.assertFalse(report["hibp"]["raw_leaked_values_included"])
+
+    def test_hibp_rejects_raw_or_unknown_fields(self) -> None:
+        for item in [
+            {"Name": "SyntheticBreach", "DataClasses": ["Email addresses"], "Account": "synthetic@example.invalid"},
+            {"Name": "SyntheticBreach", "DataClasses": ["Password: dummy-value"]},
+        ]:
+            with self.subTest(item=item), self.assertRaises(SystemExit):
+                rightout.normalize_hibp_items([item])
+
+    def test_invalid_state_transition_is_rejected(self) -> None:
+        case = fixture_case()
+        with self.assertRaises(SystemExit):
+            rightout.transition(case, "submitted", "synthetic invalid jump")
+
+    def test_sensitive_fields_require_explicit_human_only_gate(self) -> None:
+        case = fixture_case(human_only=True, fields=["name", "government_id"])
+        case["state"] = "approval_required"
+        evidence = {
+            "source_url": "https://example.invalid/rightout-dummy-fixture",
+            "official_channel": "official_web_form",
+            "confirmation_status": "submitted",
+            "redacted_proof": "dummy-proof-sensitive",
+            "human_completed": True,
+            "dummy": True,
+        }
+        with self.assertRaises(SystemExit):
+            rightout.transition(case, "submitted", "synthetic request recorded", evidence, disclosed=["name", "government_id"])
+        evidence["sensitive_field_gate"] = "human_only_explicit"
+        rightout.transition(case, "submitted", "synthetic request recorded", evidence, disclosed=["name", "government_id"])
+        self.assertEqual(case["state"], "submitted")
+
+    def test_dummy_paths_make_no_network_or_provider_calls(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-network-deny-") as tmp, mock.patch("socket.socket.connect", side_effect=AssertionError("network denied")):
+            with contextlib.redirect_stdout(io.StringIO()):
+                rightout.cmd_scan_only_dummy(argparse.Namespace(skill_dir=str(SKILL), workdir=str(Path(tmp).resolve())))
+        tree = ast.parse(RUNNER.read_text(encoding="utf-8"))
+        imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+        imports |= {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+        self.assertFalse({"requests", "httpx", "smtplib", "imaplib", "urllib.request"} & imports)
+
+
+class CatalogValidationTests(unittest.TestCase):
+    def test_catalog_is_schema_v2_and_valid(self) -> None:
+        catalog = load_catalog()
+        self.assertEqual(catalog["schema_version"], 2)
+        self.assertEqual(rightout.validate_catalog_data(catalog), [])
+
+    def test_catalog_rejects_unsafe_ids(self) -> None:
+        catalog = load_catalog()
+        catalog["brokers"][0]["id"] = "../unsafe"
+        self.assertTrue(any("unsafe id" in error for error in rightout.validate_catalog_data(catalog)))
+
+    def test_catalog_rejects_missing_or_stale_provenance(self) -> None:
+        missing = load_catalog()
+        del missing["brokers"][0]["sources"]
+        self.assertTrue(rightout.validate_catalog_data(missing))
+        stale = load_catalog()
+        stale["brokers"][0]["last_verified"] = "2025-01-01"
+        self.assertTrue(any("stale" in error for error in rightout.validate_catalog_data(stale)))
+
+    def test_catalog_rejects_false_or_unofficial_urls(self) -> None:
+        catalog = load_catalog()
+        catalog["brokers"][0]["official_url"] = "https://evil.invalid/drop"
+        self.assertTrue(any("official URL" in error for error in rightout.validate_catalog_data(catalog)))
+
+    def test_catalog_rejects_inconsistent_lanes(self) -> None:
+        catalog = load_catalog()
+        catalog["brokers"][0]["lane"] = "web_form"
+        self.assertTrue(any("registry category" in error for error in rightout.validate_catalog_data(catalog)))
+
+    def test_catalog_rejects_broad_or_invalid_live_candidate_path_policy(self) -> None:
+        broad = load_catalog()
+        next(item for item in broad["brokers"] if item["id"] == "truepeoplesearch")["scan"]["candidate_path_pattern"] = "^/.*$"
+        self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(broad)))
+        invalid = load_catalog()
+        next(item for item in invalid["brokers"] if item["id"] == "spokeo")["scan"]["candidate_path_pattern"] = "^/[broken$"
+        self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(invalid)))
+
+    def test_live_broker_id_must_fit_public_tool_contract(self) -> None:
+        catalog = load_catalog()
+        next(item for item in catalog["brokers"] if item["id"] == "spokeo")["id"] = "people_search_broker_id_too_long"
+        self.assertTrue(any("public tool contract" in error for error in rightout.validate_catalog_data(catalog)))
+
+    def test_controller_domains_cannot_self_authorize(self) -> None:
+        catalog = load_catalog()
+        legal = next(item for item in catalog["brokers"] if item["category"] == "legal_request")
+        legal["allowed_domains"] = ["controller.example"]
+        self.assertTrue(any("self-authorize" in error for error in rightout.validate_catalog_data(catalog)))
+
+    def test_catalog_sensitive_fields_require_human_gate(self) -> None:
+        catalog = load_catalog()
+        catalog["brokers"][0]["required_fields"].append("government_id")
+        self.assertTrue(any("sensitive fields" in error for error in rightout.validate_catalog_data(catalog)))
+
+    def test_catalog_has_no_third_party_list_sources(self) -> None:
+        catalog = load_catalog()
+        urls = [source["url"] for broker in catalog["brokers"] for source in broker["sources"]]
+        self.assertFalse(any(any(domain in url for domain in ["privacyguides.org", "inteltechniques.com", "badbool.com"]) for url in urls))
+
+
+class InstallerTests(unittest.TestCase):
+    @staticmethod
+    def isolated_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        state = tmp / "state"
+        temp_dir = tmp / "tmp"
+        home.mkdir()
+        state.mkdir()
+        temp_dir.mkdir()
+        return {
+            "HOME": str(home),
+            "OPENCLAW_STATE_DIR": str(state),
+            "OPENCLAW_CONFIG_PATH": str(state / "openclaw.json"),
+            "OPENCLAW_BIN": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+            "TMPDIR": str(temp_dir),
+        }
+
+    def test_fresh_and_force_install_are_runtime_validated(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-install-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            env = self.isolated_env(tmp)
+            env.update({
+                "RIGHTOUT_TEST_BRAVE_KEY": "dummy-test-key",
+                "RIGHTOUT_TEST_PROFILE": json.dumps({
+                    "fullName": "Avery Example",
+                    "city": "Exampleville",
+                    "region": "CA",
+                    "country": "US",
+                }),
+            })
+            first = run([str(INSTALLER)], env_extra=env)
+            self.assertIn("plugin installed and runtime-validated", first["stdout"])
+            self.assertIn("native OpenClaw allow-once/deny", first["stdout"])
+            run(
+                [env["OPENCLAW_BIN"], "config", "set", "plugins.entries.rightout.config.braveApiKey", "--ref-provider", "default", "--ref-source", "env", "--ref-id", "RIGHTOUT_TEST_BRAVE_KEY"],
+                env_extra=env,
             )
-            self.assertIn("scan_only plans cannot advance", denied["stderr"])
+            run(
+                [env["OPENCLAW_BIN"], "config", "set", "plugins.entries.rightout.config.profiles.profile_a1b2c3d4e5f60718.payload", "--ref-provider", "default", "--ref-source", "env", "--ref-id", "RIGHTOUT_TEST_PROFILE"],
+                env_extra=env,
+            )
+            audit = run([env["OPENCLAW_BIN"], "secrets", "audit", "--check"], env_extra=env)
+            self.assertIn("plaintext=0", audit["stdout"])
+            self.assertIn("unresolved=0", audit["stdout"])
+            second = run([str(INSTALLER), "--force"], env_extra=env)
+            self.assertIn("plugin installed and runtime-validated", second["stdout"])
+            inspection = run(
+                [env["OPENCLAW_BIN"], "plugins", "inspect", "rightout", "--runtime", "--json"],
+                env_extra=env,
+            )
+            self.assertEqual(inspection["plugin"]["status"], "loaded")
+            self.assertEqual(inspection["typedHooks"], [{"name": "before_tool_call"}])
 
-    def test_hibp_import_adds_attributed_risk_signals_to_report(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-hibp-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            subject_id = e2e["report"]["subject_id"]
-            hibp = Path(tmp) / "hibp.json"
-            hibp.write_text(
-                json.dumps(
-                    [
-                        {
-                            "Name": "ExampleBreach",
-                            "Title": "Example Breach",
-                            "Domain": "example.invalid",
-                            "BreachDate": "2026-01-01",
-                            "DataClasses": ["Email addresses", "Phone numbers", "Physical addresses"],
-                            "IsVerified": True,
-                            "IsSpamList": True,
-                        }
-                    ]
-                ),
+    def test_failed_preflight_does_not_register_plugin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-preflight-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            source = tmp / "bad-source"
+            shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns(".git", "node_modules", ".tmp", "__pycache__"))
+            manifest_path = source / "openclaw.plugin.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["toolMetadata"]["rightout_live_scan"]["replaySafe"] = True
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            env = self.isolated_env(tmp)
+            denied = run([str(source / "install.sh")], expect=1, env_extra=env)
+            self.assertIn("validation command returned", denied["stderr"])
+            self.assertFalse((tmp / "state" / "openclaw.json").exists())
+
+    def test_post_install_runtime_failure_restores_config_and_prior_extension(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-rollback-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            env = self.isolated_env(tmp)
+            run([str(INSTALLER)], env_extra=env)
+            config_path = Path(env["OPENCLAW_CONFIG_PATH"])
+            config_before = config_path.read_bytes()
+            extension = Path(env["OPENCLAW_STATE_DIR"]) / "extensions" / "rightout"
+            marker = extension / "rollback-marker"
+            marker.write_text("prior-install", encoding="utf-8")
+
+            wrapper = tmp / "openclaw-fail-runtime-inspect"
+            wrapper.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" ]]; then\n"
+                "  echo injected-runtime-inspection-failure >&2\n"
+                "  exit 70\n"
+                "fi\n"
+                "exec \"$REAL_OPENCLAW\" \"$@\"\n",
                 encoding="utf-8",
             )
-            imported = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "import-hibp",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--hibp-json",
-                    str(hibp),
-                ]
+            wrapper.chmod(0o700)
+            failed_env = {
+                **env,
+                "OPENCLAW_BIN": str(wrapper),
+                "REAL_OPENCLAW": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+            }
+            failed = run([str(INSTALLER), "--force"], expect=70, env_extra=failed_env)
+            self.assertIn("restoring the previous OpenClaw state", failed["stderr"])
+            self.assertEqual(config_path.read_bytes(), config_before)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "prior-install")
+            self.assertEqual(list(Path(env["TMPDIR"]).glob("rightout-install*")), [])
+            inspection = run(
+                [env["OPENCLAW_BIN"], "plugins", "inspect", "rightout", "--runtime", "--json"],
+                env_extra=env,
             )
-            self.assertEqual(imported["summary"]["breach_count"], 1)
-            report = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "report", "--workdir", tmp, "--subject-id", subject_id])
-            self.assertEqual(report["hibp"]["source_name"], "Have I Been Pwned")
-            self.assertIn("haveibeenpwned.com", report["hibp"]["source_url"])
-            self.assertIn("phone_exposure", report["hibp"]["risk_counts"])
+            self.assertEqual(inspection["plugin"]["status"], "loaded")
 
-    def test_hibp_import_rejects_unbounded_or_malformed_exports(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-hibp-bad-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            subject_id = e2e["report"]["subject_id"]
-            bad_class = Path(tmp) / "bad-class.json"
-            bad_class.write_text(json.dumps([{"Name": "ExampleBreach", "DataClasses": ["Password: hunter2"]}]), encoding="utf-8")
-            denied_class = run(
-                [sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "import-hibp", "--workdir", tmp, "--subject-id", subject_id, "--hibp-json", str(bad_class)],
-                expect=1,
+    def test_forged_prior_install_path_is_never_touched_during_rollback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-containment-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            env = self.isolated_env(tmp)
+            forged_extension = tmp / "outside" / "extensions" / "rightout"
+            forged_extension.mkdir(parents=True)
+            marker = forged_extension / "must-survive"
+            marker.write_text("outside-managed-root", encoding="utf-8")
+            wrapper = tmp / "openclaw-forged-prior-path"
+            wrapper.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --json\" ]]; then\n"
+                "  printf '%s\\n' \"$FORGED_INSPECTION\"\n"
+                "  exit 0\n"
+                "fi\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" ]]; then\n"
+                "  exit 70\n"
+                "fi\n"
+                "exec \"$REAL_OPENCLAW\" \"$@\"\n",
+                encoding="utf-8",
             )
-            self.assertIn("potential raw PII", denied_class["stderr"])
-            too_many = Path(tmp) / "too-many.json"
-            too_many.write_text(json.dumps([{"Name": f"Breach{i}", "DataClasses": ["Email addresses"]} for i in range(251)]), encoding="utf-8")
-            denied_many = run(
-                [sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "import-hibp", "--workdir", tmp, "--subject-id", subject_id, "--hibp-json", str(too_many)],
-                expect=1,
-            )
-            self.assertIn("too many entries", denied_many["stderr"])
+            wrapper.chmod(0o700)
+            failed_env = {
+                **env,
+                "OPENCLAW_BIN": str(wrapper),
+                "REAL_OPENCLAW": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+                "FORGED_INSPECTION": json.dumps({"install": {"installPath": str(forged_extension)}}),
+            }
+            run([str(INSTALLER)], expect=70, env_extra=failed_env)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "outside-managed-root")
+            self.assertFalse(Path(env["OPENCLAW_CONFIG_PATH"]).exists())
+            self.assertFalse((Path(env["OPENCLAW_STATE_DIR"]) / "extensions" / "rightout").exists())
+            self.assertEqual(list(Path(env["TMPDIR"]).glob("rightout-install*")), [])
 
-    def test_human_only_cases_require_human_completed_for_submission(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-human-only-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            subject_id = e2e["report"]["subject_id"]
-            denied = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "record",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "california_drop",
-                    "--state",
-                    "submitted",
-                    "--note",
-                    "request submitted",
-                    "--disclosed",
-                    "name",
-                    "--disclosed",
-                    "state",
-                    "--disclosed",
-                    "contact_email",
-                    "--evidence",
-                    '{"source_url":"https://privacy.ca.gov/drop/","confirmation_status":"submitted","redacted_proof":"dummy-confirmation"}',
-                ],
-                expect=1,
-            )
-            self.assertIn("human_completed", denied["stderr"])
-
-    def test_next_actions_marks_human_only_cases(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-human-actions-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            subject_id = e2e["report"]["subject_id"]
-            nxt = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "next", "--workdir", tmp, "--subject-id", subject_id])
-            california = [a for a in nxt["actions"] if a["case"] == "california_drop"][0]
-            self.assertTrue(california["human_only"])
-            self.assertEqual(california["action"], "await_human_completion_for_registry")
-
-    def test_gdpr_controller_lane_requires_verified_controller_evidence(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-gdpr-controller-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            subject_id = e2e["report"]["subject_id"]
-            run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "record",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "eu_gdpr_controller_erasure",
-                    "--state",
-                    "action_selected",
-                    "--note",
-                    "controller rights lane selected",
-                    "--evidence",
-                    '{"listing_urls":["https://example.invalid/controller-listing"]}',
-                ]
-            )
-            denied = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "render-email",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "eu_gdpr_controller_erasure",
-                    "--listing-url",
-                    "https://example.invalid/controller-listing",
-                    "--kind",
-                    "gdpr_erasure",
-                ],
-                expect=1,
-            )
-            self.assertIn("controller_url", denied["stderr"])
-
-    def test_controller_evidence_cannot_self_authorize_unrelated_domain(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="rightout-gdpr-self-auth-") as tmp:
-            e2e = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "e2e-dummy", "--workdir", tmp])
-            subject_id = e2e["report"]["subject_id"]
-            run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "record",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "eu_gdpr_controller_erasure",
-                    "--state",
-                    "action_selected",
-                    "--note",
-                    "controller rights lane selected",
-                    "--evidence",
-                    '{"listing_urls":["https://example.invalid/controller-listing"]}',
-                ]
-            )
-            run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "record",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "eu_gdpr_controller_erasure",
-                    "--state",
-                    "approval_required",
-                    "--note",
-                    "approval required",
-                    "--evidence",
-                    '{"gate":"send_request"}',
-                ]
-            )
-            denied = run(
-                [
-                    sys.executable,
-                    str(RUNNER),
-                    "--skill-dir",
-                    str(SKILL),
-                    "record",
-                    "--workdir",
-                    tmp,
-                    "--subject-id",
-                    subject_id,
-                    "--broker-id",
-                    "eu_gdpr_controller_erasure",
-                    "--state",
-                    "submitted",
-                    "--note",
-                    "request submitted",
-                    "--disclosed",
-                    "name",
-                    "--evidence",
-                    '{"source_url":"https://evil.invalid/request","controller_url":"https://evil.invalid/request","controller_verified":true,"allowed_domains":["evil.invalid"],"confirmation_status":"submitted","redacted_proof":"dummy","human_completed":true}',
-                ],
-                expect=1,
-            )
-            self.assertIn("controller_url must match verified allowed_domains", denied["stderr"])
-
-    def test_verify_link_checks_allowed_domains(self) -> None:
-        ok = run([sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "verify-link", "--url", "https://privacy.ca.gov/drop/", "--allowed-domain", "privacy.ca.gov"])
-        self.assertTrue(ok["ok"])
-        denied = run(
-            [sys.executable, str(RUNNER), "--skill-dir", str(SKILL), "verify-link", "--url", "https://evil.invalid/drop/", "--allowed-domain", "privacy.ca.gov"],
-        )
-        self.assertFalse(denied["ok"])
+    def test_source_symlink_is_rejected_before_install(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-source-link-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            source = tmp / "linked-source"
+            shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns(".git", "node_modules", ".tmp", "__pycache__"))
+            (source / "unsafe-link").symlink_to("README.md")
+            env = self.isolated_env(tmp)
+            denied = run([str(source / "install.sh")], expect=1, env_extra=env)
+            self.assertIn("source package contains a symlink", denied["stderr"])
+            self.assertFalse((tmp / "state" / "openclaw.json").exists())
 
 
 if __name__ == "__main__":

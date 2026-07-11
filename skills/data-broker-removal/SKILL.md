@@ -1,192 +1,73 @@
 ---
 name: "data-broker-removal"
-description: "Audit and stage consent-gated data-broker removal workflows."
+description: "Run approval-gated, read-only people-search scans or validate synthetic privacy reporting."
+homepage: "https://github.com/Olli0103/rightout"
 metadata:
   openclaw:
-    safety: approval-gated
-    source: "NousResearch/hermes-agent optional-skills/security/unbroker"
-    requires:
-      bins: ["python3"]
+    safety: approval-gated-read-only
 ---
 
-# Data Broker Removal
+# RightOut data-broker scan
 
-Use when The operator asks to find, assess, remove, or monitor personal information on data brokers, people-search sites, or opt-out services.
+Use this skill for a live, read-only scan through the installed RightOut plugin or for local synthetic report validation.
 
-This skill adapts the verified Hermes `unbroker` design for OpenClaw. It is not a blind import. Public RightOut releases are dummy-first technical previews: external submissions, provider writes, mail sends, broker form submissions, cron changes, live scans, and real PII retention are disabled in the public runner until a platform-owned OpenClaw approval adapter exists.
+## Live boundary
 
-Use the deterministic runner before any live work:
+- Use only the optional `rightout_live_scan` tool for live work.
+- Tool arguments may contain only an opaque `profileId` and explicit catalog `brokerIds`.
+- Never ask the user to paste a name, address, email, phone number, date of birth, listing URL, verification token, credential, or breach value into chat or tool arguments.
+- A private subject profile and the Brave Search key must already be configured by the operator as OpenClaw SecretRefs. If either is unavailable, stop with `needs_evidence`; do not collect PII as a workaround.
+- Never use browser, web search, shell, Python, files, email, forms, or provider tools as a live fallback.
+- Every call requires native OpenClaw plugin approval with only `allow-once` or `deny`. No approval route, denial, timeout, cancellation, or hook failure means no scan.
+- Never submit a removal, send email, complete a form, solve a CAPTCHA, open a verification link, schedule monitoring, or write to a provider.
+- Treat `found` only as an exact-name and city/region match within one JSON-LD `Person` record on a query-free, catalog-policy candidate page, not proof of identity or ownership. Treat loose page text and index absence as `inconclusive`, never `not_found`.
+- Do not claim compliance certification, legal eligibility, removal, or provider action.
+
+## Live workflow
+
+1. Confirm the user asked for a live scan and supplied an existing opaque profile reference, not PII.
+2. Limit broker selection to catalog entries whose `scan.supported` is `true`.
+3. Call `rightout_live_scan` once with the opaque profile reference and chosen broker IDs.
+4. Let OpenClaw present and resolve the native approval. Do not simulate, replace, or pre-approve it in prose.
+5. Report checked brokers, `found` or `inconclusive`, opaque proof references, provider disclosure categories, and coverage gaps. Never reveal or reconstruct the private profile, candidate URLs, raw pages, queries, or API key.
+
+## Synthetic validation
+
+The bundled Python runner is intentionally dummy-only and has no live command:
 
 ```bash
-python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} doctor
-python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} scan-only-dummy --workdir .tmp/data-broker-removal-scan-only
-python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} e2e-dummy --workdir .tmp/data-broker-removal-e2e
+python3 {baseDir}/scripts/validate_data_broker_removal.py --skill-dir {baseDir}
+python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} \
+  scan-only-dummy --workdir .tmp/rightout-scan-only
+python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} \
+  e2e-dummy --workdir .tmp/rightout-e2e
 ```
 
-## Hard Boundaries
+Never present `fixture_only` results as user results.
 
-- Consent is mandatory before handling a person's PII for broker removal.
-- Never act on a third party unless the operator gives explicit authorization and the subject's consent is clear.
-- Default to audit/dummy-run/proposal only.
-- Do not submit broker forms, send emails, open verification links, schedule recurring scans, or store sensitive dossiers without a separate approval.
-- Do not claim deletion until a later verification scan confirms the listing is gone.
-- Do not bypass hard CAPTCHAs, behavioral challenges, phone callbacks, government-ID gates, fax/mail-only workflows, or account-creation requirements.
-- Do not volunteer SSNs, ID numbers, full birth dates, or unnecessary identifiers.
-- Keep PII out of paths, task titles, chat summaries, and logs. Use opaque subject IDs.
+## Output contract
 
-## When To Use
-
-- The operator asks whether a data-broker cleanup tool or link is usable.
-- The operator asks to remove his data from people-search sites or brokers.
-- The operator asks for a privacy exposure audit, broker opt-out plan, or recurring recheck design.
-- The operator asks to adapt Hermes `unbroker` or a similar privacy-removal workflow for OpenClaw.
-
-## Source Baseline
-
-Verified input as of 2026-07-11:
-
-- X status `2075646038053195841` points to Hermes `unbroker`.
-- Follow-up link expands to `github.com/NousResearch/hermes-agent/tree/main/optional-skills/security/unbroker`.
-- The repo and skill exist publicly under `NousResearch/hermes-agent`.
-- The bundled `test_unbroker_skill.py` passed locally: `97/97 passed`.
-- Local OpenClaw host has `python3`; `hermes` CLI is not installed.
-- Hermes `unbroker` status says v1.0, but live agent-driven broker submission is still an active field-testing frontier.
-
-Treat Hermes `unbroker` as a reference implementation and test corpus, not as production authority for OpenClaw.
-
-## Workflow
-
-1. Clarify scope in one short question if missing: subject, jurisdiction, audit-only vs removal, and whether real PII may be processed locally.
-
-2. Run duplicate/source check:
-   - search local memory/Brain/source notes for the exact tool, broker, person, or prior removal run;
-   - identify whether this is a new source, a known topic, or an existing workflow.
-
-3. Start with read-only assessment:
-   - list likely broker classes and exposure surfaces;
-   - identify high-leverage legal lanes such as GDPR/DSGVO/UK GDPR, CCPA/CPRA, and state registries only when jurisdiction applies;
-   - do not scan live broker sites with PII until approved.
-
-4. Dummy-run first:
-   - run `e2e-dummy`;
-   - run `scan-only-dummy` when the operator wants to know "where am I exposed?" before removal planning;
-   - verify state transitions, approval gates, report output, no external actions, and opaque paths;
-   - inspect generated reports before any live approval.
-
-5. Produce a removal plan before any live action:
-   - expected broker list and source of broker data;
-   - explicit catalog coverage and gaps; never claim the catalog is complete;
-   - fields each broker would require;
-   - action type: web form, email request, legal registry, human task, or monitor-only;
-   - risk level and required approval for each action class;
-   - HIBP/breach intelligence inputs when operator supplied or explicitly approved, summarized as risk tags and data classes, not raw email/account data;
-   - recheck schedule proposal, not an active cron.
-
-6. If a future platform-owned OpenClaw approval adapter enables live audit with real PII:
-   - create or choose a runner-verified encrypted/local data location first and record that storage posture before persisting real dossiers;
-   - treat operator-attested storage markers as documentation only unless the runner marks them verified;
-   - keep unencrypted local storage as an explicit scoped exception, not as an encryption marker;
-   - record consent and scope;
-   - use least-disclosure search vectors;
-   - classify findings as `found`, `not_found`, `inconclusive`, `blocked`, or `human_required`;
-   - never record names or raw PII in filenames or public summaries.
-
-7. If a future platform-owned OpenClaw approval adapter separately approves submissions:
-   - submit only to official broker channels;
-   - for GDPR/DSGVO/UK GDPR controller requests, record the specific controller privacy/DPO URL or rights portal and verified allowed domain before drafting, even when the broker has a normal opt-out lane;
-   - send only the exact fields required for that broker and legal basis;
-   - record channel, field names disclosed, timestamp, and confirmation evidence;
-   - queue human-required blockers into a digest instead of interrupting repeatedly.
-
-8. Verify outcomes:
-   - re-scan after the broker's stated processing window;
-   - mark `confirmed_removed` only after evidence shows the listing is gone;
-   - distinguish suppression, hidden-from-free-search, deletion requested, deletion confirmed, and residual exposure.
-
-Load references only when needed:
-
-- `{baseDir}/references/security-model.md` for approvals, PII handling, threat model, and release gates.
-- `{baseDir}/references/operations.md` for scan/plan/submit/recheck posture.
-- `{baseDir}/references/state-machine.md` for case lifecycle semantics.
-- `{baseDir}/references/source-matrix.md` for verified source evidence and caveats.
-- `{baseDir}/references/legal/gdpr.md` for GDPR/DSGVO/UK GDPR erasure posture and constraints.
-- `{baseDir}/references/brokers/core.json` for the starter broker/registry/catalog lanes.
-
-## Approval Gates
-
-Ask separately before each class of action:
-
-- `process_real_pii`: use the subject's real identifying data locally.
-- `store_dossier`: persist a local dossier, ledger, or report containing PII.
-- `live_scan`: query broker/people-search sites with real identifiers.
-- `send_request`: send email, submit web forms, file legal requests, or open verification links.
-- `schedule_recheck`: create or modify cron/automation.
-- `provider_write`: write to Todoist, Mail, Calendar, Google, public channels, or other providers.
-
-Approval wording must name what will change and what will not change.
-
-## OpenClaw Adaptation Notes
-
-- Prefer OpenClaw browser tools for controlled web inspection.
-- Prefer local deterministic scripts for planning, ledgers, and validation.
-- If importing Hermes scripts, isolate them under a proposal or spike path first and run their tests before adapting.
-- Use runner-verified encryption before storing real dossiers; local JSON approval receipts are not a sufficient community security boundary without a platform-owned approval adapter.
-- Rendered live request drafts are PII-bearing storage and require the same `process_real_pii`, `store_dossier`, and encrypted-storage checks.
-- Keep summaries Telegram-safe: no raw addresses, phone numbers, emails, relatives, or DOBs.
-- Treat commercial-service comparisons as context only; do not imply guaranteed completeness.
-- Community release requires a separate repo review for license provenance, broker catalog attribution, and no personal workspace leakage.
-
-## Output Contract
-
-For checks and verification:
+For a live result, lead with:
 
 ```text
-Status: usable / not usable / spike only
-Source: exact repo/path/link checked
-Local fit: installed / missing / needs adaptation
-Risk: main privacy or automation risk
-Recommendation: no-op / capture / spike / audit / implement with approval
-Next approval needed: exact action, or none
+Posture: approval-gated read-only live scan
+Approval: native OpenClaw allow-once
+Provider writes: 0
+Submissions: 0
+Emails: 0
+Raw PII in report: no
 ```
 
-For a live audit plan:
+Then state what was checked, what was evidenced, what is inferred, and what remains `needs_evidence`. Preserve contradictions and coverage gaps.
 
-```text
-Scope: subject + jurisdiction + audit/removal boundary
-Data needed: minimum identifiers only
-Storage: none / temporary / encrypted local path
-Broker lanes: people-search / registry / legal email / human-only
-Approval needed before: live scan, submissions, recurring checks
-Non-goals: no public records removal, no account deletion, no hard CAPTCHA bypass
-```
+For catalog or security work, read only the relevant references:
 
-For user-facing reports, match the expectations set by commercial removal portals without copying their closed workflows:
+- `{baseDir}/references/security-model.md`
+- `{baseDir}/references/operations.md`
+- `{baseDir}/references/state-machine.md`
+- `{baseDir}/references/source-matrix.md`
+- `{baseDir}/references/brokers/core.json`
 
-- scan-only view: where data appears, which brokers were checked, found/not found/inconclusive counts, and no submissions;
-- removal-progress view: request sent, waiting for verification, awaiting broker processing, confirmed removed, reappeared;
-- per-broker status: broker name, lane, stage, source URL, last note, next recheck;
-- human-task digest: CAPTCHAs, phone/fax/mail, government ID, account creation, or controller-scope decisions;
-- risk intelligence: HIBP breach/data-class signals and recommended priority, clearly separated from broker-removal evidence;
-- compact Telegram summary with no raw PII and a local JSON report path only when storage was approved.
+## Non-goals
 
-## Validation
-
-Before saying the workflow is ready:
-
-- Run `python3 {baseDir}/scripts/validate_data_broker_removal.py --skill-dir {baseDir}`.
-- Run `python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} scan-only-dummy --workdir .tmp/data-broker-removal-scan-only`.
-- Run `python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} e2e-dummy --workdir .tmp/data-broker-removal-e2e`.
-- Confirm the runner refuses live scans/submissions without explicit approval tokens.
-- Check that dummy-run output uses opaque subject IDs and no PII in filenames.
-- Confirm report v2 includes broker statuses, removal summary, scan-only posture, and optional HIBP risk summaries without raw account identifiers.
-- Confirm OpenClaw approval gates in the final response.
-- For behavior changes to Telegram-facing output, run `make clawy-output-evals` when a fixture is touched.
-
-## Non-Goals
-
-- Legal advice.
-- Public-record erasure.
-- Account deletion from services the subject controls.
-- Automated hard-CAPTCHA solving or anti-bot evasion.
-- Provider writes or external submissions without explicit approval.
-- Turning Hermes into an OpenClaw dependency without a separate architecture decision.
+Removal submissions, recurring monitoring, legal advice, compliance certification, identity protection, dark-web monitoring, account deletion, CAPTCHA handling, and autonomous provider writes.

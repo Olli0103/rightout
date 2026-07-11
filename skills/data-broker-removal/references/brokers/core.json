@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "provenance": [
-    "Starter catalog limited to official/legal/monitor-only lanes for v0.1.1 after release audit.",
-    "People-search broker entries must be re-added only through clean-room official-source review with compatible licensing."
-  ],
+  "schema_version": 2,
+  "catalog_id": "rightout-clean-room-core",
+  "catalog_license": "MIT",
+  "catalog_policy": "Official-source facts and URLs with original RightOut notes only. No third-party broker-list records or prose.",
   "brokers": [
     {
       "id": "california_drop",
@@ -13,21 +12,34 @@
         "US-CA"
       ],
       "official_url": "https://privacy.ca.gov/drop/",
-      "lane": "registry",
-      "requires": [
-        "california_residency_verification"
+      "official_domains": [
+        "privacy.ca.gov"
       ],
-      "disclosure_fields": [
+      "lane": "registry",
+      "required_fields": [
         "name",
         "state",
         "contact_email"
       ],
-      "approval_gate": "send_request",
-      "provenance": [
-        "https://privacy.ca.gov/drop/"
+      "prerequisites": [
+        "california_residency_verification",
+        "human_submission"
       ],
+      "approval_gate": "send_request",
       "human_only": true,
-      "notes": "Eligibility-specific government platform. Do not file unless subject is a California resident and explicitly approves."
+      "last_verified": "2026-07-11",
+      "freshness_days": 180,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://privacy.ca.gov/drop/",
+          "title": "Delete Request and Opt-out Platform",
+          "publisher": "California Privacy Protection Agency",
+          "license_scope": "facts_and_official_url_only",
+          "last_verified": "2026-07-11"
+        }
+      ],
+      "notes": "Eligibility-specific government platform. The public runner never files a request. A future integration must verify residency and use a human-only platform approval."
     },
     {
       "id": "google_results_about_you",
@@ -39,21 +51,40 @@
         "selected"
       ],
       "official_url": "https://myactivity.google.com/results-about-you",
+      "official_domains": [
+        "myactivity.google.com",
+        "support.google.com"
+      ],
       "lane": "monitor_only",
-      "disclosure_fields": [
+      "required_fields": [
         "address",
         "phone",
         "email"
       ],
-      "approval_gate": "provider_write",
-      "provenance": [
-        "https://support.google.com/websearch/answer/12719076"
+      "prerequisites": [
+        "eligible_region",
+        "signed_in_google_account",
+        "human_provider_action"
       ],
-      "notes": "Removes Google search results, not source broker data. Use only as adjunct."
+      "approval_gate": "provider_write",
+      "human_only": true,
+      "last_verified": "2026-07-11",
+      "freshness_days": 180,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://support.google.com/websearch/answer/12719076",
+          "title": "Find and remove personal contact info in Google Search results",
+          "publisher": "Google Search Help",
+          "license_scope": "facts_and_official_url_only",
+          "last_verified": "2026-07-11"
+        }
+      ],
+      "notes": "This lane concerns Google search-result visibility, not source-broker deletion. The public runner performs no account or provider action."
     },
     {
       "id": "eu_gdpr_controller_erasure",
-      "name": "EU / EEA GDPR controller erasure request",
+      "name": "EU and EEA controller erasure reference",
       "category": "legal_request",
       "jurisdictions": [
         "EU",
@@ -90,24 +121,157 @@
         "LI"
       ],
       "official_url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "official_domains": [
+        "eur-lex.europa.eu"
+      ],
       "legal_reference_url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
       "lane": "human_task",
-      "disclosure_fields": [
+      "required_fields": [
         "name",
         "contact_email",
         "jurisdiction",
         "listing_url"
       ],
-      "approval_gate": "send_request",
-      "provenance": [
-        "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
-        "https://gdpr.eu/article-17-right-to-be-forgotten/",
-        "https://gdpr.eu/right-to-erasure-request-form/"
+      "prerequisites": [
+        "applicable_jurisdiction",
+        "controller_identified",
+        "controller_contact_independently_verified",
+        "human_legal_scope_review"
       ],
+      "approval_gate": "send_request",
       "human_only": true,
       "requires_controller_contact": true,
       "allowed_domains": [],
-      "notes": "Generic controller-rights lane for EU/EEA subjects. This is a legal-reference lane, not a sendable recipient. Record the specific controller privacy/DPO URL/contact and verified allowed domain before drafting; do not send identity documents without separate approval."
+      "controller_domain_policy": "platform_verified_out_of_band_only",
+      "last_verified": "2026-07-11",
+      "freshness_days": 180,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+          "title": "Regulation EU 2016 679",
+          "publisher": "EUR-Lex",
+          "license_scope": "official_legal_reference_and_facts_only",
+          "last_verified": "2026-07-11"
+        }
+      ],
+      "notes": "Legal reference only, not a sendable recipient. Controller identity and domain must come from a future platform-owned verifier that the agent and controller content cannot alter."
+    },
+    {
+      "id": "truepeoplesearch",
+      "name": "TruePeopleSearch",
+      "category": "people_search",
+      "jurisdictions": [
+        "US"
+      ],
+      "official_url": "https://www.truepeoplesearch.com/",
+      "official_domains": [
+        "truepeoplesearch.com"
+      ],
+      "lane": "operator_browser",
+      "required_fields": [
+        "name",
+        "city",
+        "state"
+      ],
+      "prerequisites": [
+        "subject_authorization",
+        "native_openclaw_plugin_approval",
+        "brave_search_api"
+      ],
+      "approval_gate": "live_scan",
+      "human_only": false,
+      "last_verified": "2026-07-11",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.truepeoplesearch.com/",
+          "title": "TruePeopleSearch official site",
+          "publisher": "TruePeopleSearch",
+          "license_scope": "official_identity_url_and_facts_only",
+          "last_verified": "2026-07-11"
+        },
+        {
+          "url": "https://www.truepeoplesearch.com/removal",
+          "title": "TruePeopleSearch official removal entry point",
+          "publisher": "TruePeopleSearch",
+          "license_scope": "official_url_fact_only",
+          "last_verified": "2026-07-11"
+        }
+      ],
+      "scan": {
+        "supported": true,
+        "strategy": "brave_site_query_then_same_domain_verify",
+        "query_fields": [
+          "full_name",
+          "city",
+          "region"
+        ],
+        "search_provider_host": "api.search.brave.com",
+        "candidate_path_pattern": "^/find/person/(?:[A-Za-z0-9%._~-]+/){0,5}[A-Za-z0-9%._~-]+/?$",
+        "max_candidates": 3,
+        "not_found_policy": "never_from_index_absence"
+      },
+      "notes": "Read-only discovery only. The approved plugin sends minimum name and location fields to Brave Search, then verifies same-domain candidate pages. CAPTCHA, removal, email, and submissions are out of scope."
+    },
+    {
+      "id": "spokeo",
+      "name": "Spokeo",
+      "category": "people_search",
+      "jurisdictions": [
+        "US"
+      ],
+      "official_url": "https://www.spokeo.com/",
+      "official_domains": [
+        "spokeo.com"
+      ],
+      "lane": "operator_browser",
+      "required_fields": [
+        "name",
+        "city",
+        "state"
+      ],
+      "prerequisites": [
+        "subject_authorization",
+        "native_openclaw_plugin_approval",
+        "brave_search_api"
+      ],
+      "approval_gate": "live_scan",
+      "human_only": false,
+      "last_verified": "2026-07-11",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.spokeo.com/",
+          "title": "Spokeo official site",
+          "publisher": "Spokeo",
+          "license_scope": "official_identity_url_and_facts_only",
+          "last_verified": "2026-07-11"
+        },
+        {
+          "url": "https://www.spokeo.com/optout",
+          "title": "Spokeo official opt-out entry point",
+          "publisher": "Spokeo",
+          "license_scope": "official_url_fact_only",
+          "last_verified": "2026-07-11"
+        }
+      ],
+      "scan": {
+        "supported": true,
+        "strategy": "brave_site_query_then_same_domain_verify",
+        "query_fields": [
+          "full_name",
+          "city",
+          "region"
+        ],
+        "search_provider_host": "api.search.brave.com",
+        "candidate_path_pattern": "^/(?!about(?:/|$)|blog(?:/|$)|people-search(?:/|$)|reverse-)(?:[A-Za-z0-9%._~-]+/){1,5}[A-Za-z0-9%._~-]+/?$",
+        "max_candidates": 3,
+        "not_found_policy": "never_from_index_absence"
+      },
+      "notes": "Read-only discovery only. The approved plugin sends minimum name and location fields to Brave Search, then verifies same-domain candidate pages. Paywalls, account flows, removal, email, and submissions are out of scope."
     }
   ]
 }

@@ -12,4 +12,5 @@ outputs/
 *.out
 .env
 .env.*
-
+node_modules/
+*.tgz

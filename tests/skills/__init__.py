@@ -1,0 +1,1 @@
+"""RightOut skill tests."""

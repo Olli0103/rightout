@@ -1,0 +1,1 @@
+"""RightOut test package."""

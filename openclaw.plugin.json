@@ -1,0 +1,97 @@
+{
+  "id": "rightout",
+  "name": "RightOut",
+  "description": "Approval-gated, read-only live data-broker scans with PII-safe reports",
+  "version": "0.2.0-rc.1",
+  "skills": [
+    "./skills"
+  ],
+  "contracts": {
+    "tools": [
+      "rightout_live_scan"
+    ]
+  },
+  "toolMetadata": {
+    "rightout_live_scan": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": [
+            "braveApiKey",
+            "profiles"
+          ]
+        }
+      ]
+    }
+  },
+  "configContracts": {
+    "secretInputs": {
+      "bundledDefaultEnabled": false,
+      "paths": [
+        {
+          "path": "braveApiKey",
+          "expected": "string"
+        },
+        {
+          "path": "profiles.*.payload",
+          "expected": "string"
+        }
+      ]
+    }
+  },
+  "uiHints": {
+    "braveApiKey": {
+      "label": "Brave Search API key",
+      "help": "Used only after an allow-once approval for a live scan. Prefer an OpenClaw SecretRef.",
+      "sensitive": true
+    },
+    "profiles.*.payload": {
+      "label": "Private subject profile",
+      "help": "JSON with fullName, city, region and country. Configure only as an OpenClaw SecretRef; never as plaintext.",
+      "sensitive": true
+    },
+    "maxCandidatesPerBroker": {
+      "label": "Candidate page limit",
+      "help": "Maximum same-domain candidate pages verified per broker.",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "braveApiKey": {
+        "type": ["string", "object"],
+        "minLength": 1
+      },
+      "profiles": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 20,
+        "propertyNames": {
+          "pattern": "^profile_[a-f0-9]{16,32}$"
+        },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["payload"],
+          "properties": {
+            "payload": {
+              "type": ["string", "object"],
+              "minLength": 2,
+              "maxLength": 2048
+            }
+          }
+        }
+      },
+      "maxCandidatesPerBroker": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3,
+        "default": 2
+      }
+    }
+  }
+}
