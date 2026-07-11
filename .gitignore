@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.tmp/
+tmp/
+out/
+outputs/
+*.log
+*.err
+*.out
+.env
+.env.*
+
