@@ -1,8 +1,8 @@
 # RightOut OpenClaw skill
 
-Version `0.2.0-rc.2`. This skill ships inside the RightOut OpenClaw plugin.
+Version `0.2.0`. This skill ships inside the RightOut OpenClaw plugin.
 
-Live people-search discovery is available only through the optional `rightout_live_scan` tool and only for catalog entries plus exact broker-access attestations configured by the operator. Spokeo automation is disabled by its published terms. The tool accepts an opaque SecretRef-backed profile ID and supported broker IDs, then requires a native OpenClaw `allow-once` approval that discloses Brave retention. The result contains no raw PII, raw page content, API key, search query, or candidate URL. It performs no submissions, email, forms, scheduling, or provider writes.
+Live people-search discovery is available only through the optional `rightout_live_scan` tool and Brave Search. The tool accepts an opaque SecretRef-backed profile ID and supported broker IDs, then requires a native OpenClaw `allow-once` approval bound to Brave terms revision `2026-02-11`, customer responsibilities, exact profile, and search scope. It never requests a broker page and returns no raw PII, Search Result, API key, query, or URL.
 
 The Python runner remains an offline, dummy-only validation harness:
 
@@ -12,6 +12,6 @@ python3 scripts/data_broker_removal.py scan-only-dummy --workdir .tmp/rightout-s
 python3 scripts/data_broker_removal.py e2e-dummy --workdir .tmp/rightout-e2e
 ```
 
-Report v3 separates catalog coverage from synthetic fixtures and includes full removal-state reporting for test coverage only. `found` live results mean one structured JSON-LD `Person` record on a query-free catalog-policy page matched exact full name and city/region; loose-text, index-negative, or blocked cases remain `inconclusive`.
+Report v3 separates catalog coverage from synthetic fixtures and includes full removal-state reporting for test coverage only. A live `indirect_exposure` means only that Brave returned an HTTPS result on the selected official domain. Index-negative or provider-failure cases remain `inconclusive`.
 
 Catalog records are clean-room entries derived from official-source facts and URLs. Commercial service claims are used only in the repository's benchmark, never as RightOut evidence.

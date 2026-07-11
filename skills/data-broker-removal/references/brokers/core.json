@@ -168,7 +168,7 @@
       "official_domains": [
         "truepeoplesearch.com"
       ],
-      "lane": "operator_browser",
+      "lane": "search_index",
       "required_fields": [
         "name",
         "city",
@@ -178,8 +178,8 @@
         "subject_authorization",
         "native_openclaw_plugin_approval",
         "brave_search_api",
-        "brave_terms_acceptance",
-        "operator_broker_access_authorization"
+        "brave_terms_2026_02_11_acceptance",
+        "brave_customer_responsibilities_acceptance"
       ],
       "approval_gate": "live_scan",
       "human_only": false,
@@ -204,20 +204,18 @@
       ],
       "scan": {
         "supported": true,
-        "automated_access_policy": "operator_permission_required",
-        "terms_status": "needs_evidence",
-        "strategy": "brave_site_query_then_same_domain_verify",
+        "automated_access_policy": "search_index_only_no_publisher_access",
+        "terms_status": "publisher_not_accessed",
+        "strategy": "brave_site_query_no_publisher_fetch",
         "query_fields": [
           "full_name",
           "city",
           "region"
         ],
         "search_provider_host": "api.search.brave.com",
-        "candidate_path_pattern": "^/find/person/(?:[A-Za-z0-9%._~-]+/){0,5}[A-Za-z0-9%._~-]+/?$",
-        "max_candidates": 3,
         "not_found_policy": "never_from_index_absence"
       },
-      "notes": "Read-only discovery only. Public automated-access permission could not be verified because official terms/robots endpoints returned access denial during review. Live use therefore additionally requires an operator attestation based on independently verified authority. CAPTCHA, removal, email, and submissions are out of scope."
+      "notes": "Read-only indirect discovery through Brave Search only. RightOut never requests a TruePeopleSearch page, so uncertain publisher automation permission is outside the runtime request boundary. Search-index candidates are indirect signals, never identity proof or a direct found result. CAPTCHA, removal, email, and submissions are out of scope."
     },
     {
       "id": "spokeo",

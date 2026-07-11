@@ -21,7 +21,8 @@ Use only `.invalid` synthetic identities and mocked HTTP responses. Never run a 
 - Keep `profileId` and broker IDs as the complete public parameter surface.
 - Keep `allow-once`/`deny` native approval and fail-closed behavior.
 - Keep SecretInput contracts and security-audit findings.
-- Use only OpenClaw's guarded SSRF runtime with fixed/catalog host allowlists.
+- Use only OpenClaw's guarded SSRF runtime with the fixed Brave host allowlist; publisher-domain requests are prohibited.
+- Keep Brave terms revision/customer-responsibility attestations inside the single-use approval binding.
 - Preserve no-write invariants and sanitized reports/errors.
 - Treat no index result as `inconclusive`.
 - Add unit, adversarial, isolated install, runtime inspect, SecretRef, and packaging tests for every boundary change.

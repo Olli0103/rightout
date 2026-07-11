@@ -16,7 +16,7 @@ Review date: 2026-07-11.
 ## Live scan sources
 
 - `https://brave.com/search/api/`, `https://api-dashboard.search.brave.com/documentation/resources/terms-of-service`, and `/privacy-notice`: Brave Search API product/transport, customer duties, transient-result restrictions, and published query-log retention facts.
-- `https://www.truepeoplesearch.com/` and `/removal`: official domain and entry-point facts only. The site returned anti-bot responses during non-PII reachability research; no content/behavior claim beyond official URL/domain is made.
+- `https://www.truepeoplesearch.com/` and `/removal`: official domain and entry-point facts only. The site returned access-denied responses during non-PII research; RightOut makes no request to it and uses the domain only as a Brave index scope.
 - `https://www.spokeo.com/`, `/optout`, `/terms-of-use-consumer`, and `/robots.txt`: official domain, entry-point, and published automated-access restriction facts only. These restrictions disable automated Spokeo scanning.
 
 No real subject query was run during research or testing.

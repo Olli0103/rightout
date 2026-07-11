@@ -91,11 +91,28 @@ def main() -> None:
     required_config = set(tool.get("configSignals", [{}])[0].get("required", []))
     if "operatorAttestations" not in required_config:
         fail(errors, "operator attestation config signal is missing")
+    attestation_schema = manifest.get("configSchema", {}).get("properties", {}).get("operatorAttestations", {})
+    expected_attestation_fields = {
+        "braveTermsAccepted",
+        "braveTermsVersion",
+        "braveCustomerResponsibilitiesAccepted",
+        "authorizedProfileIds",
+        "authorizedBrokerIds",
+    }
+    if set(attestation_schema.get("required", [])) != expected_attestation_fields:
+        fail(errors, "operator attestation schema is not revision-complete")
+    attestation_properties = attestation_schema.get("properties", {})
+    if (
+        attestation_properties.get("braveTermsVersion", {}).get("const") != "2026-02-11"
+        or attestation_properties.get("braveTermsAccepted", {}).get("const") is not True
+        or attestation_properties.get("braveCustomerResponsibilitiesAccepted", {}).get("const") is not True
+    ):
+        fail(errors, "Brave terms/customer attestation constants are incomplete")
     live_brokers = [item for item in catalog.get("brokers", []) if item.get("scan", {}).get("supported") is True]
     if [item.get("id") for item in live_brokers] != ["truepeoplesearch"]:
-        fail(errors, "live catalog must contain only the conditional TruePeopleSearch lane")
-    if live_brokers[0].get("scan", {}).get("automated_access_policy") != "operator_permission_required":
-        fail(errors, "live broker must require operator access authorization")
+        fail(errors, "live catalog must contain only the Brave-index TruePeopleSearch scope")
+    if live_brokers[0].get("scan", {}).get("automated_access_policy") != "search_index_only_no_publisher_access":
+        fail(errors, "live broker must use search-index-only discovery")
     spokeo = next((item for item in catalog.get("brokers", []) if item.get("id") == "spokeo"), {})
     if spokeo.get("scan", {}).get("supported") is not False or spokeo.get("scan", {}).get("automated_access_policy") != "prohibited_by_published_terms":
         fail(errors, "Spokeo automation prohibition is not fail-closed")
@@ -139,18 +156,22 @@ def main() -> None:
             fail(errors, f"approval/security invariant missing: {required}")
     live_scan = (ROOT / "lib/live-scan.mjs").read_text(encoding="utf-8")
     for required in [
-        'createHmac("sha256", scanSecret)',
-        "randomBytes(32)",
-        "parsed.search",
-        "parsed.hash",
-        "candidate_path_pattern",
-        "jsonLdContainsMatchingPerson",
+        'const BRAVE_TERMS_VERSION = "2026-02-11"',
+        "braveCustomerResponsibilitiesAccepted",
+        "hasIndexCandidate",
+        'to_broker_pages: []',
+        'state: "indirect_exposure"',
+        "publisher_requests: 0",
+        "search_result_storage: 0",
         "validateOperatorAttestations(validated, operatorAttestations)",
         "rightout_operator_attestation_required",
         "throwIfAborted(signal)",
     ]:
         if required not in live_scan:
             fail(errors, f"live-scan security invariant missing: {required}")
+    for prohibited in ["verifyCandidate", "directPageMatches", "candidate_path_pattern", "allowedHosts: officialDomains", 'method: "GET"']:
+        if prohibited in live_scan:
+            fail(errors, f"publisher-fetch path must be absent: {prohibited}")
 
     installer = (ROOT / "install.sh").read_text(encoding="utf-8")
     for required in [".rightout-install.lock", "lock_acquired=1", 'rmdir "$lock_dir"']:

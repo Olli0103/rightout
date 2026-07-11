@@ -60,17 +60,17 @@ The profile JSON permits only `fullName`, `city`, `region`, and optional `countr
 
 ## 4. Record operator attestations
 
-Live use is blocked until an operator—not an agent—has verified subject authorization for each exact opaque profile ID, accepted the applicable Brave Search API terms, and independently established automated-access authority for each selected broker. Spokeo must not be listed: its published consumer terms prohibit automated queries/scraping/crawling. TruePeopleSearch remains conditional because public automated-access permission is `needs_evidence`.
+Live use is blocked until an operator—not an agent—has verified subject authorization for each exact opaque profile ID, reviewed and accepted Brave Search API Terms revision `2026-02-11`, accepted Brave's customer/end-user responsibilities, and approved each broker domain included in the Brave index-search scope. RightOut never requests a broker page. Spokeo remains excluded from live selection as an additional conservative catalog control.
 
 Only after completing that out-of-band review, configure the exact authorized set:
 
 ```bash
 openclaw config set plugins.entries.rightout.config.operatorAttestations \
-  '{"braveTermsAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedBrokerIds":["truepeoplesearch"]}' \
+  '{"braveTermsAccepted":true,"braveTermsVersion":"2026-02-11","braveCustomerResponsibilitiesAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedBrokerIds":["truepeoplesearch"]}' \
   --strict-json
 ```
 
-This is a fail-closed configuration gate, not a legal certification by RightOut. Brave's published privacy notice states that standard-plan query logs may be retained for up to 90 days; ZDR requires an applicable enterprise arrangement. See [provider access and retention review](docs/provider-terms-review.md).
+This is a fail-closed configuration gate, not a legal certification by RightOut. A future Brave terms revision intentionally invalidates the pinned attestation until code, documentation, and operator acceptance are reviewed. Brave's published privacy notice states that standard-plan query logs may be retained for up to 90 days; ZDR requires an applicable enterprise arrangement. See [provider access and retention review](docs/provider-terms-review.md).
 
 OpenClaw SecretRefs reduce persisted-secret exposure but are not OS/process isolation. For a strong deployment, separate the Gateway/secret provider from agent-readable files and shell access. See OpenClaw's [Secrets management](https://docs.openclaw.ai/gateway/secrets).
 
@@ -100,4 +100,4 @@ openclaw plugins doctor
 
 Resolve every `rightout.secretref.*` and `rightout.operator_attestations` critical finding before live use. Resolve or consciously accept the `rightout.gateway.tools_invoke` warning.
 
-No real live scan is part of installation or release testing. A production scan begins only when a user explicitly requests it, the optional tool is visible, and the native approval is resolved with `allow-once`.
+No real-person live scan is part of installation or release testing. A production scan begins only when a user explicitly requests it, the optional tool is visible, and the native approval is resolved with `allow-once`. It contacts only Brave Search; it never follows or fetches a returned publisher URL.

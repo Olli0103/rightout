@@ -42,7 +42,7 @@ ALLOWED_STATES: dict[str, set[str]] = {
 }
 
 LIVE_ACTION_GATES = {"process_real_pii", "store_dossier", "live_scan", "send_request", "schedule_recheck", "provider_write"}
-LANES = {"registry", "web_form", "web_form_or_email", "email", "guided_flow", "operator_browser", "human_task", "monitor_only"}
+LANES = {"registry", "web_form", "web_form_or_email", "email", "guided_flow", "operator_browser", "search_index", "human_task", "monitor_only"}
 SAFE_EVIDENCE_KEYS = {"kind", "dummy", "gate", "lane", "listing_urls", "matcher", "verification", "source_url", "confirmation_status", "redacted_proof"}
 SAFE_EVIDENCE_KEYS |= {"official_channel", "controller_url", "controller_verified", "human_completed", "sensitive_field_gate"}
 SENSITIVE_FIELDS = {"date_of_birth", "full_date_of_birth", "government_id", "passport", "drivers_license", "identity_document", "utility_bill"}
@@ -418,37 +418,18 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 else:
                     validate_catalog_url(scan["terms_url"], official_domains, label, "scan.terms_url", errors)
                 continue
-            candidate_path_pattern = scan.get("candidate_path_pattern") if isinstance(scan, dict) else None
-            safe_candidate_path_pattern = False
-            if (
-                isinstance(candidate_path_pattern, str)
-                and 8 <= len(candidate_path_pattern) <= 240
-                and candidate_path_pattern.startswith("^/")
-                and candidate_path_pattern.endswith("$")
-                and candidate_path_pattern not in {"^/.*$", "^/.+$", "^/[^?]*$"}
-                and "*" not in candidate_path_pattern
-                and "(?<=" not in candidate_path_pattern
-                and "(?<!" not in candidate_path_pattern
-                and not re.search(r"\\[1-9]|\{\d+,\}|\)(?:\+|\{\d+,\})", candidate_path_pattern)
-            ):
-                try:
-                    re.compile(candidate_path_pattern)
-                    safe_candidate_path_pattern = True
-                except re.error:
-                    pass
-            if not (lane == "operator_browser" and gate == "live_scan" and broker.get("human_only") is False):
+            if not (lane == "search_index" and gate == "live_scan" and broker.get("human_only") is False):
                 errors.append(f"{label} people_search has inconsistent live-scan lane")
             if not (
                 scan.get("supported") is True
-                and scan.get("automated_access_policy") == "operator_permission_required"
-                and scan.get("terms_status") == "needs_evidence"
-                and scan.get("strategy") == "brave_site_query_then_same_domain_verify"
+                and scan.get("automated_access_policy") == "search_index_only_no_publisher_access"
+                and scan.get("terms_status") == "publisher_not_accessed"
+                and scan.get("strategy") == "brave_site_query_no_publisher_fetch"
                 and scan.get("query_fields") == ["full_name", "city", "region"]
                 and scan.get("search_provider_host") == "api.search.brave.com"
-                and safe_candidate_path_pattern
-                and isinstance(scan.get("max_candidates"), int)
-                and 1 <= scan["max_candidates"] <= 3
                 and scan.get("not_found_policy") == "never_from_index_absence"
+                and "candidate_path_pattern" not in scan
+                and "max_candidates" not in scan
             ):
                 errors.append(f"{label} has unsafe or incomplete live-scan policy")
     return errors
