@@ -1,6 +1,6 @@
 # OpenClaw conformance
 
-Validated against OpenClaw `2026.6.11` on 2026-07-11.
+Validated against OpenClaw `2026.6.11` on 2026-07-11. The npm `latest` dist-tag was independently rechecked as `2026.6.11`; beta releases are not used as a stable compatibility baseline.
 
 ## Documentation mapping
 

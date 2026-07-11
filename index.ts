@@ -6,6 +6,7 @@ import {
   fetchWithSsrFGuard,
 } from "openclaw/plugin-sdk/ssrf-runtime";
 import {
+  BRAVE_TERMS_VERSION,
   approvalDescription,
   runLiveScan,
   validateOperatorAttestations,
@@ -15,9 +16,10 @@ import {
 type RightOutConfig = {
   braveApiKey: string;
   profiles: Record<string, { payload: string }>;
-  maxCandidatesPerBroker?: number;
   operatorAttestations?: {
     braveTermsAccepted: boolean;
+    braveTermsVersion: string;
+    braveCustomerResponsibilitiesAccepted: boolean;
     authorizedProfileIds: string[];
     authorizedBrokerIds: string[];
   };
@@ -42,6 +44,8 @@ async function loadCatalog(path: string): Promise<Record<string, unknown>> {
 type PublicScanInput = { profileId: string; brokerIds: string[] };
 type OperatorAttestationSnapshot = {
   braveTermsAccepted: true;
+  braveTermsVersion: string;
+  braveCustomerResponsibilitiesAccepted: true;
   authorizedProfileIds: string[];
   authorizedBrokerIds: string[];
 };
@@ -61,7 +65,7 @@ function assertSupportedBrokerScope(catalog: Record<string, unknown>, input: Pub
       return entry.id === brokerId
         && entry.category === "people_search"
         && scan?.supported === true
-        && scan.automated_access_policy === "operator_permission_required";
+        && scan.automated_access_policy === "search_index_only_no_publisher_access";
     });
     if (!broker) throw new Error("unsupported_broker");
   }
@@ -127,6 +131,8 @@ export default definePluginEntry({
       const attestations = rightout?.operatorAttestations;
       if (rightout && (
         attestations?.braveTermsAccepted !== true
+        || attestations?.braveTermsVersion !== BRAVE_TERMS_VERSION
+        || attestations?.braveCustomerResponsibilitiesAccepted !== true
         || !Array.isArray(attestations?.authorizedProfileIds)
         || attestations.authorizedProfileIds.length < 1
         || !Array.isArray(attestations?.authorizedBrokerIds)
@@ -136,8 +142,8 @@ export default definePluginEntry({
           checkId: "rightout.operator_attestations",
           severity: "critical" as const,
           title: "RightOut operator attestations are incomplete",
-          detail: "Live scans require exact authorized profile IDs, Brave terms acceptance, and explicit broker access authorization.",
-          remediation: "Set operatorAttestations only after the operator has verified the applicable authority and provider/broker terms out of band.",
+          detail: `Live scans require exact authorized profile IDs plus acceptance of Brave terms version ${BRAVE_TERMS_VERSION} and its customer responsibilities.`,
+          remediation: "Review the cited Brave terms and privacy notice, then set the exact revision-bound operatorAttestations out of band.",
         });
       }
       const runtime = config as Record<string, any>;
@@ -249,7 +255,6 @@ export default definePluginEntry({
             },
             catalog,
             apiKey: config.braveApiKey,
-            maxCandidatesPerBroker: config.maxCandidatesPerBroker,
             guardedFetch,
             signal,
             operatorAttestations: attestationSnapshot,

@@ -17,7 +17,7 @@ Release-relevant facts:
 - customers accessing result URLs remain responsible for complying with the publishers' terms;
 - the privacy notice states that standard-plan search-query logs may be retained for up to 90 days; Zero Data Retention is an enterprise option subject to the applicable agreement and legal obligations.
 
-RightOut therefore returns no raw Search Results, stores no query/result body, discloses the 90-day maximum in the native approval, and blocks live use until the operator attests acceptance of the applicable Brave terms.
+RightOut therefore returns no raw Search Results, stores no query/result body, discloses the 90-day maximum in the native approval, and blocks live use until the operator attests terms revision `2026-02-11` plus Brave's customer/end-user responsibilities. It examines result URLs transiently for an HTTPS official-domain signal and never accesses a displayed URL.
 
 ## Spokeo
 
@@ -39,14 +39,14 @@ Official site and removal entry point:
 
 The official terms and robots endpoints returned access-denied responses during the non-PII review. The controlled browser surface also rejected navigation under its safety policy. No public automated-access permission was evidenced, and no permission is inferred from public reachability, search indexing, or subject authorization alone.
 
-Decision: the catalog keeps one conditional live integration so the plugin remains live-scan capable only for an operator who has independently obtained or verified applicable automated-access authority. The plugin blocks before approval and network unless `operatorAttestations.authorizedProfileIds` contains the exact selected profile and `authorizedBrokerIds` explicitly contains `truepeoplesearch`. Public terms status remains `needs_evidence`.
+Decision: RightOut does not access TruePeopleSearch. The catalog keeps its official domain only as a Brave `site:` search scope. The runtime discards every returned URL/title/snippet/body and reports only `indirect_exposure` or `inconclusive`. TruePeopleSearch automation permission therefore remains unknown but is not a runtime access dependency.
 
 ## Stable-release meaning
 
 A stable RightOut package can prove that its software boundaries are deterministic and fail closed. It cannot certify a deployer's legal basis or private provider agreement. Stable readiness therefore requires all of the following:
 
 1. no catalog entry with a published automation prohibition is live-enabled;
-2. missing or uncertain broker authority requires a broker-specific operator attestation;
-3. Brave terms acceptance and subject authorization are explicit configuration gates;
+2. no live path makes a publisher-domain request;
+3. Brave terms revision, customer responsibilities, and subject authorization are explicit configuration gates;
 4. each call still receives a native allow-once approval showing the data disclosure and retention limit;
-5. real-provider behavior remains operationally conditional and may return `inconclusive` without weakening any safety boundary.
+5. search-index behavior may return `inconclusive` without weakening any safety boundary or being presented as proof of absence.

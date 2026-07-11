@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-- [x] Root/package/manifest/skill/SBOM versions match the tag.
+- [ ] Root/package/manifest/skill/SBOM versions match the immutable `v0.2.0` tag.
 - [x] Missing primary audit evidence remains `needs_evidence`.
 - [x] README/release notes say live **scan**, not live deletion or commercial parity.
 - [x] No unrelated, personal, secret, or generated local artifacts are committed.
@@ -22,7 +22,8 @@
 - [x] SecretInput contracts cover Brave key and every profile payload.
 - [x] No plaintext profile/key, real PII, secrets, absolute user paths, or raw live fixtures exist.
 - [x] Guarded HTTPS, DNS/SSRF policy, catalog allowlists, redirects, limits, timeouts, and capture denial are tested.
-- [x] Query/fragment candidate URLs and broad profile-path policies are rejected; only record-local JSON-LD `Person` matches can produce `found`.
+- [x] Only Brave Search is reachable; publisher-domain requests and direct-page verification code are absent.
+- [x] Search Results are transiently reduced to `indirect_exposure`/`inconclusive`; raw and derived result artifacts are not retained.
 - [x] Abort signals reach every request and cancel before or during outbound work.
 - [x] Installer restores config and the prior managed extension after a post-install runtime validation failure.
 - [x] Reports/errors omit PII, keys, queries, URLs, raw bodies, and unallowlisted errors.
@@ -37,8 +38,9 @@
 - [x] Controller domains cannot self-authorize; sensitive documents remain human-only/out of scope.
 - [x] GDPR/DSGVO/CCPA/DROP language is posture, not legal/compliance assurance.
 - [x] Commercial comparison cites official sources and states all missing capabilities.
-- [x] Published provider terms/robots are reviewed; prohibited automation is disabled and uncertain authority is fail-closed behind exact operator attestations.
+- [x] Published provider terms/robots are reviewed; prohibited publisher automation is disabled and publisher pages are never requested.
 - [x] Approval discloses Brave's published standard query-log retention maximum.
+- [x] Operator acceptance is bound to Brave Terms revision `2026-02-11` and customer responsibilities.
 
 ## Package and tests
 
@@ -60,6 +62,6 @@ make installer-test
 
 ## Publish decision
 
-- `GO` only for an approval-gated read-only live-scan prerelease when every applicable gate is evidenced.
+- `GO` for the stable approval-gated read-only index-scan plugin only when every applicable gate is evidenced.
 - `NO-GO` for any removal, monitoring, legal-service, or feature-parity claim.
-- A stable release requires additional operational evidence beyond mocked tests and isolated install; no real PII/live scan is used to manufacture that evidence during development.
+- Provider account/key validity remains a deployment readiness check. The stable software release does not claim a particular operator subscription is active and uses no real PII to manufacture release evidence.

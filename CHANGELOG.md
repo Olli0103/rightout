@@ -2,6 +2,17 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.2.0 - 2026-07-11
+
+### Stable release
+
+- Replaced direct publisher-page verification with Brave-index-only discovery; the runtime has no publisher-domain request path.
+- Reduced positive signals to honest `indirect_exposure`; live `found`, URL-derived proof references, and retained Search Results are absent.
+- Bound operator acceptance to Brave Search API Terms revision `2026-02-11` plus customer responsibilities, exact profile IDs, and broker search scope.
+- Updated provider/privacy/approval documentation and stable release gates around transient Search Result processing.
+- Updated GitHub Actions to current Node 24-based official releases, pinned to full commit SHAs.
+- Retained the native OpenClaw allow-once boundary, SecretRef-only private inputs, zero-write behavior, transactional installer, protected main branch, and explicit non-parity posture.
+
 ## 0.2.0-rc.2 - 2026-07-11
 
 ### Stable-readiness hardening

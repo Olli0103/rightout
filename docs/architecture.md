@@ -16,13 +16,12 @@ model -> optional rightout_live_scan(profileId, brokerIds)
                          v
        plugin accesses already materialized profile
                          |
-             +-----------+-----------+
-             |                       |
-             v                       v
-    Brave POST search          same-domain candidate GET
-    fixed guarded host         catalog guarded host + redirects
-             \                       /
-              +----------+-----------+
+                         |
+                         v
+              Brave POST search only
+              fixed guarded host, zero redirects
+              transient domain classification
+                         |
                          v
               sanitized report v3 only
 ```
@@ -33,17 +32,17 @@ The model-visible call and transcript contain no raw PII. OpenClaw materializes 
 
 `index.ts` uses `definePluginEntry` because one plugin registers both a tool and a typed hook. The tool is optional and `replaySafe: false`. The manifest declares tool/config/SecretInput contracts. Production packaging compiles `index.ts` and `lib/live-scan.mjs` into `dist/`; `package.json` points OpenClaw at `dist/index.js`.
 
-The `before_tool_call` hook validates and normalizes the exact profile/broker scope plus the complete exact-profile/Brave/broker attestation snapshot, displays the disclosure, unverified public broker-permission status, and Brave retention limit in `requireApproval`, and binds an `allow-once` resolution to the host-authoritative tool-call ID for 120 seconds. Execution reconstructs the normalized current snapshot, compares the full binding, consumes it, and passes the actual snapshot to the live library for independent validation before reading the profile/key or making a request. Missing, changed, expired, replayed, denied, unattested, or parameter-mutated calls fail closed. Direct Gateway invoke paths also traverse the hook; RightOut nevertheless recommends an explicit `gateway.tools.deny` entry to remove the direct full-operator HTTP surface.
+The `before_tool_call` hook validates and normalizes the exact profile/broker scope plus the complete exact-profile, pinned-Brave-revision, customer-responsibility, and broker-search-scope attestation snapshot. It displays the disclosure and Brave retention limit in `requireApproval`, then binds an `allow-once` resolution to the host-authoritative tool-call ID for 120 seconds. Execution reconstructs the normalized current snapshot, compares the full binding, consumes it, and passes the actual snapshot to the live library for independent validation before reading the profile/key or making a request. Missing, changed, expired, replayed, denied, unattested, or parameter-mutated calls fail closed.
 
-All external requests use `openclaw/plugin-sdk/ssrf-runtime` with HTTPS required, DNS/SSRF policy, exact/suffix host allowlists, bounded redirects, timeouts, size limits, safe headers, capture disabled, and OpenClaw abort-signal propagation. Candidate URLs must also have no credentials, query, or fragment and match an anchored catalog profile-path policy.
+The only external request uses `openclaw/plugin-sdk/ssrf-runtime` with HTTPS required, the exact Brave host allowlist, zero redirects, timeout, size limit, safe headers, capture disabled, and OpenClaw abort-signal propagation. Result URLs are parsed transiently only to classify an HTTPS official-domain candidate; they are never requested, returned, hashed into a proof reference, or stored.
 
 ## Result semantics
 
-- `found`: a permitted direct candidate page contained one JSON-LD `Person` object with the exact normalized full name and matching city/region in that same record. This is medium-confidence structured discovery evidence, not identity/ownership proof.
-- `inconclusive`: no candidate, no structured record match, loose/reflected page text, anti-bot/login response, provider/network/policy failure, or unsupported proof condition.
+- `indirect_exposure`: Brave returned at least one HTTPS result on the selected official domain. This is an index signal, not identity, ownership, page-content, or current-listing proof.
+- `inconclusive`: no same-domain index candidate, provider/network/policy failure, or unsupported proof condition.
 - `not_found`: intentionally never emitted by live v0.2 scans because search-index absence cannot prove absence.
 
-Proof references are HMAC-SHA-256-derived opaque IDs over broker ID plus candidate URL using a fresh random secret for each scan. The secret is erased after use, so identical URLs do not create a stable cross-scan correlation handle; candidate URLs themselves are not returned.
+Live reports contain no proof reference because deriving or retaining evidence from a Search Result would weaken the transient-use posture. The report carries only the selected broker ID, state, sanitized reason, provider disclosure, and coverage gaps.
 
 ## Offline runner
 

@@ -12,13 +12,13 @@ Official product material describes broad service expectations:
 
 ## Capability matrix
 
-| Capability | RightOut 0.2.0-rc.2 | Commercial benchmark | Status |
+| Capability | RightOut 0.2.0 | Commercial benchmark | Status |
 | --- | --- | --- | --- |
-| Live people-search discovery | One conditional catalog broker; operator authorization attestation, Brave discovery, query-free catalog path and structured-record verification | Broad scans claimed | implemented, highly restricted |
+| Live people-search discovery | One catalog broker; revision-bound Brave-only index discovery with no publisher request | Broad scans claimed | implemented, highly restricted |
 | Per-call human approval | Native OpenClaw allow-once/deny | Vendor account/service consent models vary | implemented, differentiated |
 | PII absent from agent tool params | Opaque SecretRef profile ID only | Not evidenced from public marketing | implemented |
-| Found/inconclusive semantics | One JSON-LD `Person` record must match exact name and city/region; loose text and index negatives never produce `found`/`not_found` | Exposure/report semantics vary | implemented |
-| Evidence artifact | Per-scan HMAC opaque proof ref only | Screenshots and detailed reports commonly claimed | partial by design |
+| Indirect/inconclusive semantics | Same-domain Brave result produces only `indirect_exposure`; index negatives never produce `not_found` | Exposure/report semantics vary | implemented |
+| Evidence artifact | No raw or derived Search Result retained | Screenshots and detailed reports commonly claimed | intentionally absent |
 | Removal status model | Full synthetic report states | Dashboards/status commonly claimed | model only, no live removals |
 | Automated removal/submission | None | Core commercial feature | not implemented |
 | Recurring monitoring/reappearance | State/report schema only; no scheduler | Commonly claimed | not implemented |
@@ -31,6 +31,6 @@ Official product material describes broad service expectations:
 
 ## Release conclusion
 
-RightOut has the minimum coherent feature set for an approval-gated live-scan plugin: private profile indirection, explicit broker selection, live discovery, direct verification, honest uncertainty, sanitized evidence, catalog policy, and report UX.
+RightOut has the minimum coherent feature set for an approval-gated live-scan plugin: private profile indirection, explicit broker selection, revision-bound Brave discovery, zero publisher requests, honest uncertainty, catalog policy, and report UX.
 
 It does **not** have feature parity with commercial removal services. Claiming parity would be false. Closing the removal/monitoring gaps would add external writes, identity verification, legal/terms obligations, recurring jobs, retention, customer support, and materially different approval capabilities. Those changes require separate goals and security reviews; they are not silently folded into a scan approval.

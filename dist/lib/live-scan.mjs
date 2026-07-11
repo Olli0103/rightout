@@ -1,8 +1,10 @@
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const MAX_RESPONSE_BYTES = 750_000;
 const SAFE_ID = /^[a-z0-9_]{2,24}$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
+const SAFE_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+const BRAVE_TERMS_VERSION = "2026-02-11";
 function cleanInput(value, label, min, max) {
     if (typeof value !== "string") {
         throw new Error(`invalid_${label}`);
@@ -87,16 +89,25 @@ function parseSubjectProfile(value) {
 function normalizeHost(value) {
     return value.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
 }
+function cleanOfficialDomains(values) {
+    if (!Array.isArray(values) || values.length < 1 || values.length > 5) {
+        throw new Error("unsupported_broker");
+    }
+    const domains = [...new Set(values.map((value) => typeof value === "string" ? normalizeHost(value) : ""))];
+    if (domains.length !== values.length || !domains.every((value) => SAFE_DOMAIN.test(value))) {
+        throw new Error("unsupported_broker");
+    }
+    return domains;
+}
 function hostAllowed(host, domains) {
     const normalized = normalizeHost(host);
     return domains.some((domain) => normalized === domain || normalized.endsWith(`.${domain}`));
 }
-function candidateUrls(payload, officialDomains, maxCandidates, candidatePathPattern) {
+function hasIndexCandidate(payload, officialDomains) {
     const results = payload?.web?.results;
     if (!Array.isArray(results)) {
-        return [];
+        return false;
     }
-    const urls = [];
     for (const item of results) {
         if (typeof item?.url !== "string" || item.url.length > 2_048) {
             continue;
@@ -106,25 +117,16 @@ function candidateUrls(payload, officialDomains, maxCandidates, candidatePathPat
             if (parsed.protocol !== "https:"
                 || parsed.username
                 || parsed.password
-                || parsed.search
-                || parsed.hash
                 || !hostAllowed(parsed.hostname, officialDomains)) {
                 continue;
             }
-            const pathPolicy = new RegExp(candidatePathPattern, "u");
-            if (!pathPolicy.test(parsed.pathname)) {
-                continue;
-            }
-            urls.push(parsed.toString());
+            return true;
         }
         catch {
             continue;
         }
-        if (urls.length >= maxCandidates) {
-            break;
-        }
     }
-    return [...new Set(urls)];
+    return false;
 }
 async function readBoundedText(response, maxBytes = MAX_RESPONSE_BYTES, signal) {
     throwIfAborted(signal);
@@ -163,72 +165,6 @@ async function readBoundedText(response, maxBytes = MAX_RESPONSE_BYTES, signal) 
     }
     return new TextDecoder("utf-8", { fatal: false }).decode(merged);
 }
-function normalizeIdentityText(value) {
-    return typeof value === "string"
-        ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
-        : "";
-}
-function escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function addressMatches(value, subject) {
-    const city = normalizeIdentityText(subject.city);
-    const region = normalizeIdentityText(subject.region);
-    if (typeof value === "string") {
-        const text = normalizeIdentityText(value);
-        const gap = "[\\s,;|()\\-]{0,80}";
-        const location = new RegExp(`(?:\\b${escapeRegExp(city)}\\b${gap}\\b${escapeRegExp(region)}\\b|\\b${escapeRegExp(region)}\\b${gap}\\b${escapeRegExp(city)}\\b)`, "u");
-        return location.test(text);
-    }
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return false;
-    }
-    return normalizeIdentityText(value.addressLocality) === city
-        && normalizeIdentityText(value.addressRegion) === region;
-}
-function isPersonType(value) {
-    return value === "Person" || (Array.isArray(value) && value.includes("Person"));
-}
-function personRecordMatches(value, subject) {
-    if (!value || typeof value !== "object" || Array.isArray(value) || !isPersonType(value["@type"])) {
-        return false;
-    }
-    if (normalizeIdentityText(value.name) !== normalizeIdentityText(subject.fullName)) {
-        return false;
-    }
-    const addresses = Array.isArray(value.address) ? value.address : [value.address];
-    return addresses.some((address) => addressMatches(address, subject));
-}
-function jsonLdContainsMatchingPerson(value, subject, state = { nodes: 0 }, depth = 0) {
-    if (depth > 20 || state.nodes++ > 2_000 || value === null || typeof value !== "object") {
-        return false;
-    }
-    if (personRecordMatches(value, subject)) {
-        return true;
-    }
-    const children = Array.isArray(value) ? value : Object.values(value);
-    return children.some((child) => jsonLdContainsMatchingPerson(child, subject, state, depth + 1));
-}
-function directPageMatches(html, subject) {
-    const scripts = html.matchAll(/<script\b[^>]*\btype\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-    for (const match of scripts) {
-        let payload;
-        try {
-            payload = JSON.parse(match[1]);
-        }
-        catch {
-            continue;
-        }
-        if (jsonLdContainsMatchingPerson(payload, subject)) {
-            return true;
-        }
-    }
-    return false;
-}
-function proofRef(brokerId, candidateUrl, scanSecret) {
-    const digest = createHmac("sha256", scanSecret).update(`${brokerId}\u0000${candidateUrl}`).digest("hex").slice(0, 24);
-    return `proof_${digest}`;
-}
 function safeFailureReason(error) {
     const code = error instanceof Error ? error.message : "unknown";
     const allowed = new Set([
@@ -236,9 +172,6 @@ function safeFailureReason(error) {
         "provider_rate_limited",
         "provider_unavailable",
         "provider_response_invalid",
-        "candidate_blocked",
-        "candidate_unavailable",
-        "candidate_response_invalid",
         "response_too_large",
     ]);
     return allowed.has(code) ? code : "network_or_policy_error";
@@ -284,48 +217,6 @@ async function guardedJsonPost(guardedFetch, url, body, apiKey, signal) {
         await request.release();
     }
 }
-async function verifyCandidate(guardedFetch, candidateUrl, officialDomains, subject, signal) {
-    throwIfAborted(signal);
-    const request = await guardedFetch({
-        url: candidateUrl,
-        allowedHosts: officialDomains,
-        timeoutMs: 12_000,
-        maxRedirects: 2,
-        signal,
-        init: {
-            method: "GET",
-            headers: {
-                Accept: "text/html,application/xhtml+xml",
-                "Cache-Control": "no-store",
-                "User-Agent": "RightOut/0.2 read-only approved privacy scan",
-            },
-            redirect: "follow",
-        },
-    });
-    try {
-        const finalHost = new URL(request.finalUrl).hostname;
-        if (!hostAllowed(finalHost, officialDomains)) {
-            throw new Error("candidate_blocked");
-        }
-        if (request.response.status === 401 || request.response.status === 403 || request.response.status === 429) {
-            throw new Error("candidate_blocked");
-        }
-        if (request.response.status === 404 || request.response.status === 410) {
-            return false;
-        }
-        if (!request.response.ok) {
-            throw new Error("candidate_unavailable");
-        }
-        const contentType = request.response.headers.get("content-type") || "";
-        if (!contentType.toLowerCase().includes("text/html")) {
-            throw new Error("candidate_response_invalid");
-        }
-        return directPageMatches(await readBoundedText(request.response, MAX_RESPONSE_BYTES, signal), subject);
-    }
-    finally {
-        await request.release();
-    }
-}
 export function validatePublicToolInput(input) {
     return {
         profileId: cleanProfileId(input?.profileId),
@@ -343,9 +234,17 @@ export function validateOperatorAttestations(input, value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("rightout_operator_attestation_required");
     }
-    const allowedKeys = new Set(["braveTermsAccepted", "authorizedProfileIds", "authorizedBrokerIds"]);
+    const allowedKeys = new Set([
+        "braveTermsAccepted",
+        "braveTermsVersion",
+        "braveCustomerResponsibilitiesAccepted",
+        "authorizedProfileIds",
+        "authorizedBrokerIds",
+    ]);
     if (Object.keys(value).some((key) => !allowedKeys.has(key))
-        || value.braveTermsAccepted !== true) {
+        || value.braveTermsAccepted !== true
+        || value.braveTermsVersion !== BRAVE_TERMS_VERSION
+        || value.braveCustomerResponsibilitiesAccepted !== true) {
         throw new Error("rightout_operator_attestation_required");
     }
     const authorizedProfileIds = cleanAuthorizedProfileIds(value.authorizedProfileIds);
@@ -356,15 +255,17 @@ export function validateOperatorAttestations(input, value) {
     }
     return {
         braveTermsAccepted: true,
+        braveTermsVersion: BRAVE_TERMS_VERSION,
+        braveCustomerResponsibilitiesAccepted: true,
         authorizedProfileIds,
         authorizedBrokerIds,
     };
 }
 export function approvalDescription(input) {
     const validated = validatePublicToolInput(input);
-    return `P ${validated.profileId}; B ${validated.brokerIds.join(",")}. Send name+city+region+country to Brave (logs <=90d unless ZDR). Fetch operator-attested pages; public permission unverified. RightOut: no writes/storage/email.`;
+    return `P ${validated.profileId}; B ${validated.brokerIds.join(",")}. Brave index only (terms ${BRAVE_TERMS_VERSION}; duties attested; logs <=90d unless ZDR). Sends name+city+region+country. No broker fetch/write/email; RightOut stores none.`;
 }
-export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBroker = 2, guardedFetch, signal, operatorAttestations }) {
+export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal, operatorAttestations }) {
     throwIfAborted(signal);
     const validated = validateLiveScanInput(input);
     validateOperatorAttestations(validated, operatorAttestations);
@@ -377,57 +278,38 @@ export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBrok
     if (selected.some((entry) => (!entry
         || entry.category !== "people_search"
         || entry.scan?.supported !== true
-        || entry.scan?.automated_access_policy !== "operator_permission_required"))) {
+        || entry.scan?.automated_access_policy !== "search_index_only_no_publisher_access"))) {
         throw new Error("unsupported_broker");
     }
-    const candidateLimit = Math.min(Math.max(Number(maxCandidatesPerBroker) || 2, 1), 3);
     const results = [];
-    const scanSecret = randomBytes(32);
     const scanId = `scan_${randomUUID().replaceAll("-", "")}`;
-    try {
-        for (const broker of selected) {
-            throwIfAborted(signal);
-            const officialDomains = broker.official_domains.map(normalizeHost);
-            const query = `site:${officialDomains[0]} "${subject.fullName}" "${subject.city}" "${subject.region}"`;
-            try {
-                const payload = await guardedJsonPost(guardedFetch, BRAVE_ENDPOINT, { q: query, country: "US", search_lang: "en", safesearch: "strict", count: 10 }, apiKey, signal);
-                const brokerCandidateLimit = Math.min(candidateLimit, Number(broker.scan.max_candidates) || 1);
-                const candidates = candidateUrls(payload, officialDomains, brokerCandidateLimit, broker.scan.candidate_path_pattern);
-                let foundRef = null;
-                let verificationFailure = null;
-                for (const candidate of candidates) {
-                    throwIfAborted(signal);
-                    try {
-                        if (await verifyCandidate(guardedFetch, candidate, officialDomains, subject, signal)) {
-                            foundRef = proofRef(broker.id, candidate, scanSecret);
-                            break;
-                        }
-                    }
-                    catch (error) {
-                        throwIfAborted(signal);
-                        verificationFailure = safeFailureReason(error);
-                    }
-                }
-                if (foundRef) {
-                    results.push({ broker_id: broker.id, state: "found", proof_references: [foundRef], reason: "structured_person_record_match" });
-                }
-                else {
-                    results.push({
-                        broker_id: broker.id,
-                        state: "inconclusive",
-                        proof_references: [],
-                        reason: verificationFailure || (candidates.length ? "candidate_not_verified" : "no_index_candidates_not_proof_of_absence"),
-                    });
-                }
+    for (const broker of selected) {
+        throwIfAborted(signal);
+        const officialDomains = cleanOfficialDomains(broker.official_domains);
+        const query = `site:${officialDomains[0]} "${subject.fullName}" "${subject.city}" "${subject.region}"`;
+        try {
+            const payload = await guardedJsonPost(guardedFetch, BRAVE_ENDPOINT, { q: query, country: "US", search_lang: "en", safesearch: "strict", count: 10 }, apiKey, signal);
+            if (hasIndexCandidate(payload, officialDomains)) {
+                results.push({
+                    broker_id: broker.id,
+                    state: "indirect_exposure",
+                    proof_references: [],
+                    reason: "search_index_candidate_observed",
+                });
             }
-            catch (error) {
-                throwIfAborted(signal);
-                results.push({ broker_id: broker.id, state: "inconclusive", proof_references: [], reason: safeFailureReason(error) });
+            else {
+                results.push({
+                    broker_id: broker.id,
+                    state: "inconclusive",
+                    proof_references: [],
+                    reason: "no_index_candidates_not_proof_of_absence",
+                });
             }
         }
-    }
-    finally {
-        scanSecret.fill(0);
+        catch (error) {
+            throwIfAborted(signal);
+            results.push({ broker_id: broker.id, state: "inconclusive", proof_references: [], reason: safeFailureReason(error) });
+        }
     }
     return {
         report_version: 3,
@@ -440,24 +322,27 @@ export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBrok
             name: "Brave Search API",
             endpoint_host: "api.search.brave.com",
             query_transport: "POST body",
+            terms_version: BRAVE_TERMS_VERSION,
             query_log_retention: "up_to_90_days_standard_plan_unless_applicable_zdr_agreement",
             raw_provider_results_included: false,
         },
         disclosures: {
             to_search_provider: ["full_name", "city", "region", "country"],
-            to_broker_pages: ["query_free_candidate_profile_page_request"],
+            to_broker_pages: [],
             values_in_report: false,
         },
         results,
         summary: {
             checked: results.length,
-            found: results.filter((item) => item.state === "found").length,
+            found: 0,
+            indirect_exposure: results.filter((item) => item.state === "indirect_exposure").length,
             not_found: 0,
             inconclusive: results.filter((item) => item.state === "inconclusive").length,
             coverage_gaps: [
                 "search_index_coverage_is_not_complete",
                 "no_index_result_is_not_proof_of_absence",
-                "anti_bot_or_login_pages_remain_inconclusive",
+                "search_index_candidates_are_indirect_signals_not_identity_proof",
+                "publisher_pages_are_never_fetched",
                 "only_catalog_brokers_with_supported_live_scan_policy_are_checked",
             ],
         },
@@ -466,7 +351,9 @@ export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBrok
             submissions: 0,
             emails: 0,
             provider_writes: 0,
+            publisher_requests: 0,
             local_pii_storage: 0,
+            search_result_storage: 0,
             raw_pii_in_report: false,
             raw_response_content_in_report: false,
             candidate_urls_in_report: false,
@@ -474,9 +361,9 @@ export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBrok
     };
 }
 export const __test = {
-    candidateUrls,
-    directPageMatches,
-    proofRef,
+    hasIndexCandidate,
+    cleanOfficialDomains,
     readBoundedText,
     throwIfAborted,
 };
+export { BRAVE_TERMS_VERSION };

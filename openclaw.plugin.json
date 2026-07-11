@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Approval-gated, read-only live data-broker scans with PII-safe reports",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.0",
   "skills": [
     "./skills"
   ],
@@ -53,14 +53,9 @@
       "help": "JSON with fullName, city, region and country. Configure only as an OpenClaw SecretRef; never as plaintext.",
       "sensitive": true
     },
-    "maxCandidatesPerBroker": {
-      "label": "Candidate page limit",
-      "help": "Maximum same-domain candidate pages verified per broker.",
-      "advanced": true
-    },
     "operatorAttestations": {
-      "label": "Operator legal and access attestations",
-      "help": "Fail-closed live gate. Set only after verifying subject authorization, Brave terms, and broker-specific automated-access authority out of band.",
+      "label": "Operator privacy and provider attestations",
+      "help": "Fail-closed live gate. Requires exact profile scope and acceptance of the pinned Brave terms revision and customer responsibilities.",
       "advanced": true
     }
   },
@@ -92,22 +87,24 @@
           }
         }
       },
-      "maxCandidatesPerBroker": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 3,
-        "default": 2
-      },
       "operatorAttestations": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "braveTermsAccepted",
+          "braveTermsVersion",
+          "braveCustomerResponsibilitiesAccepted",
           "authorizedProfileIds",
           "authorizedBrokerIds"
         ],
         "properties": {
           "braveTermsAccepted": {
+            "const": true
+          },
+          "braveTermsVersion": {
+            "const": "2026-02-11"
+          },
+          "braveCustomerResponsibilitiesAccepted": {
             "const": true
           },
           "authorizedProfileIds": {

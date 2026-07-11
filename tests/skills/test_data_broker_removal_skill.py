@@ -202,6 +202,15 @@ class ReportingAndStateTests(unittest.TestCase):
         self.assertEqual(scan["invariants"], {"network_calls": 0, "provider_writes": 0, "real_pii_processed": False, "submissions": 0})
         self.assertEqual(report["removal_summary"]["requests_submitted"], 0)
 
+    def test_indirect_exposure_never_enters_found_bucket(self) -> None:
+        case = fixture_case()
+        case["state"] = "indirect_exposure"
+        report = rightout.build_scan_report({"cases": [case], "scan_only": True})
+        self.assertEqual(report["found"], [])
+        self.assertEqual(len(report["indirect_exposure"]), 1)
+        self.assertEqual(report["indirect_exposure"][0]["state"], "indirect_exposure")
+        self.assertEqual(rightout.REPORT_STAGES["indirect_exposure"], "indirect_signal")
+
     def test_removal_report_exercises_full_dummy_status_matrix(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rightout-removal-report-") as tmp:
             report = run([sys.executable, str(RUNNER), "e2e-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
@@ -305,13 +314,14 @@ class CatalogValidationTests(unittest.TestCase):
         catalog["brokers"][0]["lane"] = "web_form"
         self.assertTrue(any("registry category" in error for error in rightout.validate_catalog_data(catalog)))
 
-    def test_catalog_rejects_broad_or_invalid_live_candidate_path_policy(self) -> None:
-        broad = load_catalog()
-        next(item for item in broad["brokers"] if item["id"] == "truepeoplesearch")["scan"]["candidate_path_pattern"] = "^/.*$"
-        self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(broad)))
-        invalid = load_catalog()
-        next(item for item in invalid["brokers"] if item["id"] == "truepeoplesearch")["scan"]["candidate_path_pattern"] = "^/[broken$"
-        self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(invalid)))
+    def test_catalog_rejects_direct_publisher_fetch_policy(self) -> None:
+        unsafe = load_catalog()
+        scan = next(item for item in unsafe["brokers"] if item["id"] == "truepeoplesearch")["scan"]
+        scan["candidate_path_pattern"] = "^/.*$"
+        self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(unsafe)))
+        unsafe_strategy = load_catalog()
+        next(item for item in unsafe_strategy["brokers"] if item["id"] == "truepeoplesearch")["scan"]["strategy"] = "brave_site_query_then_same_domain_verify"
+        self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(unsafe_strategy)))
 
     def test_published_automation_prohibition_disables_live_scan(self) -> None:
         catalog = load_catalog()
@@ -392,6 +402,8 @@ class InstallerTests(unittest.TestCase):
                     "plugins.entries.rightout.config.operatorAttestations",
                     json.dumps({
                         "braveTermsAccepted": True,
+                        "braveTermsVersion": "2026-02-11",
+                        "braveCustomerResponsibilitiesAccepted": True,
                         "authorizedProfileIds": ["profile_a1b2c3d4e5f60718"],
                         "authorizedBrokerIds": ["truepeoplesearch"],
                     }),

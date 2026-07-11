@@ -19,6 +19,6 @@ The state machine validates report semantics only. It does not authorize or exec
 
 Only cases with `fixture_only: true` may transition. Shipped catalog cases remain `new` and are reported as `not_checked`. The public CLI exposes no record or mutation command, so a scan-only run cannot enter any removal state.
 
-The live plugin returns a stateless scan report and does not use this persistence/state machine. A live `found` result therefore cannot advance to `submitted` or any other removal state.
+The live plugin returns a stateless scan report and does not use this persistence/state machine. A live `indirect_exposure` index signal therefore cannot advance to `submitted` or any other removal state.
 
 These states describe test coverage. They are not claims that a request was approved, sent, processed, or verified.
