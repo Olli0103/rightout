@@ -202,6 +202,15 @@ class ReportingAndStateTests(unittest.TestCase):
         self.assertEqual(scan["invariants"], {"network_calls": 0, "provider_writes": 0, "real_pii_processed": False, "submissions": 0})
         self.assertEqual(report["removal_summary"]["requests_submitted"], 0)
 
+    def test_indirect_exposure_never_enters_found_bucket(self) -> None:
+        case = fixture_case()
+        case["state"] = "indirect_exposure"
+        report = rightout.build_scan_report({"cases": [case], "scan_only": True})
+        self.assertEqual(report["found"], [])
+        self.assertEqual(len(report["indirect_exposure"]), 1)
+        self.assertEqual(report["indirect_exposure"][0]["state"], "indirect_exposure")
+        self.assertEqual(rightout.REPORT_STAGES["indirect_exposure"], "indirect_signal")
+
     def test_removal_report_exercises_full_dummy_status_matrix(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rightout-removal-report-") as tmp:
             report = run([sys.executable, str(RUNNER), "e2e-dummy", "--workdir", str(Path(tmp).resolve())])["report"]

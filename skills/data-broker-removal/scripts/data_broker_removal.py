@@ -95,7 +95,7 @@ HIBP_ALLOWED_ENTRY_KEYS = {
 }
 REPORT_STAGES = {
     "found": "found_exposure",
-    "indirect_exposure": "found_exposure",
+    "indirect_exposure": "indirect_signal",
     "not_found": "not_found",
     "inconclusive": "needs_review",
     "approval_required": "ready_for_operator_approval",
@@ -1028,7 +1028,8 @@ def build_scan_report(plan: dict[str, Any]) -> dict[str, Any]:
             }
             for case in checked
         ],
-        "found": by_state["found"] + by_state["indirect_exposure"],
+        "found": by_state["found"],
+        "indirect_exposure": by_state["indirect_exposure"],
         "not_found": by_state["not_found"],
         "inconclusive": by_state["inconclusive"] + by_state["blocked"],
         "not_checked": [

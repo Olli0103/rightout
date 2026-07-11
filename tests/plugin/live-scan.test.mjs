@@ -81,7 +81,8 @@ test("approval text names scope without exposing PII values", () => {
   assert.match(text, /name\+city\+region\+country/);
   assert.match(text, /logs <=90d unless ZDR/);
   assert.match(text, /terms 2026-02-11/);
-  assert.match(text, /No broker fetch, storage, email, or write/);
+  assert.match(text, /duties attested/);
+  assert.match(text, /No broker fetch\/write\/email; RightOut stores none/);
   assert.doesNotMatch(text, /Avery|Exampleville|CA/);
   assert.ok(text.length <= 256);
   const maximumScopeText = approvalDescription({

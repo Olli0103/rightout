@@ -136,6 +136,8 @@ def main() -> None:
     for token in ["urllib.request", "requests.", "http.client", "smtplib", "RIGHTOUT_ENABLE_UNSAFE_LOCAL_LIVE", "OPENCLAW_APPROVAL_RECEIPT_KEY"]:
         if token in runner:
             fail(errors, f"offline runner contains prohibited token: {token}")
+    if '"indirect_exposure": by_state["indirect_exposure"]' not in runner or 'by_state["found"] + by_state["indirect_exposure"]' in runner:
+        fail(errors, "offline report must keep indirect_exposure separate from found")
     runtime_js = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in ["index.ts", "lib/live-scan.mjs"])
     if "globalThis.fetch" in combined or re.search(r"\bfetch\s*\(", runtime_js) or re.search(r"(?<!guarded)fetch\s*\(", runner):
         fail(errors, "unguarded fetch path detected")

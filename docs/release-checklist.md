@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-- [x] Root/package/manifest/skill/SBOM versions match the tag.
+- [ ] Root/package/manifest/skill/SBOM versions match the immutable `v0.2.0` tag.
 - [x] Missing primary audit evidence remains `needs_evidence`.
 - [x] README/release notes say live **scan**, not live deletion or commercial parity.
 - [x] No unrelated, personal, secret, or generated local artifacts are committed.
