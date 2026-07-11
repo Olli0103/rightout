@@ -54,7 +54,7 @@ def main() -> None:
         link_ok = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "verify-link", "--url", "https://privacy.example.invalid/verify/token", "--allowed-domain", "example.invalid"], skill_dir)
         link_bad = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "verify-link", "--url", "http://evil.invalid/verify/token", "--allowed-domain", "example.invalid"], skill_dir)
         real = {
-            "subject_id": "subj_realish",
+            "subject_id": "subj_1111111111111111",
             "dummy": False,
             "consent": True,
             "consent_scope": ["audit", "plan"],
@@ -66,18 +66,18 @@ def main() -> None:
             },
             "created_at": "2026-07-11T00:00:00+00:00"
         }
-        real_dir = Path(e2e_dir) / "subjects" / "subj_realish"
+        real_dir = Path(e2e_dir) / "subjects" / real["subject_id"]
         real_dir.mkdir(parents=True)
         (real_dir / "dossier.json").write_text(json.dumps(real), encoding="utf-8")
         (real_dir / "metadata.json").write_text(json.dumps({k: real[k] for k in ["subject_id", "dummy", "consent", "consent_scope", "jurisdictions"]}), encoding="utf-8")
-        gate_denied = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "plan", "--workdir", e2e_dir, "--subject-id", "subj_realish"], skill_dir, expect=1)
+        gate_denied = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "plan", "--workdir", e2e_dir, "--subject-id", real["subject_id"]], skill_dir, expect=1)
         storage_marker = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "mark-storage", "--workdir", e2e_dir, "--method", "filevault", "--note", "dummy validation marker"], skill_dir)
         receipts = []
         for gate in ["process_real_pii", "store_dossier"]:
             path = Path(tmp) / f"{gate}.json"
             path.write_text(json.dumps({
                 "approval_id": f"test-{gate}",
-                "subject_id": "subj_realish",
+                "subject_id": real["subject_id"],
                 "gate": gate,
                 "issued_by": "openclaw-approval-boundary",
                 "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -86,7 +86,7 @@ def main() -> None:
                 "non_goals": ["no external writes"]
             }), encoding="utf-8")
             receipts.extend(["--approval-receipt", str(path)])
-        real_planned = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "plan", "--workdir", e2e_dir, "--subject-id", "subj_realish", *receipts], skill_dir)
+        live_disabled = run([sys.executable, str(runner), "--skill-dir", str(skill_dir), "plan", "--workdir", e2e_dir, "--subject-id", real["subject_id"], *receipts], skill_dir, expect=1)
     report = e2e["report"]
     errors: list[str] = []
     if not doctor.get("ok"):
@@ -127,8 +127,8 @@ def main() -> None:
         errors.append("real PII planning denial did not mention required gates")
     if not storage_marker.get("ok"):
         errors.append("encrypted storage marker failed")
-    if not real_planned.get("ok"):
-        errors.append("real PII planning with scoped receipts failed")
+    if "public RightOut disables live PII" not in live_disabled.get("stderr", ""):
+        errors.append("live PII planning with receipts was not disabled by public runner")
     print(json.dumps({"ok": not errors, "errors": errors, "doctor": doctor, "validation": validation, "e2e_report": report, "actions_checked": len(actions.get("actions", [])), "tasks_checked": len(tasks.get("tasks", []))}, indent=2, sort_keys=True))
     if errors:
         raise SystemExit(1)

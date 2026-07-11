@@ -53,7 +53,7 @@ Skip validation only when you are packaging or debugging:
 
 ## After Install
 
-Use the skill when asking OpenClaw to audit, scan-only review, plan, or stage data-broker removal work.
+Use the skill when asking OpenClaw to validate dummy-only scan/report/planning behavior or review the safety model. Live real-PII workflows are disabled in the public runner until a platform-owned OpenClaw approval adapter exists.
 
 Start with dummy checks:
 
@@ -66,5 +66,4 @@ python3 ~/.openclaw/workspace/skills/data-broker-removal/scripts/data_broker_rem
 
 ## Safety
 
-RightOut does not perform live scans, submit forms, send email, schedule rechecks, or write provider data without explicit approval gates. Dummy validation does not require real PII.
-
+RightOut does not perform live scans, submit forms, send email, schedule rechecks, or write provider data. Dummy validation does not require real PII.

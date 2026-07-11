@@ -16,6 +16,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+SUBJECT_ID_RE = re.compile(r"^subj_[a-f0-9]{16,64}$")
+BROKER_ID_RE = re.compile(r"^[a-z0-9_]{2,80}$")
+DUMMY_SUBJECT_ID = "subj_314c841b03067a74"
+COMMUNITY_LIVE_DISABLED = True
 ALLOWED_STATES: dict[str, set[str]] = {
     "new": {"searching", "found", "not_found", "inconclusive", "indirect_exposure", "blocked"},
     "searching": {"not_found", "found", "inconclusive", "indirect_exposure", "blocked"},
@@ -136,8 +140,11 @@ def append_jsonl(path: Path, data: dict[str, Any]) -> None:
 
 
 def secure_open_text(path: Path, append: bool = False):
+    reject_symlink_path(path)
     flags = os.O_WRONLY | os.O_CREAT
     flags |= os.O_APPEND if append else os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     fd = os.open(path, flags, 0o600)
     return os.fdopen(fd, "a" if append else "w", encoding="utf-8")
 
@@ -148,6 +155,7 @@ def write_text_secure(path: Path, text: str) -> None:
 
 
 def secure_file(path: Path) -> None:
+    reject_symlink_path(path)
     try:
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
     except PermissionError:
@@ -155,11 +163,34 @@ def secure_file(path: Path) -> None:
 
 
 def secure_dir(path: Path) -> None:
+    reject_symlink_path(path)
     path.mkdir(parents=True, exist_ok=True)
     try:
         path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     except PermissionError:
         raise SystemExit(f"could not chmod 0700: {path}")
+
+
+def reject_symlink_path(path: Path) -> None:
+    current = path if path.is_absolute() else path.resolve().anchor
+    probe = Path(path.anchor) if path.is_absolute() else Path.cwd().anchor
+    parts = path.parts[1:] if path.is_absolute() else path.parts
+    for part in parts:
+        probe = probe / part
+        if probe.is_symlink():
+            raise SystemExit("refusing to follow symlink in RightOut storage path")
+
+
+def safe_join(root: Path, *parts: str) -> Path:
+    root = root.expanduser().resolve()
+    path = root.joinpath(*parts)
+    resolved_parent = path.parent.resolve()
+    if root != resolved_parent and root not in resolved_parent.parents:
+        raise SystemExit("path escapes RightOut workdir")
+    reject_symlink_path(path.parent)
+    if path.exists():
+        reject_symlink_path(path)
+    return path
 
 
 def storage_marker_path(workdir: Path) -> Path:
@@ -239,6 +270,35 @@ def dummy_subject() -> dict[str, Any]:
         },
         "created_at": now(),
     }
+
+
+def validate_subject_id(subject_id: str) -> str:
+    if not isinstance(subject_id, str) or not SUBJECT_ID_RE.fullmatch(subject_id):
+        raise SystemExit("invalid subject_id")
+    return subject_id
+
+
+def validate_broker_id(broker_id: str) -> str:
+    if not isinstance(broker_id, str) or not BROKER_ID_RE.fullmatch(broker_id):
+        raise SystemExit("invalid broker_id")
+    return broker_id
+
+
+def is_builtin_dummy_subject(subject: dict[str, Any]) -> bool:
+    expected = dummy_subject()
+    return (
+        subject.get("dummy") is True
+        and subject.get("subject_id") == expected["subject_id"]
+        and subject.get("profile") == expected["profile"]
+        and set(subject.get("jurisdictions", [])) == set(expected["jurisdictions"])
+    )
+
+
+def reject_public_live_mode(reason: str) -> None:
+    if COMMUNITY_LIVE_DISABLED and os.environ.get("RIGHTOUT_ENABLE_UNSAFE_LOCAL_LIVE") != "1":
+        raise SystemExit(
+            f"{reason}; public RightOut disables live PII/submission authority until a platform-owned OpenClaw approval adapter is integrated"
+        )
 
 
 def approved_gates(raw: list[str] | None) -> set[str]:
@@ -333,7 +393,7 @@ def effective_gates(args: argparse.Namespace, plan: dict[str, Any] | None = None
 
 
 def subject_has_real_pii(subject: dict[str, Any]) -> bool:
-    if subject.get("dummy") is True:
+    if is_builtin_dummy_subject(subject):
         return False
     return True
 
@@ -374,7 +434,8 @@ def validate_evidence(evidence: dict[str, Any] | None) -> None:
 
 
 def subject_dir(workdir: Path, subject_id: str) -> Path:
-    path = workdir / "subjects" / subject_id
+    validate_subject_id(subject_id)
+    path = safe_join(workdir, "subjects", subject_id)
     assert_no_pii_in_path(path)
     return path
 
@@ -430,6 +491,8 @@ def save_plan(workdir: Path, plan: dict[str, Any], event: str = "plan_saved") ->
 
 
 def make_case(subject_id: str, broker: dict[str, Any]) -> dict[str, Any]:
+    validate_subject_id(subject_id)
+    validate_broker_id(broker["id"])
     return {
         "subject_id": subject_id,
         "broker_id": broker["id"],
@@ -461,7 +524,8 @@ def plan_for_subject(skill_dir: Path, subject: dict[str, Any]) -> dict[str, Any]
         cases.append(make_case(subject["subject_id"], broker))
     return {
         "created_at": now(),
-        "mode": "dummy" if subject.get("dummy") else "approval_bound_live",
+        "mode": "dummy" if is_builtin_dummy_subject(subject) else "approval_bound_live",
+        "runner_fixture": "rightout_builtin_dummy_v1" if is_builtin_dummy_subject(subject) else None,
         "scan_only": False,
         "subject_id": subject["subject_id"],
         "jurisdictions": sorted(jurisdictions),
@@ -475,7 +539,7 @@ def plan_for_subject(skill_dir: Path, subject: dict[str, Any]) -> dict[str, Any]
 def scan_only_plan_for_subject(skill_dir: Path, subject: dict[str, Any]) -> dict[str, Any]:
     plan = plan_for_subject(skill_dir, subject)
     plan["scan_only"] = True
-    plan["mode"] = "dummy_scan_only" if subject.get("dummy") else "approval_bound_scan_only"
+    plan["mode"] = "dummy_scan_only" if is_builtin_dummy_subject(subject) else "approval_bound_scan_only"
     plan["non_goals"].extend(["submission", "request drafting", "provider writes"])
     return plan
 
@@ -498,7 +562,7 @@ def require_official_submission_evidence(case: dict[str, Any], evidence: dict[st
         controller_url = evidence.get("controller_url")
         if evidence.get("controller_verified") is not True or not controller_url:
             raise SystemExit("submitted controller-rights case requires verified controller_url evidence")
-        scope = verify_link_scope(controller_url, evidence.get("allowed_domains") or case.get("allowed_domains", []))
+        scope = verify_link_scope(controller_url, case.get("allowed_domains", []))
         if not scope["ok"]:
             raise SystemExit("submitted controller_url must match verified allowed_domains")
     source_url = evidence.get("source_url")
@@ -777,7 +841,14 @@ def build_report(plan: dict[str, Any], intelligence: dict[str, Any] | None = Non
         "user_next_steps": next_actions(plan),
     }
     if intelligence:
-        report["hibp"] = intelligence.get("summary", intelligence)
+        report["hibp"] = {
+            **intelligence.get("summary", intelligence),
+            "source_name": "Have I Been Pwned",
+            "source_url": "https://haveibeenpwned.com/",
+            "license_url": "https://haveibeenpwned.com/API/v3#License",
+            "attribution": "Breach metadata derived from Have I Been Pwned operator-supplied/API export; HIBP risk signals are not broker-removal evidence.",
+            "imported_at": intelligence.get("imported_at"),
+        }
     return report
 
 
@@ -814,6 +885,7 @@ def due_cases(plan: dict[str, Any], today: dt.date | None = None) -> list[dict[s
 
 
 def find_case(plan: dict[str, Any], broker_id: str) -> dict[str, Any]:
+    validate_broker_id(broker_id)
     for case in plan["cases"]:
         if case["broker_id"] == broker_id:
             return case
@@ -821,11 +893,13 @@ def find_case(plan: dict[str, Any], broker_id: str) -> dict[str, Any]:
 
 
 def check_gate(plan: dict[str, Any], gate: str | None, gates: set[str]) -> bool:
-    return plan["mode"] == "dummy" or not gate or gate not in LIVE_ACTION_GATES or gate in gates
+    dummy_authorized = plan.get("mode") == "dummy" and plan.get("subject_id") == DUMMY_SUBJECT_ID and plan.get("runner_fixture") == "rightout_builtin_dummy_v1"
+    scan_dummy_authorized = plan.get("mode") == "dummy_scan_only" and plan.get("subject_id") == DUMMY_SUBJECT_ID and plan.get("runner_fixture") == "rightout_builtin_dummy_v1"
+    return dummy_authorized or scan_dummy_authorized or not gate or gate not in LIVE_ACTION_GATES or gate in gates
 
 
 def require_plan_scope(plan: dict[str, Any], scope_name: str) -> None:
-    if plan.get("mode") == "dummy":
+    if plan.get("mode") in {"dummy", "dummy_scan_only"} and plan.get("runner_fixture") == "rightout_builtin_dummy_v1":
         return
     if scope_name not in set(plan.get("consent_scope", [])):
         raise SystemExit(f"consent_scope does not include {scope_name}")
@@ -877,7 +951,7 @@ def template_for_kind(skill_dir: Path, kind: str) -> Path:
 def verified_controller_url(case: dict[str, Any]) -> str | None:
     for evidence in case.get("evidence", []):
         if evidence.get("controller_verified") is True and evidence.get("controller_url"):
-            scope = verify_link_scope(evidence["controller_url"], evidence.get("allowed_domains") or case.get("allowed_domains", []))
+            scope = verify_link_scope(evidence["controller_url"], case.get("allowed_domains", []))
             if scope["ok"]:
                 return evidence["controller_url"]
     return None
@@ -939,6 +1013,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     required = [
         skill_dir / "SKILL.md",
         skill_dir / "README.md",
+        skill_dir / "LICENSE",
         skill_dir / "THIRD_PARTY_NOTICES.md",
         skill_dir / "references" / "security-model.md",
         skill_dir / "references" / "operations.md",
@@ -973,9 +1048,13 @@ def cmd_intake_subject(args: argparse.Namespace) -> None:
     subject = load_json(Path(args.subject_file).expanduser().resolve())
     if "subject_id" not in subject:
         subject["subject_id"] = opaque_subject_id()
+    validate_subject_id(subject["subject_id"])
+    if subject.get("dummy") is True:
+        raise SystemExit("external subject files cannot declare dummy:true; use intake-dummy or e2e-dummy for runner-owned fixtures")
     validate_consent(subject)
     gates = effective_gates(args, subject_id=subject["subject_id"])
     if subject_has_real_pii(subject):
+        reject_public_live_mode("real PII intake is not enabled in the public community runner")
         missing = sorted({"process_real_pii", "store_dossier"} - gates)
         if missing:
             raise SystemExit(f"real PII intake requires approval gate(s): {', '.join(missing)}")
@@ -989,6 +1068,7 @@ def cmd_plan(args: argparse.Namespace) -> None:
     skill_dir = skill_dir_arg(args)
     workdir = Path(args.workdir).expanduser().resolve()
     meta = load_metadata(workdir, args.subject_id)
+    validate_subject_id(args.subject_id)
     validate_consent(meta)
     require_consent_scope(meta, "audit")
     gates = effective_gates(args, subject_id=args.subject_id)
@@ -998,6 +1078,8 @@ def cmd_plan(args: argparse.Namespace) -> None:
         raise SystemExit("real PII planning requires encrypted storage marker or explicit allow_unencrypted_local scope")
     subject = load_subject(workdir, args.subject_id)
     validate_consent(subject)
+    if subject_has_real_pii(subject):
+        reject_public_live_mode("real PII planning is not enabled in the public community runner")
     plan = plan_for_subject(skill_dir, subject)
     save_plan(workdir, plan, event="plan_created")
     print(json.dumps({"ok": True, "summary": summarize(plan)}, indent=2, sort_keys=True))
@@ -1011,15 +1093,28 @@ def cmd_next(args: argparse.Namespace) -> None:
 def cmd_record(args: argparse.Namespace) -> None:
     workdir = Path(args.workdir).expanduser().resolve()
     plan = load_plan(workdir, args.subject_id)
+    validate_subject_id(args.subject_id)
+    validate_broker_id(args.broker_id)
     case = find_case(plan, args.broker_id)
     evidence = json.loads(args.evidence) if args.evidence else None
     disclosed = args.disclosed or []
     gate = case.get("approval_gate")
     gates = effective_gates(args, plan=plan, subject_id=args.subject_id, broker_id=args.broker_id)
     required_gate = state_required_gate(args.state)
+    if plan.get("scan_only") and args.state in {
+        "action_selected",
+        "approval_required",
+        "submitted",
+        "verification_pending",
+        "awaiting_processing",
+        "confirmed_removed",
+        "human_task_queued",
+    }:
+        raise SystemExit("scan_only plans cannot advance to removal, submission, verification, or human-task states")
     if required_gate and not check_gate(plan, required_gate, gates):
         raise SystemExit(f"{args.state} for {args.broker_id} requires approval gate: {required_gate}")
     if plan.get("mode") != "dummy":
+        reject_public_live_mode(f"{args.state} recording is not enabled for live subjects in the public community runner")
         missing_subject_gates = sorted(subject_action_required_gates(args.state) - gates)
         if missing_subject_gates:
             raise SystemExit(f"{args.state} for {args.broker_id} requires approval gate(s): {', '.join(missing_subject_gates)}")
@@ -1055,6 +1150,7 @@ def cmd_import_hibp(args: argparse.Namespace) -> None:
     require_consent_scope(meta, "breach_intelligence")
     gates = effective_gates(args, subject_id=args.subject_id)
     if meta.get("dummy") is not True:
+        reject_public_live_mode("live HIBP import is not enabled in the public community runner")
         missing = sorted({"process_real_pii", "store_dossier"} - gates)
         if missing:
             raise SystemExit(f"HIBP import requires approval gate(s): {', '.join(missing)}")
@@ -1095,12 +1191,17 @@ def cmd_render_email(args: argparse.Namespace) -> None:
     skill_dir = skill_dir_arg(args)
     workdir = Path(args.workdir).expanduser().resolve()
     plan = load_plan(workdir, args.subject_id)
+    validate_subject_id(args.subject_id)
+    validate_broker_id(args.broker_id)
+    if plan.get("scan_only"):
+        raise SystemExit("scan_only plans cannot render request drafts")
     case = find_case(plan, args.broker_id)
     gates = effective_gates(args, plan=plan, subject_id=args.subject_id, broker_id=args.broker_id)
     if not check_gate(plan, "send_request", gates):
         raise SystemExit("rendering live request content requires send_request approval unless dummy mode")
     require_plan_scope(plan, "send_request")
     if plan.get("mode") != "dummy":
+        reject_public_live_mode("live request rendering is not enabled in the public community runner")
         if "process_real_pii" not in gates:
             raise SystemExit("rendering live request content requires process_real_pii approval")
         if "store_dossier" not in gates:
@@ -1176,7 +1277,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     gdpr = (skill_dir / "references" / "legal" / "gdpr.md").read_text(encoding="utf-8")
     if "DSGVO" not in gdpr or "Article 17" not in gdpr:
         errors.append("gdpr reference must cover DSGVO and Article 17")
-    for rel in ["SKILL.md", "README.md", "THIRD_PARTY_NOTICES.md"]:
+    for rel in ["SKILL.md", "README.md", "THIRD_PARTY_NOTICES.md", "LICENSE"]:
         if "Olli" in (skill_dir / rel).read_text(encoding="utf-8"):
             errors.append(f"{rel} contains Olli-specific text")
     print(json.dumps({"ok": not errors, "errors": errors, "broker_count": len(catalog["brokers"])}, indent=2))

@@ -15,7 +15,8 @@ OpenClaw posture is safer than Hermes autonomy by default:
 1. Check local history and source notes for prior runs.
 2. Build a jurisdiction-aware broker plan from the catalog.
 3. For scan-only runs, stop at evidence classification and reporting. Do not prepare requests, render drafts, or queue submissions from scan-only mode.
-4. For approved live audits, search cheapest first:
+4. Public RightOut releases are dummy-first. Live audits require a future platform-owned OpenClaw approval adapter before this runner should process real PII.
+5. For future approved live audits, search cheapest first:
    - official broker search/opt-out matcher;
    - search-engine `site:` probe;
    - OpenClaw browser snapshot for JS-only pages;

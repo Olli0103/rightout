@@ -67,22 +67,35 @@ TARGET_SKILLS="$TARGET_ROOT/skills"
 TARGET_DIR="$TARGET_SKILLS/$SKILL_NAME"
 mkdir -p "$TARGET_SKILLS"
 
+STAGING="$(mktemp -d "$TARGET_SKILLS/.${SKILL_NAME}.staging.XXXXXX")"
+cleanup() {
+  rm -rf "$STAGING"
+}
+trap cleanup EXIT
+
 if [[ -e "$TARGET_DIR" ]]; then
   if [[ "$FORCE" != "1" ]]; then
     echo "target already exists: $TARGET_DIR" >&2
     echo "rerun with --force to back it up and replace it" >&2
     exit 1
   fi
-  backup="${TARGET_DIR}.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+
+cp -R "$SOURCE_DIR"/. "$STAGING"/
+
+if [[ "$VALIDATE" == "1" ]]; then
+  python3 "$STAGING/scripts/validate_data_broker_removal.py" --skill-dir "$STAGING"
+fi
+
+backup=""
+if [[ -e "$TARGET_DIR" ]]; then
+  backup="${TARGET_DIR}.backup.$(date -u +%Y%m%dT%H%M%SZ).$$"
   mv "$TARGET_DIR" "$backup"
   echo "Backed up existing install to: $backup"
 fi
 
-cp -R "$SOURCE_DIR" "$TARGET_DIR"
-
-if [[ "$VALIDATE" == "1" ]]; then
-  python3 "$TARGET_DIR/scripts/validate_data_broker_removal.py" --skill-dir "$TARGET_DIR" >/dev/null
-fi
+mv "$STAGING" "$TARGET_DIR"
+trap - EXIT
 
 cat <<EOF
 RightOut installed.
@@ -91,4 +104,3 @@ Skill: $TARGET_DIR
 Validate: python3 "$TARGET_DIR/scripts/validate_data_broker_removal.py" --skill-dir "$TARGET_DIR"
 Dummy scan: python3 "$TARGET_DIR/scripts/data_broker_removal.py" --skill-dir "$TARGET_DIR" scan-only-dummy --workdir .tmp/rightout-scan-only
 EOF
-

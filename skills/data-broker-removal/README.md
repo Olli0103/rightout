@@ -1,12 +1,12 @@
 # OpenClaw Data Broker Removal Skill
 
-Approval-gated OpenClaw workflow for auditing and staging data-broker and people-search removal work.
+Dummy-first OpenClaw technical preview for auditing and staging data-broker and people-search removal workflows.
 
 This package is designed for privacy-safe operation:
 
 - dummy E2E by default;
-- no live broker scans without approval;
-- no external submissions or emails without approval;
+- no live broker scans in the public runner;
+- no external submissions or emails in the public runner;
 - opaque subject IDs;
 - `0600` local dossier, plan, audit, and report files;
 - runner-verified encrypted-storage posture, or a narrow explicit unencrypted exception, required before real PII planning and draft persistence;
@@ -60,14 +60,15 @@ The report model is designed to answer the questions a person expects from Incog
 
 HIBP data is treated as breach-risk intelligence, not broker-removal proof. Real HIBP account lookups remain approval-bound.
 
-The starter broker catalog contains source-backed, independently authored entries from Privacy Guides, California DROP, and IntelTechniques research pointers. It is broader than a proof-of-concept, but still not a completeness guarantee. Community releases should keep expanding the catalog with provenance, freshness dates, and license review. Do not copy third-party broker-list prose, requirements, notes, contact fields, or bulk records into this skill without a compatible license or permission.
+The starter catalog is intentionally small for public release and limited to official/legal/monitor-only lanes. People-search broker entries should be re-added only through clean-room official-source review with compatible licensing, provenance, freshness dates, and tests. Do not copy third-party broker-list prose, requirements, notes, contact fields, or bulk records into this skill without a compatible license or permission.
 
 ## Community Release Caveats
 
-Before moving this into a separate public repo:
+Before enabling live/community production use:
 
-- replace or expand the starter broker catalog with source-backed records and license review;
+- integrate a platform-owned OpenClaw approval adapter whose secrets cannot be supplied by the calling agent;
+- expand the catalog only with clean-room source-backed records and license review;
 - keep operator-specific context out of the package;
-- include `THIRD_PARTY_NOTICES.md`;
-- run the dummy E2E, tests, secret scan, and PII scan;
+- include `LICENSE` and `THIRD_PARTY_NOTICES.md` in the installed subtree;
+- run dummy E2E and tests;
 - document that this is not legal advice and that submissions require explicit operator approval.

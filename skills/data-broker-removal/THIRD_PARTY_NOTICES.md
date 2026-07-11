@@ -14,8 +14,8 @@ The Hermes README credits BADBOOL, the Big-Ass Data Broker Opt-Out List by Yael 
 Public source references used for the starter catalog and operational model:
 
 - California DROP: `https://privacy.ca.gov/drop/`
-- Privacy Guides data broker removals: `https://www.privacyguides.org/en/data-broker-removals/`
-- IntelTechniques Data Removal Workbook: `https://inteltechniques.com/workbook.html`
+- Google Results About You: `https://support.google.com/websearch/answer/12719076`
+- GDPR text: `https://eur-lex.europa.eu/eli/reg/2016/679/oj`
 - OpenClaw Creating Skills: `https://docs.openclaw.ai/tools/creating-skills`
 - OpenClaw Skill Workshop: `https://docs.openclaw.ai/tools/skill-workshop`
 
@@ -26,8 +26,8 @@ Review date: 2026-07-11.
 - Hermes `unbroker`: upstream states MIT. This skill does not copy Hermes source code or its broker dataset wholesale.
 - BADBOOL: upstream Hermes credits BADBOOL under CC BY-NC-SA 4.0. This skill must not import BADBOOL-derived broker records into a community or commercial release unless the release preserves attribution and complies with non-commercial/share-alike obligations.
 - California DROP: government registry/source URL used as factual reference and jurisdiction gate.
-- Privacy Guides: used as source-backed factual reference for high-priority opt-out targets and maintenance posture. Do not copy its prose into catalog notes.
-- IntelTechniques workbook: no broad reusable license was identified during this review. It may be used as a research pointer to official broker removal URLs, but do not copy workbook prose, contact fields, requirements, or bulk records into a community release without separate permission or a replacement source.
+- Privacy Guides: useful research reference, but v0.1.1 does not ship broker records derived from Privacy Guides.
+- IntelTechniques workbook: useful research pointer, but v0.1.1 does not ship broker records derived from IntelTechniques. Do not copy workbook prose, contact fields, requirements, notes, or bulk records into a community release without separate permission or a replacement source.
 - Commercial UX benchmarks such as Incogni, DeleteMe, Optery, Privacy Bee, and Aura: used only to infer user expectations and feature categories. Do not copy proprietary broker lists, screenshots, reports, copy, or coverage claims.
 - Have I Been Pwned: use only under HIBP API/MCP terms. Breach metadata can inform risk labels; do not store or publish raw breach values, passwords, paste contents, stealer logs, or account identifiers.
 

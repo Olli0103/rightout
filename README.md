@@ -2,7 +2,9 @@
 
 Approval-gated OpenClaw skill for auditing and staging data-broker, people-search, and rights-based opt-out workflows.
 
-RightOut is built for a specific promise: help an operator understand where personal data may be exposed, prepare removal work, and track verification without silently sending real PII to brokers or providers.
+RightOut is built for a specific promise: help an operator validate a conservative OpenClaw workflow for data-broker removal planning without silently sending real PII to brokers or providers.
+
+Public status: **technical preview**. The public runner supports dummy validation and conservative report plumbing. Live PII processing, live broker scans, request rendering, and submissions are intentionally disabled until a platform-owned OpenClaw approval adapter exists.
 
 It is not a one-click deletion bot, legal advice, or a complete global broker database.
 
@@ -14,13 +16,13 @@ It is not a one-click deletion bot, legal advice, or a complete global broker da
 - Keeps GDPR/DSGVO, UK GDPR, CCPA/CPRA, California DROP, broker opt-outs, and monitor-only lanes separate.
 - Imports HIBP-style breach intelligence only as sanitized risk signals, not as raw leaked values.
 - Requires explicit approval gates for real PII, local dossier storage, live scans, external submissions, recheck automation, and provider writes.
-- Ships with a source-backed starter catalog of broker/registry/controller flows.
+- Ships with a small official-source starter catalog for legal/registry/monitor-only lanes.
 
 ## What It Does Not Do
 
 - It does not guarantee complete removal from every broker.
 - It does not bypass CAPTCHAs, phone callbacks, government-ID gates, account creation, or anti-bot controls.
-- It does not submit forms, send email, open verification links, query live brokers with real identifiers, schedule cron, or write to providers without approval.
+- It does not submit forms, send email, open verification links, query live brokers with real identifiers, schedule cron, or write to providers.
 - It does not treat HIBP breach signals as proof that a broker has a current listing.
 - It does not copy proprietary broker lists or commercial service coverage claims.
 
@@ -70,8 +72,8 @@ The skill is designed to be operator-driven:
 
 1. Start with `doctor`, `scan-only-dummy`, and `e2e-dummy`.
 2. Produce an audit/removal plan with minimum required fields.
-3. Ask for separate approval before real PII, storage, live scans, submissions, scheduled rechecks, or provider writes.
-4. Recheck later before marking anything `confirmed_removed`.
+3. Keep real PII, live scans, submissions, scheduled rechecks, and provider writes out of the public runner until an OpenClaw-owned approval adapter is integrated.
+4. Recheck later before marking anything `confirmed_removed` in any future live integration.
 
 ## Approval Gates
 
@@ -104,11 +106,11 @@ Important source notes:
 
 - Hermes `unbroker` influenced the design and is MIT-licensed upstream.
 - BADBOOL is credited upstream under CC BY-NC-SA 4.0; this repository does not import BADBOOL-derived broker records wholesale.
-- IntelTechniques is treated only as a research pointer to official broker/controller URLs; do not copy workbook prose, requirements, contact fields, notes, or bulk records without compatible permission.
+- Privacy Guides and IntelTechniques are useful research references, but v0.1.1 does not ship broker records derived from them. Do not add third-party list material without compatible licensing, attribution, and clean-room review.
 - Incogni, DeleteMe, Optery, Privacy Bee, Aura, and HIBP are used as UX/source references only where documented.
 
 Read `skills/data-broker-removal/THIRD_PARTY_NOTICES.md` before expanding the catalog.
 
 ## Community Status
 
-RightOut is ready as a conservative, approval-gated OpenClaw workflow. The starter broker catalog is intentionally extensible. Contributions should add provenance, freshness dates, official URLs, license review notes, and tests.
+RightOut is ready as a conservative dummy-first technical preview. The starter catalog is intentionally small and extensible. Contributions should add provenance, freshness dates, official URLs, license review notes, and tests.

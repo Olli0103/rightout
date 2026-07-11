@@ -13,7 +13,7 @@ metadata:
 
 Use when The operator asks to find, assess, remove, or monitor personal information on data brokers, people-search sites, or opt-out services.
 
-This skill adapts the verified Hermes `unbroker` design for OpenClaw. It is not a blind import. OpenClaw defaults to read-only audit and proposal mode; external submissions, provider writes, mail sends, broker form submissions, cron changes, and PII retention require explicit approval at the moment of action.
+This skill adapts the verified Hermes `unbroker` design for OpenClaw. It is not a blind import. Public RightOut releases are dummy-first technical previews: external submissions, provider writes, mail sends, broker form submissions, cron changes, live scans, and real PII retention are disabled in the public runner until a platform-owned OpenClaw approval adapter exists.
 
 Use the deterministic runner before any live work:
 
@@ -82,7 +82,7 @@ Treat Hermes `unbroker` as a reference implementation and test corpus, not as pr
    - HIBP/breach intelligence inputs when operator supplied or explicitly approved, summarized as risk tags and data classes, not raw email/account data;
    - recheck schedule proposal, not an active cron.
 
-6. If the operator approves live audit with real PII:
+6. If a future platform-owned OpenClaw approval adapter enables live audit with real PII:
    - create or choose a runner-verified encrypted/local data location first and record that storage posture before persisting real dossiers;
    - treat operator-attested storage markers as documentation only unless the runner marks them verified;
    - keep unencrypted local storage as an explicit scoped exception, not as an encryption marker;
@@ -91,7 +91,7 @@ Treat Hermes `unbroker` as a reference implementation and test corpus, not as pr
    - classify findings as `found`, `not_found`, `inconclusive`, `blocked`, or `human_required`;
    - never record names or raw PII in filenames or public summaries.
 
-7. If the operator separately approves submissions:
+7. If a future platform-owned OpenClaw approval adapter separately approves submissions:
    - submit only to official broker channels;
    - for GDPR/DSGVO/UK GDPR controller requests, record the specific controller privacy/DPO URL or rights portal and verified allowed domain before drafting, even when the broker has a normal opt-out lane;
    - send only the exact fields required for that broker and legal basis;
@@ -130,7 +130,7 @@ Approval wording must name what will change and what will not change.
 - Prefer OpenClaw browser tools for controlled web inspection.
 - Prefer local deterministic scripts for planning, ledgers, and validation.
 - If importing Hermes scripts, isolate them under a proposal or spike path first and run their tests before adapting.
-- Use runner-verified encryption before storing real dossiers; local JSON approval receipts must be signed by the platform approval boundary outside test mode.
+- Use runner-verified encryption before storing real dossiers; local JSON approval receipts are not a sufficient community security boundary without a platform-owned approval adapter.
 - Rendered live request drafts are PII-bearing storage and require the same `process_real_pii`, `store_dossier`, and encrypted-storage checks.
 - Keep summaries Telegram-safe: no raw addresses, phone numbers, emails, relatives, or DOBs.
 - Treat commercial-service comparisons as context only; do not imply guaranteed completeness.

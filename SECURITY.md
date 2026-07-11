@@ -4,7 +4,7 @@ RightOut handles privacy-sensitive workflows and should be treated as approval-b
 
 ## Supported Use
 
-Use dummy validation first. Do not process real PII, persist dossiers, query live brokers, submit forms, send emails, schedule automation, or write to providers without explicit user approval and an appropriate storage posture.
+Use dummy validation only in the public runner. Do not process real PII, persist live dossiers, query live brokers, submit forms, send emails, schedule automation, or write to providers until a platform-owned OpenClaw approval adapter exists.
 
 ## Reporting Issues
 
@@ -17,4 +17,3 @@ Please open a GitHub security advisory or private report for:
 - copied third-party broker-list content without compatible license handling.
 
 Do not include real personal data in reports.
-

@@ -39,6 +39,7 @@
   - Major brokers are often run by a small number of companies.
   - Recheck cadence of 3-4 months is recommended by their manual strategy.
   - Removing source sites is distinct from removing Google search results.
+  - License caution: v0.1.1 does not ship broker catalog records derived from Privacy Guides.
 
 - State of Surveillance Data Broker Opt-Out Guide: `https://stateofsurveillance.org/guides/basic/data-broker-opt-out/`
   - Treat as a broad secondary guide, not authority.
@@ -74,7 +75,7 @@
   - Large public workbook of removal links, privacy links, requirements, and notes.
   - License review: no broad reusable license was identified during this review.
   - Use only as a research pointer to official broker/controller URLs; do not copy workbook prose, requirements, contact fields, notes, or bulk records into the skill.
-  - IntelTechniques-derived starter entries must be independently authored and revalidated against official broker/controller pages before a separate community release.
+  - v0.1.1 does not ship IntelTechniques-derived starter entries; re-add only after independent official-source review.
 
 ## Source Cautions
 
