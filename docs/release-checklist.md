@@ -54,7 +54,7 @@ make installer-test
 - [x] Standard unittest discovery and Node tests are green.
 - [x] Fresh/force install, failed preflight no-write, source symlink, SecretRef, runtime inspect, and doctor cases pass.
 - [x] Independent review reports no open P0/P1, fixes are applied, and the entire matrix is rerun.
-- [ ] CI is green on the final commit.
+- [x] CI is green on the final release-content commit.
 - [x] CI action dependencies are pinned to full commit SHAs.
 - [x] Installer concurrency lock and adversarial concurrent-run test pass.
 
