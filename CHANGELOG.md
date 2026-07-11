@@ -2,6 +2,16 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.2.0-rc.2 - 2026-07-11
+
+### Stable-readiness hardening
+
+- Disabled automated Spokeo scanning after verifying its published automated-access prohibition.
+- Added fail-closed operator attestations for subject authorization, Brave terms acceptance, and exact broker access authority.
+- Added explicit Brave standard-plan query-log retention disclosure to native approval and privacy documentation.
+- Added an atomic cross-process installer transaction lock and concurrency test.
+- Pinned every GitHub Actions dependency to a full commit SHA.
+
 ## 0.2.0-rc.1 - 2026-07-11
 
 ### Security

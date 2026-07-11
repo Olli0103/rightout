@@ -1,5 +1,7 @@
 # RightOut v0.2.0-rc.1
 
+> Safety update after publication: automated Spokeo scanning is disabled on `main` because Spokeo's published consumer terms prohibit automated queries, scraping, and crawling. Do not use the RC's Spokeo live lane. TruePeopleSearch live use on later builds requires explicit operator authorization attestations.
+
 This prerelease turns RightOut into an installable OpenClaw plugin and skill with an approval-gated, read-only live people-search scan.
 
 ## Highlights
@@ -7,7 +9,7 @@ This prerelease turns RightOut into an installable OpenClaw plugin and skill wit
 - optional, non-replay-safe `rightout_live_scan` tool;
 - native OpenClaw allow-once/deny approval after tool selection, with a single-use expiring binding to the exact displayed profile and broker scope before network execution;
 - opaque profile references with SecretRef contracts for the private profile and Brave key;
-- supported live catalog playbooks for TruePeopleSearch and Spokeo;
+- one conditional TruePeopleSearch live playbook; the originally shipped Spokeo live lane is superseded by the safety update above;
 - Brave POST discovery plus guarded same-domain direct-page verification;
 - `found` or honest `inconclusive` live states; index absence never becomes `not_found`;
 - no removal submission, email, forms, CAPTCHA, scheduling, or provider writes;
@@ -28,7 +30,7 @@ Then follow `INSTALL.md` for out-of-band SecretRef provisioning, optional-tool p
 ## Important limits
 
 - This is a live-scan prerelease, not a deletion service.
-- Only two US people-search catalog entries are live-enabled.
+- On current `main`, only conditional TruePeopleSearch scanning is live-enabled; Spokeo automation is disabled.
 - A direct page match is medium-confidence discovery evidence, not identity or ownership proof.
 - SecretRefs are not OS/process isolation.
 - Commercial automated removals, recurring monitoring, dashboards, screenshots, custom assistance, family plans, Google cleanup, identity vaults, and dark-web/credit protection are not implemented.

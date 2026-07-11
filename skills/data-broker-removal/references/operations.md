@@ -2,7 +2,7 @@
 
 ## Live operation
 
-Use only `rightout_live_scan(profileId, brokerIds)`. The profile ID must already exist in operator-configured SecretRef-backed plugin config. Supported broker IDs come from catalog entries with `category: people_search` and `scan.supported: true`.
+Use only `rightout_live_scan(profileId, brokerIds)`. The profile ID must already exist in operator-configured SecretRef-backed plugin config. Supported broker IDs come from catalog entries with `category: people_search` and `scan.supported: true`, and every selected ID must also appear in operator-owned broker-access attestations. Published automation prohibitions are absolute exclusions.
 
 Every call invokes native allow-once/deny approval. No approval route, denial, timeout, cancellation, provider error, anti-bot response, or absent index candidate fails closed or returns `inconclusive`.
 
@@ -32,6 +32,7 @@ Offline `fixture_only` results are never user evidence. `not_checked_by_offline_
 - stale/missing catalog provenance: block the catalog entry;
 - approval failure: no network call;
 - missing profile/key: `needs_evidence`, never ask for PII in chat;
+- missing subject/Brave/broker attestation: block before approval and network;
 - raw PII or URL in a report/error/log: P0;
 - unexpected network destination or any provider write: P0;
 - missing primary audit evidence: preserve `needs_evidence`.

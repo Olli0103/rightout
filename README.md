@@ -1,8 +1,8 @@
 # RightOut
 
-RightOut is an approval-gated OpenClaw plugin and skill for read-only people-search discovery with privacy-safe reports. Version: `0.2.0-rc.1`.
+RightOut is an approval-gated OpenClaw plugin and skill for read-only people-search discovery with privacy-safe reports. Version: `0.2.0-rc.2`.
 
-It is live-scan capable for the explicitly supported US catalog entries `truepeoplesearch` and `spokeo`. It does **not** submit removals, send email, fill forms, solve CAPTCHAs, schedule monitoring, or write to providers.
+It is conditionally live-scan capable for the US catalog entry `truepeoplesearch` only when the operator has independently verified and attested the exact profile ID, Brave terms acceptance, and broker-specific automated-access authority. Automated Spokeo scanning is disabled because its published terms prohibit automated queries, scraping, and crawling. RightOut does **not** submit removals, send email, fill forms, solve CAPTCHAs, schedule monitoring, or write to providers.
 
 ## Security boundary
 
@@ -11,9 +11,9 @@ The optional `rightout_live_scan` tool accepts only:
 - an opaque operator-configured `profileId`;
 - one or two supported catalog broker IDs.
 
-The private subject profile and Brave Search key live in OpenClaw SecretRef-backed plugin config, not chat or tool arguments. After the model selects the tool, a native `before_tool_call` hook requires `allow-once` or `deny`; denial, timeout, cancellation, hook failure, or no approval route fails closed. `allow-always` is not offered.
+The private subject profile and Brave Search key live in OpenClaw SecretRef-backed plugin config, not chat or tool arguments. Before offering approval, the plugin also requires operator-owned attestations for subject authorization, accepted Brave terms, and every selected broker. After the model selects the tool, a native `before_tool_call` hook requires `allow-once` or `deny`; denial, timeout, cancellation, missing attestations, hook failure, or no approval route fails closed. `allow-always` is not offered.
 
-The scan sends full name and US location to Brave Search in a POST body, then fetches only query-free HTTPS candidate URLs whose host and profile-path shape match the selected broker's catalog policy through OpenClaw's SSRF-guarded runtime. A `found` result requires one structured JSON-LD `Person` record containing the exact normalized full name and matching city/region. Loose page text, reflected query pages, and search-index absence are always `inconclusive`, never proof of presence or absence.
+The scan sends full name and US location to Brave Search in a POST body. Brave's published privacy notice states that standard-plan query logs may be retained for up to 90 days; Zero Data Retention is an enterprise option. RightOut then fetches only operator-authorized, query-free HTTPS candidate URLs whose host and profile-path shape match the catalog policy through OpenClaw's SSRF-guarded runtime. A `found` result requires one structured JSON-LD `Person` record containing the exact normalized full name and matching city/region. Loose page text, reflected query pages, and search-index absence are always `inconclusive`, never proof of presence or absence.
 
 Reports contain per-scan HMAC-derived opaque proof references, broker states, disclosure categories, and coverage gaps. They exclude raw PII, API keys, queries, candidate URLs, and raw responses. RightOut performs zero submissions, emails, local PII writes, or provider writes.
 

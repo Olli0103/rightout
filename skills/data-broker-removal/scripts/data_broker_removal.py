@@ -400,6 +400,24 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             if not isinstance(broker.get("id"), str) or not re.fullmatch(r"[a-z0-9_]{2,24}", broker["id"]):
                 errors.append(f"{label} live broker id exceeds the public tool contract")
             scan = broker.get("scan")
+            if not isinstance(scan, dict):
+                errors.append(f"{label} has unsafe or incomplete live-scan policy")
+                continue
+            if scan.get("supported") is False:
+                if not (
+                    lane == "human_task"
+                    and gate == "process_real_pii"
+                    and broker.get("human_only") is True
+                    and scan.get("manual_only") is True
+                    and scan.get("automated_access_policy") == "prohibited_by_published_terms"
+                    and isinstance(scan.get("terms_url"), str)
+                    and isinstance(scan.get("reason"), str)
+                    and scan["reason"].startswith("official_terms_prohibit_")
+                ):
+                    errors.append(f"{label} disabled people-search lane is not fail-closed")
+                else:
+                    validate_catalog_url(scan["terms_url"], official_domains, label, "scan.terms_url", errors)
+                continue
             candidate_path_pattern = scan.get("candidate_path_pattern") if isinstance(scan, dict) else None
             safe_candidate_path_pattern = False
             if (
@@ -420,8 +438,10 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                     pass
             if not (lane == "operator_browser" and gate == "live_scan" and broker.get("human_only") is False):
                 errors.append(f"{label} people_search has inconsistent live-scan lane")
-            if not isinstance(scan, dict) or not (
+            if not (
                 scan.get("supported") is True
+                and scan.get("automated_access_policy") == "operator_permission_required"
+                and scan.get("terms_status") == "needs_evidence"
                 and scan.get("strategy") == "brave_site_query_then_same_domain_verify"
                 and scan.get("query_fields") == ["full_name", "city", "region"]
                 and scan.get("search_provider_host") == "api.search.brave.com"
@@ -1306,6 +1326,9 @@ def cmd_validate(args: argparse.Namespace) -> None:
             errors.append("OpenClaw plugin tool contract is inconsistent")
         if tool.get("optional") is not True or tool.get("replaySafe") is not False:
             errors.append("live tool must be optional and non-replay-safe")
+        required_config = set((tool.get("configSignals") or [{}])[0].get("required", []))
+        if "operatorAttestations" not in required_config:
+            errors.append("live tool must require operator attestations")
         if {"braveApiKey", "profiles.*.payload"} - secret_paths:
             errors.append("live secrets must use declared SecretInput contracts")
     print(json.dumps({"ok": not errors, "errors": errors, "broker_count": len(catalog.get("brokers", [])), "catalog_schema_version": catalog.get("schema_version")}, indent=2))

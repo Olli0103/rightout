@@ -5,12 +5,22 @@ import {
   buildHostnameAllowlistPolicyFromSuffixAllowlist,
   fetchWithSsrFGuard,
 } from "openclaw/plugin-sdk/ssrf-runtime";
-import { approvalDescription, runLiveScan, validatePublicToolInput } from "./lib/live-scan.mjs";
+import {
+  approvalDescription,
+  runLiveScan,
+  validateOperatorAttestations,
+  validatePublicToolInput,
+} from "./lib/live-scan.mjs";
 
 type RightOutConfig = {
   braveApiKey: string;
   profiles: Record<string, { payload: string }>;
   maxCandidatesPerBroker?: number;
+  operatorAttestations?: {
+    braveTermsAccepted: boolean;
+    authorizedProfileIds: string[];
+    authorizedBrokerIds: string[];
+  };
 };
 
 const LiveScanParameters = Type.Object(
@@ -30,10 +40,15 @@ async function loadCatalog(path: string): Promise<Record<string, unknown>> {
 }
 
 type PublicScanInput = { profileId: string; brokerIds: string[] };
+type OperatorAttestationSnapshot = {
+  braveTermsAccepted: true;
+  authorizedProfileIds: string[];
+  authorizedBrokerIds: string[];
+};
 type ApprovalBinding = { binding: string; expiresAt: number };
 
-function scopeBinding(input: PublicScanInput): string {
-  return JSON.stringify([input.profileId, input.brokerIds]);
+function scopeBinding(input: PublicScanInput, attestations: OperatorAttestationSnapshot): string {
+  return JSON.stringify([input.profileId, input.brokerIds, attestations]);
 }
 
 function assertSupportedBrokerScope(catalog: Record<string, unknown>, input: PublicScanInput): void {
@@ -43,10 +58,17 @@ function assertSupportedBrokerScope(catalog: Record<string, unknown>, input: Pub
       if (!value || typeof value !== "object" || Array.isArray(value)) return false;
       const entry = value as Record<string, unknown>;
       const scan = entry.scan as Record<string, unknown> | undefined;
-      return entry.id === brokerId && entry.category === "people_search" && scan?.supported === true;
+      return entry.id === brokerId
+        && entry.category === "people_search"
+        && scan?.supported === true
+        && scan.automated_access_policy === "operator_permission_required";
     });
     if (!broker) throw new Error("unsupported_broker");
   }
+}
+
+function operatorAttestationSnapshot(config: RightOutConfig | undefined, input: PublicScanInput): OperatorAttestationSnapshot {
+  return validateOperatorAttestations(input, config?.operatorAttestations) as OperatorAttestationSnapshot;
 }
 
 function isSecretRef(value: unknown): boolean {
@@ -102,6 +124,22 @@ export default definePluginEntry({
           });
         }
       }
+      const attestations = rightout?.operatorAttestations;
+      if (rightout && (
+        attestations?.braveTermsAccepted !== true
+        || !Array.isArray(attestations?.authorizedProfileIds)
+        || attestations.authorizedProfileIds.length < 1
+        || !Array.isArray(attestations?.authorizedBrokerIds)
+        || attestations.authorizedBrokerIds.length < 1
+      )) {
+        findings.push({
+          checkId: "rightout.operator_attestations",
+          severity: "critical" as const,
+          title: "RightOut operator attestations are incomplete",
+          detail: "Live scans require exact authorized profile IDs, Brave terms acceptance, and explicit broker access authorization.",
+          remediation: "Set operatorAttestations only after the operator has verified the applicable authority and provider/broker terms out of band.",
+        });
+      }
       const runtime = config as Record<string, any>;
       const httpDeny = runtime.gateway?.tools?.deny;
       if (!Array.isArray(httpDeny) || !httpDeny.includes("rightout_live_scan")) {
@@ -124,14 +162,16 @@ export default definePluginEntry({
         return { block: true, blockReason: "RightOut requires a host-authoritative tool call ID" };
       }
       let input: PublicScanInput;
+      let attestationSnapshot: OperatorAttestationSnapshot;
       try {
         input = validatePublicToolInput(event.params) as PublicScanInput;
         assertSupportedBrokerScope(await catalogPromise, input);
+        attestationSnapshot = operatorAttestationSnapshot(api.pluginConfig as RightOutConfig | undefined, input);
       } catch {
-        return { block: true, blockReason: "invalid or unsupported RightOut scan scope" };
+        return { block: true, blockReason: "invalid, unsupported, or unattested RightOut scan scope" };
       }
       const toolCallId = event.toolCallId;
-      const binding = scopeBinding(input);
+      const binding = scopeBinding(input, attestationSnapshot);
       pruneApprovalBindings();
       approvalBindings.delete(toolCallId);
       return {
@@ -168,18 +208,24 @@ export default definePluginEntry({
           } catch {
             throw new Error("rightout_approval_binding_failed");
           }
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          const catalog = await catalogPromise;
+          assertSupportedBrokerScope(catalog, input);
+          let attestationSnapshot: OperatorAttestationSnapshot | undefined;
+          try {
+            attestationSnapshot = operatorAttestationSnapshot(config, input);
+          } catch {
+            // Missing or changed attestations invalidate the approval binding.
+          }
           pruneApprovalBindings();
           const approval = approvalBindings.get(toolCallId);
           approvalBindings.delete(toolCallId);
-          if (!approval || approval.binding !== scopeBinding(input)) {
+          if (!approval || !attestationSnapshot || approval.binding !== scopeBinding(input, attestationSnapshot)) {
             throw new Error("rightout_approval_binding_failed");
           }
-          const config = api.pluginConfig as RightOutConfig | undefined;
           if (!config || typeof config.braveApiKey !== "string" || typeof config.profiles?.[input.profileId]?.payload !== "string") {
             throw new Error("rightout_not_configured");
           }
-          const catalog = await catalogPromise;
-          assertSupportedBrokerScope(catalog, input);
           const guardedFetch = async ({ url, allowedHosts, ...options }: {
             url: string;
             allowedHosts: string[];
@@ -206,6 +252,7 @@ export default definePluginEntry({
             maxCandidatesPerBroker: config.maxCandidatesPerBroker,
             guardedFetch,
             signal,
+            operatorAttestations: attestationSnapshot,
           });
           return {
             content: [{ type: "text", text: JSON.stringify(report) }],

@@ -70,9 +70,14 @@ inspection=""
 transaction_dir="$(mktemp -d -t rightout-install.XXXXXX)"
 mutation_started=0
 install_succeeded=0
+lock_acquired=0
+lock_dir=""
 early_cleanup() {
   status=$?
   trap - EXIT INT TERM
+  if [[ "$lock_acquired" == "1" ]]; then
+    rmdir "$lock_dir" 2>/dev/null || status=1
+  fi
   rm -rf "$transaction_dir"
   exit "$status"
 }
@@ -95,6 +100,7 @@ PY
 )"
 managed_extensions="$state_root/extensions"
 extension_path="$managed_extensions/rightout"
+lock_dir="$state_root/.rightout-install.lock"
 config_existed=0
 previous_extension=0
 
@@ -120,6 +126,13 @@ managed_extensions = os.path.join(state_root, "extensions")
 if os.path.lexists(managed_extensions) and os.path.islink(managed_extensions):
     raise SystemExit("OpenClaw managed extensions directory must not be a symlink")
 PY
+
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  echo "another RightOut installer transaction is active; remove the stale .rightout-install.lock only after manually verifying that no installer is running" >&2
+  exit 1
+fi
+lock_acquired=1
+chmod 700 "$lock_dir"
 
 if [[ -L "$config_path" ]]; then
   echo "OpenClaw config path must not be a symlink" >&2
@@ -197,6 +210,10 @@ finish() {
   [[ -z "$inspection" ]] || rm -f "$inspection"
   [[ -z "$pack_dir" ]] || rm -rf "$pack_dir"
   rm -rf "$transaction_dir"
+  if [[ "$lock_acquired" == "1" ]]; then
+    rmdir "$lock_dir" 2>/dev/null || status=1
+    lock_acquired=0
+  fi
   exit "$status"
 }
 trap finish EXIT INT TERM

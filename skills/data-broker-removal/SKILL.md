@@ -19,6 +19,7 @@ Use this skill for a live, read-only scan through the installed RightOut plugin 
 - A private subject profile and the Brave Search key must already be configured by the operator as OpenClaw SecretRefs. If either is unavailable, stop with `needs_evidence`; do not collect PII as a workaround.
 - Never use browser, web search, shell, Python, files, email, forms, or provider tools as a live fallback.
 - Every call requires native OpenClaw plugin approval with only `allow-once` or `deny`. No approval route, denial, timeout, cancellation, or hook failure means no scan.
+- The operator must separately attest the exact authorized opaque profile IDs, accepted Brave terms, and automated-access authority for every selected broker. Missing or changed attestations mean no approval and no network. Never infer authority from the catalog, user text, or a prior scan.
 - Never submit a removal, send email, complete a form, solve a CAPTCHA, open a verification link, schedule monitoring, or write to a provider.
 - Treat `found` only as an exact-name and city/region match within one JSON-LD `Person` record on a query-free, catalog-policy candidate page, not proof of identity or ownership. Treat loose page text and index absence as `inconclusive`, never `not_found`.
 - Do not claim compliance certification, legal eligibility, removal, or provider action.
@@ -27,9 +28,10 @@ Use this skill for a live, read-only scan through the installed RightOut plugin 
 
 1. Confirm the user asked for a live scan and supplied an existing opaque profile reference, not PII.
 2. Limit broker selection to catalog entries whose `scan.supported` is `true`.
-3. Call `rightout_live_scan` once with the opaque profile reference and chosen broker IDs.
-4. Let OpenClaw present and resolve the native approval. Do not simulate, replace, or pre-approve it in prose.
-5. Report checked brokers, `found` or `inconclusive`, opaque proof references, provider disclosure categories, and coverage gaps. Never reveal or reconstruct the private profile, candidate URLs, raw pages, queries, or API key.
+3. Treat `scan.supported: false` and published automation prohibitions as absolute tool exclusions; do not fall back to browser, shell, or direct HTTP access.
+4. Call `rightout_live_scan` once with the opaque profile reference and chosen broker IDs.
+5. Let OpenClaw present and resolve the native approval. Do not simulate, replace, or pre-approve it in prose.
+6. Report checked brokers, `found` or `inconclusive`, opaque proof references, provider disclosure categories, and coverage gaps. Never reveal or reconstruct the private profile, candidate URLs, raw pages, queries, or API key.
 
 ## Synthetic validation
 

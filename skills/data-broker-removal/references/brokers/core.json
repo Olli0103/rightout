@@ -177,7 +177,9 @@
       "prerequisites": [
         "subject_authorization",
         "native_openclaw_plugin_approval",
-        "brave_search_api"
+        "brave_search_api",
+        "brave_terms_acceptance",
+        "operator_broker_access_authorization"
       ],
       "approval_gate": "live_scan",
       "human_only": false,
@@ -202,6 +204,8 @@
       ],
       "scan": {
         "supported": true,
+        "automated_access_policy": "operator_permission_required",
+        "terms_status": "needs_evidence",
         "strategy": "brave_site_query_then_same_domain_verify",
         "query_fields": [
           "full_name",
@@ -213,7 +217,7 @@
         "max_candidates": 3,
         "not_found_policy": "never_from_index_absence"
       },
-      "notes": "Read-only discovery only. The approved plugin sends minimum name and location fields to Brave Search, then verifies same-domain candidate pages. CAPTCHA, removal, email, and submissions are out of scope."
+      "notes": "Read-only discovery only. Public automated-access permission could not be verified because official terms/robots endpoints returned access denial during review. Live use therefore additionally requires an operator attestation based on independently verified authority. CAPTCHA, removal, email, and submissions are out of scope."
     },
     {
       "id": "spokeo",
@@ -226,7 +230,7 @@
       "official_domains": [
         "spokeo.com"
       ],
-      "lane": "operator_browser",
+      "lane": "human_task",
       "required_fields": [
         "name",
         "city",
@@ -234,11 +238,11 @@
       ],
       "prerequisites": [
         "subject_authorization",
-        "native_openclaw_plugin_approval",
-        "brave_search_api"
+        "manual_terms_review",
+        "manual_site_access_only"
       ],
-      "approval_gate": "live_scan",
-      "human_only": false,
+      "approval_gate": "process_real_pii",
+      "human_only": true,
       "last_verified": "2026-07-11",
       "freshness_days": 90,
       "source_license": "official-facts-only-no-content-copy",
@@ -256,22 +260,23 @@
           "publisher": "Spokeo",
           "license_scope": "official_url_fact_only",
           "last_verified": "2026-07-11"
+        },
+        {
+          "url": "https://www.spokeo.com/terms-of-use-consumer",
+          "title": "Spokeo consumer terms of use",
+          "publisher": "Spokeo",
+          "license_scope": "official_terms_facts_only",
+          "last_verified": "2026-07-11"
         }
       ],
       "scan": {
-        "supported": true,
-        "strategy": "brave_site_query_then_same_domain_verify",
-        "query_fields": [
-          "full_name",
-          "city",
-          "region"
-        ],
-        "search_provider_host": "api.search.brave.com",
-        "candidate_path_pattern": "^/(?!about(?:/|$)|blog(?:/|$)|people-search(?:/|$)|reverse-)(?:[A-Za-z0-9%._~-]+/){1,5}[A-Za-z0-9%._~-]+/?$",
-        "max_candidates": 3,
-        "not_found_policy": "never_from_index_absence"
+        "supported": false,
+        "automated_access_policy": "prohibited_by_published_terms",
+        "manual_only": true,
+        "terms_url": "https://www.spokeo.com/terms-of-use-consumer",
+        "reason": "official_terms_prohibit_automated_queries_scraping_crawling_and_data_mining"
       },
-      "notes": "Read-only discovery only. The approved plugin sends minimum name and location fields to Brave Search, then verifies same-domain candidate pages. Paywalls, account flows, removal, email, and submissions are out of scope."
+      "notes": "Automated live scanning is disabled. Spokeo's published consumer terms prohibit automated queries, scraping, crawling, data mining, robots, spiders, and other automatic devices; its robots policy disallows search/profile paths. Any review is manual and out of the plugin live tool."
     }
   ]
 }

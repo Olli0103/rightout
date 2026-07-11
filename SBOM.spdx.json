@@ -2,8 +2,8 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
-  "name": "openclaw-rightout-0.2.0-rc.1",
-  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/plugin/0.2.0-rc.1",
+  "name": "openclaw-rightout-0.2.0-rc.2",
+  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/plugin/0.2.0-rc.2",
   "creationInfo": {
     "created": "2026-07-11T00:00:00Z",
     "creators": ["Tool: RightOut release process"]
@@ -12,7 +12,7 @@
     {
       "SPDXID": "SPDXRef-Package-RightOut",
       "name": "@olli0103/openclaw-rightout",
-      "versionInfo": "0.2.0-rc.1",
+      "versionInfo": "0.2.0-rc.2",
       "downloadLocation": "https://github.com/Olli0103/rightout",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -21,7 +21,7 @@
       "externalRefs": [{
         "referenceCategory": "PACKAGE-MANAGER",
         "referenceType": "purl",
-        "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.2.0-rc.1"
+        "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.2.0-rc.2"
       }]
     },
     {

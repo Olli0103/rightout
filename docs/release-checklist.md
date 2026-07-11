@@ -37,6 +37,8 @@
 - [x] Controller domains cannot self-authorize; sensitive documents remain human-only/out of scope.
 - [x] GDPR/DSGVO/CCPA/DROP language is posture, not legal/compliance assurance.
 - [x] Commercial comparison cites official sources and states all missing capabilities.
+- [x] Published provider terms/robots are reviewed; prohibited automation is disabled and uncertain authority is fail-closed behind exact operator attestations.
+- [x] Approval discloses Brave's published standard query-log retention maximum.
 
 ## Package and tests
 
@@ -53,6 +55,8 @@ make installer-test
 - [x] Fresh/force install, failed preflight no-write, source symlink, SecretRef, runtime inspect, and doctor cases pass.
 - [x] Independent review reports no open P0/P1, fixes are applied, and the entire matrix is rerun.
 - [ ] CI is green on the final commit.
+- [x] CI action dependencies are pinned to full commit SHAs.
+- [x] Installer concurrency lock and adversarial concurrent-run test pass.
 
 ## Publish decision
 

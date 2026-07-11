@@ -30,6 +30,8 @@ Expected runtime evidence includes status `loaded`, optional tool `rightout_live
 
 The installer snapshots the OpenClaw config and any existing managed `extensions/rightout` installation before mutation. If installation succeeds but runtime inspection or plugin doctor fails, it atomically restores the config and prior managed extension. Linked external source trees are never deleted.
 
+An atomic lock at `.rightout-install.lock` under the OpenClaw state directory rejects concurrent installer transactions. A stale lock must be removed manually only after verifying that no RightOut installer process is active.
+
 ## 3. Provision private inputs out of band
 
 Create an operator-controlled secret document outside the workspace and agent-readable paths. Its logical JSON values are:
@@ -56,9 +58,23 @@ openclaw config set plugins.entries.rightout.config.profiles.profile_a1b2c3d4e5f
 
 The profile JSON permits only `fullName`, `city`, `region`, and optional `country: "US"`. The tool receives only the random-looking hex reference `profile_a1b2c3d4e5f60718`; it never receives these values.
 
+## 4. Record operator attestations
+
+Live use is blocked until an operator—not an agent—has verified subject authorization for each exact opaque profile ID, accepted the applicable Brave Search API terms, and independently established automated-access authority for each selected broker. Spokeo must not be listed: its published consumer terms prohibit automated queries/scraping/crawling. TruePeopleSearch remains conditional because public automated-access permission is `needs_evidence`.
+
+Only after completing that out-of-band review, configure the exact authorized set:
+
+```bash
+openclaw config set plugins.entries.rightout.config.operatorAttestations \
+  '{"braveTermsAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedBrokerIds":["truepeoplesearch"]}' \
+  --strict-json
+```
+
+This is a fail-closed configuration gate, not a legal certification by RightOut. Brave's published privacy notice states that standard-plan query logs may be retained for up to 90 days; ZDR requires an applicable enterprise arrangement. See [provider access and retention review](docs/provider-terms-review.md).
+
 OpenClaw SecretRefs reduce persisted-secret exposure but are not OS/process isolation. For a strong deployment, separate the Gateway/secret provider from agent-readable files and shell access. See OpenClaw's [Secrets management](https://docs.openclaw.ai/gateway/secrets).
 
-## 4. Configure tool and Gateway policy
+## 5. Configure tool and Gateway policy
 
 Because the tool is optional, add `rightout_live_scan` to the applicable `tools.allow` policy without overwriting unrelated existing entries.
 
@@ -72,7 +88,7 @@ Also add it to `gateway.tools.deny` unless direct full-operator `/tools/invoke` 
 
 Configure a local UI or explicit `approvals.plugin` route. With no route, calls fail closed. OpenClaw documents the routing contract in [Plugin permission requests](https://docs.openclaw.ai/plugins/plugin-permission-requests).
 
-## 5. Readiness gate
+## 6. Readiness gate
 
 ```bash
 openclaw config validate
@@ -82,6 +98,6 @@ openclaw plugins inspect rightout --runtime --json
 openclaw plugins doctor
 ```
 
-Resolve every `rightout.secretref.*` critical finding before live use. Resolve or consciously accept the `rightout.gateway.tools_invoke` warning.
+Resolve every `rightout.secretref.*` and `rightout.operator_attestations` critical finding before live use. Resolve or consciously accept the `rightout.gateway.tools_invoke` warning.
 
 No real live scan is part of installation or release testing. A production scan begins only when a user explicitly requests it, the optional tool is visible, and the native approval is resolved with `allow-once`.

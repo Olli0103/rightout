@@ -23,6 +23,26 @@ function cleanBrokerIds(values) {
     }
     return ids;
 }
+function cleanAuthorizedBrokerIds(values) {
+    if (!Array.isArray(values) || values.length < 1 || values.length > 20) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    const ids = [...new Set(values)];
+    if (ids.length !== values.length || !ids.every((value) => typeof value === "string" && SAFE_ID.test(value))) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    return ids.sort();
+}
+function cleanAuthorizedProfileIds(values) {
+    if (!Array.isArray(values) || values.length < 1 || values.length > 20) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    const ids = [...new Set(values)];
+    if (ids.length !== values.length || !ids.every((value) => typeof value === "string" && SAFE_PROFILE_ID.test(value))) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    return ids.sort();
+}
 function throwIfAborted(signal) {
     if (!signal?.aborted) {
         return;
@@ -318,20 +338,46 @@ export function validateLiveScanInput(input) {
         subject: parseSubjectProfile(input?.subject),
     };
 }
+export function validateOperatorAttestations(input, value) {
+    const publicInput = validatePublicToolInput(input);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    const allowedKeys = new Set(["braveTermsAccepted", "authorizedProfileIds", "authorizedBrokerIds"]);
+    if (Object.keys(value).some((key) => !allowedKeys.has(key))
+        || value.braveTermsAccepted !== true) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    const authorizedProfileIds = cleanAuthorizedProfileIds(value.authorizedProfileIds);
+    const authorizedBrokerIds = cleanAuthorizedBrokerIds(value.authorizedBrokerIds);
+    if (!authorizedProfileIds.includes(publicInput.profileId)
+        || publicInput.brokerIds.some((brokerId) => !authorizedBrokerIds.includes(brokerId))) {
+        throw new Error("rightout_operator_attestation_required");
+    }
+    return {
+        braveTermsAccepted: true,
+        authorizedProfileIds,
+        authorizedBrokerIds,
+    };
+}
 export function approvalDescription(input) {
     const validated = validatePublicToolInput(input);
-    return `Scan ${validated.profileId} on ${validated.brokerIds.join(", ")}. Sends name, city, region, country to Brave; fetches query-free broker profile pages. Read-only: no storage, submission, email, or write.`;
+    return `P ${validated.profileId}; B ${validated.brokerIds.join(",")}. Send name+city+region+country to Brave (logs <=90d unless ZDR). Fetch operator-attested pages; public permission unverified. RightOut: no writes/storage/email.`;
 }
-export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBroker = 2, guardedFetch, signal }) {
+export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBroker = 2, guardedFetch, signal, operatorAttestations }) {
     throwIfAborted(signal);
     const validated = validateLiveScanInput(input);
+    validateOperatorAttestations(validated, operatorAttestations);
     const subject = validated.subject;
     if (typeof apiKey !== "string" || apiKey.length < 1) {
         throw new Error("missing_provider_secret");
     }
     const catalogEntries = Array.isArray(catalog?.brokers) ? catalog.brokers : [];
     const selected = validated.brokerIds.map((id) => catalogEntries.find((entry) => entry.id === id));
-    if (selected.some((entry) => !entry || entry.category !== "people_search" || entry.scan?.supported !== true)) {
+    if (selected.some((entry) => (!entry
+        || entry.category !== "people_search"
+        || entry.scan?.supported !== true
+        || entry.scan?.automated_access_policy !== "operator_permission_required"))) {
         throw new Error("unsupported_broker");
     }
     const candidateLimit = Math.min(Math.max(Number(maxCandidatesPerBroker) || 2, 1), 3);
@@ -394,6 +440,7 @@ export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBrok
             name: "Brave Search API",
             endpoint_host: "api.search.brave.com",
             query_transport: "POST body",
+            query_log_retention: "up_to_90_days_standard_plan_unless_applicable_zdr_agreement",
             raw_provider_results_included: false,
         },
         disclosures: {
@@ -415,6 +462,7 @@ export async function runLiveScan({ input, catalog, apiKey, maxCandidatesPerBrok
             ],
         },
         invariants: {
+            operator_attestations_checked: true,
             submissions: 0,
             emails: 0,
             provider_writes: 0,

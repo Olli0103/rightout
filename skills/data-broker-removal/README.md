@@ -1,8 +1,8 @@
 # RightOut OpenClaw skill
 
-Version `0.2.0-rc.1`. This skill ships inside the RightOut OpenClaw plugin.
+Version `0.2.0-rc.2`. This skill ships inside the RightOut OpenClaw plugin.
 
-Live people-search discovery is available only through the optional `rightout_live_scan` tool. It accepts an opaque SecretRef-backed profile ID and supported broker IDs, then requires a native OpenClaw `allow-once` approval. The result contains no raw PII, raw page content, API key, search query, or candidate URL. It performs no submissions, email, forms, scheduling, or provider writes.
+Live people-search discovery is available only through the optional `rightout_live_scan` tool and only for catalog entries plus exact broker-access attestations configured by the operator. Spokeo automation is disabled by its published terms. The tool accepts an opaque SecretRef-backed profile ID and supported broker IDs, then requires a native OpenClaw `allow-once` approval that discloses Brave retention. The result contains no raw PII, raw page content, API key, search query, or candidate URL. It performs no submissions, email, forms, scheduling, or provider writes.
 
 The Python runner remains an offline, dummy-only validation harness:
 

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { Type } from "typebox";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { buildHostnameAllowlistPolicyFromSuffixAllowlist, fetchWithSsrFGuard, } from "openclaw/plugin-sdk/ssrf-runtime";
-import { approvalDescription, runLiveScan, validatePublicToolInput } from "./lib/live-scan.mjs";
+import { approvalDescription, runLiveScan, validateOperatorAttestations, validatePublicToolInput, } from "./lib/live-scan.mjs";
 const LiveScanParameters = Type.Object({
     profileId: Type.String({
         pattern: "^profile_[a-f0-9]{16,32}$",
@@ -14,8 +14,8 @@ async function loadCatalog(path) {
     const text = await readFile(path, { encoding: "utf-8" });
     return JSON.parse(text);
 }
-function scopeBinding(input) {
-    return JSON.stringify([input.profileId, input.brokerIds]);
+function scopeBinding(input, attestations) {
+    return JSON.stringify([input.profileId, input.brokerIds, attestations]);
 }
 function assertSupportedBrokerScope(catalog, input) {
     const brokers = Array.isArray(catalog.brokers) ? catalog.brokers : [];
@@ -25,11 +25,17 @@ function assertSupportedBrokerScope(catalog, input) {
                 return false;
             const entry = value;
             const scan = entry.scan;
-            return entry.id === brokerId && entry.category === "people_search" && scan?.supported === true;
+            return entry.id === brokerId
+                && entry.category === "people_search"
+                && scan?.supported === true
+                && scan.automated_access_policy === "operator_permission_required";
         });
         if (!broker)
             throw new Error("unsupported_broker");
     }
+}
+function operatorAttestationSnapshot(config, input) {
+    return validateOperatorAttestations(input, config?.operatorAttestations);
 }
 function isSecretRef(value) {
     if (typeof value === "string") {
@@ -82,6 +88,20 @@ export default definePluginEntry({
                     });
                 }
             }
+            const attestations = rightout?.operatorAttestations;
+            if (rightout && (attestations?.braveTermsAccepted !== true
+                || !Array.isArray(attestations?.authorizedProfileIds)
+                || attestations.authorizedProfileIds.length < 1
+                || !Array.isArray(attestations?.authorizedBrokerIds)
+                || attestations.authorizedBrokerIds.length < 1)) {
+                findings.push({
+                    checkId: "rightout.operator_attestations",
+                    severity: "critical",
+                    title: "RightOut operator attestations are incomplete",
+                    detail: "Live scans require exact authorized profile IDs, Brave terms acceptance, and explicit broker access authorization.",
+                    remediation: "Set operatorAttestations only after the operator has verified the applicable authority and provider/broker terms out of band.",
+                });
+            }
             const runtime = config;
             const httpDeny = runtime.gateway?.tools?.deny;
             if (!Array.isArray(httpDeny) || !httpDeny.includes("rightout_live_scan")) {
@@ -103,15 +123,17 @@ export default definePluginEntry({
                 return { block: true, blockReason: "RightOut requires a host-authoritative tool call ID" };
             }
             let input;
+            let attestationSnapshot;
             try {
                 input = validatePublicToolInput(event.params);
                 assertSupportedBrokerScope(await catalogPromise, input);
+                attestationSnapshot = operatorAttestationSnapshot(api.pluginConfig, input);
             }
             catch {
-                return { block: true, blockReason: "invalid or unsupported RightOut scan scope" };
+                return { block: true, blockReason: "invalid, unsupported, or unattested RightOut scan scope" };
             }
             const toolCallId = event.toolCallId;
-            const binding = scopeBinding(input);
+            const binding = scopeBinding(input, attestationSnapshot);
             pruneApprovalBindings();
             approvalBindings.delete(toolCallId);
             return {
@@ -147,18 +169,25 @@ export default definePluginEntry({
                 catch {
                     throw new Error("rightout_approval_binding_failed");
                 }
+                const config = api.pluginConfig;
+                const catalog = await catalogPromise;
+                assertSupportedBrokerScope(catalog, input);
+                let attestationSnapshot;
+                try {
+                    attestationSnapshot = operatorAttestationSnapshot(config, input);
+                }
+                catch {
+                    // Missing or changed attestations invalidate the approval binding.
+                }
                 pruneApprovalBindings();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval || approval.binding !== scopeBinding(input)) {
+                if (!approval || !attestationSnapshot || approval.binding !== scopeBinding(input, attestationSnapshot)) {
                     throw new Error("rightout_approval_binding_failed");
                 }
-                const config = api.pluginConfig;
                 if (!config || typeof config.braveApiKey !== "string" || typeof config.profiles?.[input.profileId]?.payload !== "string") {
                     throw new Error("rightout_not_configured");
                 }
-                const catalog = await catalogPromise;
-                assertSupportedBrokerScope(catalog, input);
                 const guardedFetch = async ({ url, allowedHosts, ...options }) => fetchWithSsrFGuard({
                     url,
                     ...options,
@@ -177,6 +206,7 @@ export default definePluginEntry({
                     maxCandidatesPerBroker: config.maxCandidatesPerBroker,
                     guardedFetch,
                     signal,
+                    operatorAttestations: attestationSnapshot,
                 });
                 return {
                     content: [{ type: "text", text: JSON.stringify(report) }],

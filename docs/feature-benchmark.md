@@ -12,9 +12,9 @@ Official product material describes broad service expectations:
 
 ## Capability matrix
 
-| Capability | RightOut 0.2.0-rc.1 | Commercial benchmark | Status |
+| Capability | RightOut 0.2.0-rc.2 | Commercial benchmark | Status |
 | --- | --- | --- | --- |
-| Live people-search discovery | Two explicit catalog brokers; Brave discovery plus query-free, catalog-path, structured-record verification | Broad scans claimed | implemented, narrow |
+| Live people-search discovery | One conditional catalog broker; operator authorization attestation, Brave discovery, query-free catalog path and structured-record verification | Broad scans claimed | implemented, highly restricted |
 | Per-call human approval | Native OpenClaw allow-once/deny | Vendor account/service consent models vary | implemented, differentiated |
 | PII absent from agent tool params | Opaque SecretRef profile ID only | Not evidenced from public marketing | implemented |
 | Found/inconclusive semantics | One JSON-LD `Person` record must match exact name and city/region; loose text and index negatives never produce `found`/`not_found` | Exposure/report semantics vary | implemented |

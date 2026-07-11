@@ -1,6 +1,6 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "description": "Approval-gated live data-broker scanning and privacy-safe reporting for OpenClaw",
   "type": "module",
   "license": "MIT",

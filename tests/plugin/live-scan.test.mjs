@@ -21,6 +21,12 @@ const toolInput = {
   brokerIds: ["truepeoplesearch"],
 };
 
+const operatorAttestations = {
+  braveTermsAccepted: true,
+  authorizedProfileIds: [toolInput.profileId],
+  authorizedBrokerIds: ["truepeoplesearch"],
+};
+
 const scanInput = {
   ...toolInput,
   subject: JSON.stringify(privateProfile),
@@ -34,6 +40,7 @@ const catalog = {
       official_domains: ["truepeoplesearch.com"],
       scan: {
         supported: true,
+        automated_access_policy: "operator_permission_required",
         candidate_path_pattern: "^/find/person/(?:[A-Za-z0-9%._~-]+/){0,5}[A-Za-z0-9%._~-]+/?$",
         max_candidates: 3,
       },
@@ -71,10 +78,17 @@ test("approval text names scope without exposing PII values", () => {
   const text = approvalDescription(toolInput);
   assert.match(text, new RegExp(toolInput.profileId));
   assert.match(text, /truepeoplesearch/);
-  assert.match(text, /name, city, region, country/);
-  assert.match(text, /no storage, submission, email, or write/i);
+  assert.match(text, /name\+city\+region\+country/);
+  assert.match(text, /logs <=90d unless ZDR/);
+  assert.match(text, /operator-attested pages; public permission unverified/);
+  assert.match(text, /RightOut: no writes\/storage\/email/);
   assert.doesNotMatch(text, /Avery|Exampleville|CA/);
   assert.ok(text.length <= 256);
+  const maximumScopeText = approvalDescription({
+    profileId: `profile_${"a".repeat(32)}`,
+    brokerIds: ["a".repeat(24), "b".repeat(24)],
+  });
+  assert.ok(maximumScopeText.length <= 256, maximumScopeText);
 });
 
 test("input validation accepts only opaque refs and a private US profile", () => {
@@ -95,7 +109,7 @@ test("input validation accepts only opaque refs and a private US profile", () =>
 test("index absence is inconclusive rather than not-found", async () => {
   const brave = response(JSON.stringify({ web: { results: [] } }), { headers: { "content-type": "application/json" } });
   const guardedFetch = mockGuardedFetch([{ response: brave }]);
-  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch });
+  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations });
   assert.equal(report.summary.not_found, 0);
   assert.equal(report.summary.inconclusive, 1);
   assert.equal(report.results[0].reason, "no_index_candidates_not_proof_of_absence");
@@ -126,8 +140,9 @@ test("query-free same-domain structured Person match yields opaque proof only", 
       finalUrl: "https://www.truepeoplesearch.com/find/person/opaque-record",
     },
   ]);
-  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch });
+  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations });
   assert.equal(report.results[0].state, "found");
+  assert.equal(report.provider.query_log_retention, "up_to_90_days_standard_plan_unless_applicable_zdr_agreement");
   assert.match(report.results[0].proof_references[0], /^proof_[a-f0-9]{24}$/);
   assert.equal(guardedFetch.calls.length, 2);
   assert.deepEqual(guardedFetch.calls[1].allowedHosts, ["truepeoplesearch.com"]);
@@ -137,6 +152,7 @@ test("query-free same-domain structured Person match yields opaque proof only", 
     assert.equal(serialized.includes(secret), false, secret);
   }
   assert.deepEqual(report.invariants, {
+    operator_attestations_checked: true,
     submissions: 0,
     emails: 0,
     provider_writes: 0,
@@ -152,7 +168,7 @@ test("cross-domain candidates are discarded without fetching", async () => {
   const guardedFetch = mockGuardedFetch([
     { response: response(JSON.stringify(payload), { headers: { "content-type": "application/json" } }) },
   ]);
-  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch });
+  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations });
   assert.equal(guardedFetch.calls.length, 1);
   assert.equal(report.results[0].state, "inconclusive");
 });
@@ -166,7 +182,7 @@ test("cross-domain final redirects fail closed even after an allowed candidate",
       finalUrl: "https://evil.invalid/find/person/opaque",
     },
   ]);
-  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch });
+  const report = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations });
   assert.equal(report.results[0].state, "inconclusive");
   assert.equal(report.results[0].reason, "candidate_blocked");
   assert.equal(JSON.stringify(report).includes("evil.invalid"), false);
@@ -174,7 +190,7 @@ test("cross-domain final redirects fail closed even after an allowed candidate",
 
 test("provider and candidate failures are sanitized", async () => {
   const authFetch = mockGuardedFetch([{ response: response("denied", { status: 401 }) }]);
-  const authReport = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: authFetch });
+  const authReport = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: authFetch, operatorAttestations });
   assert.equal(authReport.results[0].reason, "provider_auth_failed");
 
   const payload = { web: { results: [{ url: "https://truepeoplesearch.com/find/person/opaque" }] } };
@@ -182,7 +198,7 @@ test("provider and candidate failures are sanitized", async () => {
     { response: response(JSON.stringify(payload), { headers: { "content-type": "application/json" } }) },
     { response: response("blocked", { status: 403 }) },
   ]);
-  const blockedReport = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: blockedFetch });
+  const blockedReport = await runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: blockedFetch, operatorAttestations });
   assert.equal(blockedReport.results[0].reason, "candidate_blocked");
   assert.equal(JSON.stringify(blockedReport).includes("blocked"), true);
   assert.equal(JSON.stringify(blockedReport).includes("find/person/opaque"), false);
@@ -191,9 +207,26 @@ test("provider and candidate failures are sanitized", async () => {
 test("unsupported catalog lanes cannot be scanned", async () => {
   const unsafeCatalog = { brokers: [{ ...catalog.brokers[0], category: "registry" }] };
   await assert.rejects(
-    runLiveScan({ input: scanInput, catalog: unsafeCatalog, apiKey: "dummy-test-key", guardedFetch: mockGuardedFetch([]) }),
+    runLiveScan({ input: scanInput, catalog: unsafeCatalog, apiKey: "dummy-test-key", guardedFetch: mockGuardedFetch([]), operatorAttestations }),
     /unsupported_broker/,
   );
+});
+
+test("library rejects missing, Boolean, profile-mismatched, and broker-mismatched attestations before network", async () => {
+  const guardedFetch = mockGuardedFetch([]);
+  const invalidAttestations = [
+    undefined,
+    true,
+    { ...operatorAttestations, authorizedProfileIds: ["profile_ffffffffffffffff"] },
+    { ...operatorAttestations, authorizedBrokerIds: ["spokeo"] },
+  ];
+  for (const value of invalidAttestations) {
+    await assert.rejects(
+      runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations: value }),
+      /rightout_operator_attestation_required/,
+    );
+  }
+  assert.equal(guardedFetch.calls.length, 0);
 });
 
 test("candidate parsing and proof hashing are deterministic", () => {
@@ -246,7 +279,7 @@ test("abort signal prevents and cancels outbound work", async () => {
   preAborted.abort();
   const neverCalled = mockGuardedFetch([]);
   await assert.rejects(
-    runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: neverCalled, signal: preAborted.signal }),
+    runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: neverCalled, signal: preAborted.signal, operatorAttestations }),
     /rightout_scan_cancelled/,
   );
   assert.equal(neverCalled.calls.length, 0);
@@ -260,7 +293,7 @@ test("abort signal prevents and cancels outbound work", async () => {
     },
   ]);
   await assert.rejects(
-    runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: abortingFetch, signal: midAbort.signal }),
+    runLiveScan({ input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch: abortingFetch, signal: midAbort.signal, operatorAttestations }),
     /rightout_scan_cancelled/,
   );
   assert.equal(abortingFetch.calls.length, 1);
@@ -281,6 +314,12 @@ test("plugin manifest declares an optional non-replay-safe secret-backed tool", 
   assert.equal(manifest.toolMetadata.rightout_live_scan.replaySafe, false);
   assert.equal(manifest.configContracts.secretInputs.paths[0].path, "braveApiKey");
   assert.equal(manifest.configContracts.secretInputs.paths[1].path, "profiles.*.payload");
+  assert.ok(manifest.toolMetadata.rightout_live_scan.configSignals[0].required.includes("operatorAttestations"));
+  assert.deepEqual(manifest.configSchema.properties.operatorAttestations.required, [
+    "braveTermsAccepted",
+    "authorizedProfileIds",
+    "authorizedBrokerIds",
+  ]);
   assert.deepEqual(manifest.configSchema.properties.braveApiKey.type, ["string", "object"]);
   assert.deepEqual(
     manifest.configSchema.properties.profiles.additionalProperties.properties.payload.type,
@@ -294,6 +333,15 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   const hooks = new Map();
   const tools = [];
   let auditCollector;
+  const configuredPluginConfig = {
+    braveApiKey: "dummy-test-key",
+    profiles: { [toolInput.profileId]: { payload: JSON.stringify(privateProfile) } },
+    operatorAttestations: {
+      braveTermsAccepted: true,
+      authorizedProfileIds: [toolInput.profileId],
+      authorizedBrokerIds: ["truepeoplesearch"],
+    },
+  };
   plugin.register({
     on(name, handler) {
       hooks.set(name, handler);
@@ -304,10 +352,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
     registerSecurityAuditCollector(collector) {
       auditCollector = collector;
     },
-    pluginConfig: {
-      braveApiKey: "dummy-test-key",
-      profiles: { [toolInput.profileId]: { payload: JSON.stringify(privateProfile) } },
-    },
+    pluginConfig: configuredPluginConfig,
     resolvePath(value) {
       return value;
     },
@@ -336,7 +381,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       } } } },
     },
   });
-  assert.deepEqual(unsafe.map((item) => item.severity), ["critical", "critical", "warn"]);
+  assert.deepEqual(unsafe.map((item) => item.severity), ["critical", "critical", "critical", "warn"]);
 
   const safe = await auditCollector({
     config: { gateway: { tools: { deny: ["rightout_live_scan"] } } },
@@ -344,6 +389,11 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       plugins: { entries: { rightout: { config: {
         braveApiKey: { source: "env", provider: "default", id: "RIGHTOUT_BRAVE_KEY" },
         profiles: { [toolInput.profileId]: { payload: { source: "file", provider: "profiles", id: "/subject" } } },
+        operatorAttestations: {
+          braveTermsAccepted: true,
+          authorizedProfileIds: [toolInput.profileId],
+          authorizedBrokerIds: ["truepeoplesearch"],
+        },
       } } } },
     },
   });
@@ -375,6 +425,30 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
     tools[0].tool.execute("call-exact", toolInput, cancelled.signal),
     /rightout_approval_binding_failed/,
   );
+
+  const revoked = await hooks.get("before_tool_call")({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-revoked" });
+  revoked.requireApproval.onResolution("allow-once");
+  configuredPluginConfig.operatorAttestations.authorizedBrokerIds = ["truepeoplesearch", "otherbroker"];
+  await assert.rejects(
+    tools[0].tool.execute("call-revoked", toolInput),
+    /rightout_approval_binding_failed/,
+  );
+  configuredPluginConfig.operatorAttestations.authorizedBrokerIds = ["truepeoplesearch"];
+
+  let unattestedHook;
+  plugin.register({
+    on(_name, handler) { unattestedHook = handler; },
+    registerTool() {},
+    registerSecurityAuditCollector() {},
+    pluginConfig: {
+      braveApiKey: "dummy-test-key",
+      profiles: { [toolInput.profileId]: { payload: JSON.stringify(privateProfile) } },
+    },
+    resolvePath(value) { return value; },
+  });
+  const unattested = await unattestedHook({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-unattested" });
+  assert.equal(unattested.block, true);
+  assert.match(unattested.blockReason, /unattested/);
 
   let unconfiguredTool;
   plugin.register({

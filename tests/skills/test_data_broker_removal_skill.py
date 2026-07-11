@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -309,8 +310,18 @@ class CatalogValidationTests(unittest.TestCase):
         next(item for item in broad["brokers"] if item["id"] == "truepeoplesearch")["scan"]["candidate_path_pattern"] = "^/.*$"
         self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(broad)))
         invalid = load_catalog()
-        next(item for item in invalid["brokers"] if item["id"] == "spokeo")["scan"]["candidate_path_pattern"] = "^/[broken$"
+        next(item for item in invalid["brokers"] if item["id"] == "truepeoplesearch")["scan"]["candidate_path_pattern"] = "^/[broken$"
         self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(invalid)))
+
+    def test_published_automation_prohibition_disables_live_scan(self) -> None:
+        catalog = load_catalog()
+        spokeo = next(item for item in catalog["brokers"] if item["id"] == "spokeo")
+        self.assertFalse(spokeo["scan"]["supported"])
+        self.assertTrue(spokeo["human_only"])
+        self.assertEqual(spokeo["scan"]["automated_access_policy"], "prohibited_by_published_terms")
+        unsafe = load_catalog()
+        next(item for item in unsafe["brokers"] if item["id"] == "spokeo")["scan"]["supported"] = True
+        self.assertTrue(rightout.validate_catalog_data(unsafe))
 
     def test_live_broker_id_must_fit_public_tool_contract(self) -> None:
         catalog = load_catalog()
@@ -375,9 +386,32 @@ class InstallerTests(unittest.TestCase):
                 [env["OPENCLAW_BIN"], "config", "set", "plugins.entries.rightout.config.profiles.profile_a1b2c3d4e5f60718.payload", "--ref-provider", "default", "--ref-source", "env", "--ref-id", "RIGHTOUT_TEST_PROFILE"],
                 env_extra=env,
             )
+            run(
+                [
+                    env["OPENCLAW_BIN"], "config", "set",
+                    "plugins.entries.rightout.config.operatorAttestations",
+                    json.dumps({
+                        "braveTermsAccepted": True,
+                        "authorizedProfileIds": ["profile_a1b2c3d4e5f60718"],
+                        "authorizedBrokerIds": ["truepeoplesearch"],
+                    }),
+                    "--strict-json",
+                ],
+                env_extra=env,
+            )
+            run(
+                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan"]', "--strict-json"],
+                env_extra=env,
+            )
+            validation = run([env["OPENCLAW_BIN"], "config", "validate"], env_extra=env)
+            self.assertIn("Config valid", validation["stdout"])
             audit = run([env["OPENCLAW_BIN"], "secrets", "audit", "--check"], env_extra=env)
             self.assertIn("plaintext=0", audit["stdout"])
             self.assertIn("unresolved=0", audit["stdout"])
+            security = run([env["OPENCLAW_BIN"], "security", "audit", "--deep"], env_extra=env)
+            self.assertNotIn("rightout.secretref", security["stdout"] + security["stderr"])
+            self.assertNotIn("rightout.operator_attestations", security["stdout"] + security["stderr"])
+            self.assertNotIn("rightout.gateway.tools_invoke", security["stdout"] + security["stderr"])
             second = run([str(INSTALLER), "--force"], env_extra=env)
             self.assertIn("plugin installed and runtime-validated", second["stdout"])
             inspection = run(
@@ -450,6 +484,8 @@ class InstallerTests(unittest.TestCase):
             wrapper = tmp / "openclaw-forged-prior-path"
             wrapper.write_text(
                 "#!/usr/bin/env bash\n"
+                "if [[ \"${1:-}\" == \"--version\" ]]; then echo 'OpenClaw 2026.6.11'; exit 0; fi\n"
+                "if [[ \"$*\" == \"config file\" ]]; then echo \"$OPENCLAW_CONFIG_PATH\"; exit 0; fi\n"
                 "if [[ \"$*\" == \"plugins inspect rightout --json\" ]]; then\n"
                 "  printf '%s\\n' \"$FORGED_INSPECTION\"\n"
                 "  exit 0\n"
@@ -471,6 +507,62 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(marker.read_text(encoding="utf-8"), "outside-managed-root")
             self.assertFalse(Path(env["OPENCLAW_CONFIG_PATH"]).exists())
             self.assertFalse((Path(env["OPENCLAW_STATE_DIR"]) / "extensions" / "rightout").exists())
+            self.assertEqual(list(Path(env["TMPDIR"]).glob("rightout-install*")), [])
+
+    def test_concurrent_installer_is_denied_and_lock_is_cleaned(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rightout-concurrent-") as tmp_raw:
+            tmp = Path(tmp_raw).resolve()
+            env = self.isolated_env(tmp)
+            ready = tmp / "first-installer-ready"
+            release = tmp / "release-first-installer"
+            wrapper = tmp / "openclaw-block-first-installer"
+            wrapper.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"${1:-}\" == \"--version\" ]]; then echo 'OpenClaw 2026.6.11'; exit 0; fi\n"
+                "if [[ \"$*\" == \"config file\" ]]; then echo \"$OPENCLAW_CONFIG_PATH\"; exit 0; fi\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --json\" ]]; then\n"
+                "  : > \"$FIRST_INSTALLER_READY\"\n"
+                "  while [[ ! -e \"$RELEASE_FIRST_INSTALLER\" ]]; do sleep 0.05; done\n"
+                "  exit 1\n"
+                "fi\n"
+                "if [[ \"${1:-}\" == \"plugins\" && \"${2:-}\" == \"install\" ]]; then\n"
+                "  exit 77\n"
+                "fi\n"
+                "exit 78\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o700)
+            concurrent_env = {
+                **os.environ,
+                **env,
+                "PYTHONNOUSERSITE": "1",
+                "OPENCLAW_BIN": str(wrapper),
+                "FIRST_INSTALLER_READY": str(ready),
+                "RELEASE_FIRST_INSTALLER": str(release),
+            }
+            first = subprocess.Popen(
+                [str(INSTALLER)],
+                cwd=ROOT,
+                env=concurrent_env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            deadline = time.monotonic() + 15
+            while not ready.exists() and first.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if not ready.exists():
+                release.touch()
+                first.terminate()
+                first_stdout, first_stderr = first.communicate(timeout=15)
+                self.fail(f"first installer did not acquire the transaction lock\nstdout:\n{first_stdout}\nstderr:\n{first_stderr}")
+            second = run([str(INSTALLER)], expect=1, env_extra=concurrent_env)
+            self.assertIn("another RightOut installer transaction is active", second["stderr"])
+            release.touch()
+            first_stdout, first_stderr = first.communicate(timeout=90)
+            self.assertEqual(first.returncode, 77, f"stdout:\n{first_stdout}\nstderr:\n{first_stderr}")
+            self.assertFalse((Path(env["OPENCLAW_STATE_DIR"]) / ".rightout-install.lock").exists())
+            self.assertFalse(Path(env["OPENCLAW_CONFIG_PATH"]).exists())
             self.assertEqual(list(Path(env["TMPDIR"]).glob("rightout-install*")), [])
 
     def test_source_symlink_is_rejected_before_install(self) -> None:

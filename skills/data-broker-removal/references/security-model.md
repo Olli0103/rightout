@@ -12,6 +12,7 @@ Prompt text, caller JSON, environment flags, HMAC receipts, local files, page co
 | --- | --- |
 | Model receives raw PII | Tool schema accepts only opaque profile ID and broker IDs |
 | Agent mints, replays, or widens approval | Native OpenClaw `before_tool_call`; allow-once/deny only; single-use expiring binding to tool-call ID plus exact displayed profile/broker scope |
+| Unverified legal/access authority | Fail-closed operator attestations for subject authority, Brave terms, and exact broker IDs; published prohibitions disable catalog live support |
 | No human route | OpenClaw fails closed |
 | Plaintext config | SecretInput contracts plus critical plugin security-audit findings |
 | Unexpected destination/SSRF/reflected search page | Fixed Brave host, catalog domains, HTTPS, guarded DNS, bounded redirects, query-free URLs, anchored broker path policy |

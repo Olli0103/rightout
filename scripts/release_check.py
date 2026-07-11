@@ -37,8 +37,11 @@ def main() -> None:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     package = read_json(ROOT / "package.json")
     manifest = read_json(ROOT / "openclaw.plugin.json")
+    catalog = read_json(ROOT / "skills/data-broker-removal/references/brokers/core.json")
     sbom = read_json(ROOT / "SBOM.spdx.json")
     skill_version = (ROOT / "skills/data-broker-removal/VERSION").read_text(encoding="utf-8").strip()
+    if not (ROOT / f"docs/release-notes-v{version}.md").is_file():
+        fail(errors, "versioned release notes are missing")
 
     for label, value in {
         "package": package.get("version"),
@@ -85,6 +88,17 @@ def main() -> None:
     secret_paths = {item.get("path") for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])}
     if secret_paths != {"braveApiKey", "profiles.*.payload"}:
         fail(errors, "SecretInput contract mismatch")
+    required_config = set(tool.get("configSignals", [{}])[0].get("required", []))
+    if "operatorAttestations" not in required_config:
+        fail(errors, "operator attestation config signal is missing")
+    live_brokers = [item for item in catalog.get("brokers", []) if item.get("scan", {}).get("supported") is True]
+    if [item.get("id") for item in live_brokers] != ["truepeoplesearch"]:
+        fail(errors, "live catalog must contain only the conditional TruePeopleSearch lane")
+    if live_brokers[0].get("scan", {}).get("automated_access_policy") != "operator_permission_required":
+        fail(errors, "live broker must require operator access authorization")
+    spokeo = next((item for item in catalog.get("brokers", []) if item.get("id") == "spokeo"), {})
+    if spokeo.get("scan", {}).get("supported") is not False or spokeo.get("scan", {}).get("automated_access_policy") != "prohibited_by_published_terms":
+        fail(errors, "Spokeo automation prohibition is not fail-closed")
 
     scan_files = [path for path in release_files() if path.resolve() != Path(__file__).resolve()]
     combined = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in scan_files)
@@ -116,6 +130,8 @@ def main() -> None:
         "scopeBinding",
         "approvalBindings.delete(toolCallId)",
         "rightout_approval_binding_failed",
+        "operatorAttestationSnapshot",
+        "validateOperatorAttestations",
         "capture: false",
         "registerSecurityAuditCollector",
     ]:
@@ -129,10 +145,22 @@ def main() -> None:
         "parsed.hash",
         "candidate_path_pattern",
         "jsonLdContainsMatchingPerson",
+        "validateOperatorAttestations(validated, operatorAttestations)",
+        "rightout_operator_attestation_required",
         "throwIfAborted(signal)",
     ]:
         if required not in live_scan:
             fail(errors, f"live-scan security invariant missing: {required}")
+
+    installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    for required in [".rightout-install.lock", "lock_acquired=1", 'rmdir "$lock_dir"']:
+        if required not in installer:
+            fail(errors, f"installer concurrency invariant missing: {required}")
+
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    action_uses = re.findall(r"uses:\s*([^\s#]+)", workflow)
+    if not action_uses or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in action_uses):
+        fail(errors, "CI actions must be pinned to full commit SHAs")
 
     proc = subprocess.run(
         ["npm", "pack", "--dry-run", "--json", "--ignore-scripts"],

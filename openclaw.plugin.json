@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Approval-gated, read-only live data-broker scans with PII-safe reports",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "skills": [
     "./skills"
   ],
@@ -20,7 +20,8 @@
           "rootPath": "plugins.entries.rightout.config",
           "required": [
             "braveApiKey",
-            "profiles"
+            "profiles",
+            "operatorAttestations"
           ]
         }
       ]
@@ -55,6 +56,11 @@
     "maxCandidatesPerBroker": {
       "label": "Candidate page limit",
       "help": "Maximum same-domain candidate pages verified per broker.",
+      "advanced": true
+    },
+    "operatorAttestations": {
+      "label": "Operator legal and access attestations",
+      "help": "Fail-closed live gate. Set only after verifying subject authorization, Brave terms, and broker-specific automated-access authority out of band.",
       "advanced": true
     }
   },
@@ -91,6 +97,40 @@
         "minimum": 1,
         "maximum": 3,
         "default": 2
+      },
+      "operatorAttestations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "braveTermsAccepted",
+          "authorizedProfileIds",
+          "authorizedBrokerIds"
+        ],
+        "properties": {
+          "braveTermsAccepted": {
+            "const": true
+          },
+          "authorizedProfileIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^profile_[a-f0-9]{16,32}$"
+            }
+          },
+          "authorizedBrokerIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]{2,24}$"
+            }
+          }
+        }
       }
     }
   }
