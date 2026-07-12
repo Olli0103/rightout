@@ -3,12 +3,13 @@
 Audit period: 2026-07-12 to 2026-07-13. Scope: the v0.7.1 security patch and the complete
 software-release contract inherited from v0.7.0.
 
-## Candidate status
+## Verdict
 
-The local remediation is complete, but publication remains **NO-GO** until the
-fix branch has passed protected PR CodeQL/CI and the independent reviewer has
-rechecked the resulting evidence. This status does not claim that any real
-person's data was found or removed.
+**GO for the software release.** Protected PR #13 passed CodeQL, the full
+OS/runtime matrix, stable/beta OpenClaw compatibility, and the isolated installer
+suite on the final code-bearing commit `e5c412f`. Repeated independent review
+reports no open P0, P1, P2, or P3 finding. This verdict does not claim that any
+real person's data was found or removed.
 
 ## Closed findings
 
@@ -31,10 +32,13 @@ person's data was found or removed.
 - 138 Node plugin tests, including regression coverage for all four CodeQL findings plus benign-disappearance and non-`ENOENT` lock races;
 - 50 Python tests, dummy E2E, installer matrix, TypeScript build and coverage gates;
 - production dependency audit with zero known vulnerabilities;
-- package/release checker and local OpenClaw runtime inspection/plugin doctor.
+- package/release checker and local OpenClaw runtime inspection/plugin doctor;
+- protected PR #13 CodeQL and CI runs on the final code-bearing commit.
 
-Protected PR CodeQL/CI and tagged artifact verification are terminal publication
-gates and are not claimed by this pre-PR candidate audit.
+The annotated-tag workflow and downloaded-asset verification remain the next
+terminal release gates. A failed tag, checksum, provenance, attestation, publish,
+or isolated install check invalidates this GO and must not produce a stable
+release.
 
 ## Evidence boundary
 

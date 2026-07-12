@@ -13,6 +13,6 @@ is controlled separately by the versioned audit and protected workflows.
 | Direct rescan security | Bounded parser-backed visible-text matching on encrypted exact listing URLs | pass |
 | Credential binding | Domain-separated `scrypt` SMTP/IMAP snapshot digests | pass |
 | Local package/install contract | Clean archive contents, current SBOM, lockfiles, installer tests, runtime inspection, and doctor | pass |
-| Protected PR compatibility | Stable `2026.6.11`, beta `2026.7.1-beta.5`, OS/runtime matrix, and CodeQL | terminal before merge |
+| Protected PR compatibility | Stable `2026.6.11`, beta `2026.7.1-beta.5`, OS/runtime matrix, installer, and CodeQL | pass on PR #13 |
 | Local supply-chain contract | Coverage thresholds, zero production-audit findings, current SBOM, release-workflow structure, and pinned actions | pass |
 | Tagged artifact evidence | Checksum, catalog provenance, release evidence, attestation, immutable assets, and isolated downloaded-asset verification | terminal after merge |

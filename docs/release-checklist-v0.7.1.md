@@ -8,4 +8,6 @@
 - [x] Node/Python/dummy/adversarial/installer/package/PII checks pass with enforced coverage thresholds.
 - [x] Local dependency audit, OpenClaw runtime inspection, plugin doctor, and workflow structural validation pass.
 - [x] Protected PR workflows require stable/beta compatibility, CodeQL, the OS/runtime matrix, and strict current-branch checks before merge.
+- [x] Protected PR #13 passed CodeQL, stable/beta compatibility, all OS/runtime jobs, and the isolated installer on final code-bearing commit `e5c412f`.
+- [x] Repeated independent review reports no open P0/P1/P2/P3 in the release candidate.
 - [x] The annotated-tag workflow is configured to fail closed unless immutable archive, checksum, SBOM, catalog provenance, release evidence, and attestation are produced.
