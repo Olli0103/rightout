@@ -13,6 +13,7 @@ import {
   removalApprovalDescription,
   removalProfileDigest,
   removalSmtpDigest,
+  resolveRemovalCatalogEntry,
   runRemovalSubmission,
   validateRemovalOperatorAttestations,
   validateRemovalPublicToolInput,
@@ -50,7 +51,7 @@ const smtpConfig = {
 const profilePayload = JSON.stringify(privateProfile);
 const removalAttestations = {
   rightoutRemovalPolicyAccepted: true,
-  rightoutRemovalPolicyVersion: "2026-07-12",
+  rightoutRemovalPolicyVersion: "2026-07-12-eu1",
   subjectConsentReviewed: true,
   smtpAccountAuthorized: true,
   minimumDisclosureAccepted: true,
@@ -64,6 +65,8 @@ const broker = {
   id: "beenverified",
   name: "BeenVerified",
   category: "people_search",
+  process_class: "us_people_search_removal",
+  official_domains: ["beenverified.com"],
   lane: "email",
   approval_gate: "send_request",
   human_only: false,
@@ -71,17 +74,20 @@ const broker = {
     supported: true,
     channel: "email",
     request_kinds: ["delete_and_opt_out"],
+    template_id: "us_delete_opt_out_v1",
     recipient: "privacy@beenverified.com",
     smtp_recipient_domain: "beenverified.com",
     disclosure_fields: ["full_name", "contact_email", "region", "country"],
     eligible_jurisdictions: ["US-CA"],
     identity_verification: "broker_may_request_follow_up",
     confirmation_policy: "submitted_until_later_rescan",
+    discovery_requirement: "prior_discovery_required",
+    processing_days: 14,
     policy_revision: "2025-10-21",
     last_verified: "2026-07-12",
   },
 };
-const catalog = { schema_version: 3, brokers: [broker] };
+const catalog = { schema_version: 4, brokers: [broker] };
 
 test("removal approval names the exact write without exposing PII values", () => {
   const text = removalApprovalDescription(toolInput, {
@@ -182,6 +188,108 @@ test("one approved broker email is sent but reported only as submitted", async (
   }
 });
 
+test("EU GDPR lane sends only catalog-approved identifiers and never claims erasure", async () => {
+  const euInput = { profileId, brokerId: "adsquare_eu", requestKind: "gdpr_erasure_objection" };
+  const euProfile = {
+    ...privateProfile,
+    city: "Berlin",
+    region: "BE",
+    country: "DE",
+    jurisdictions: ["DE", "EU", "EEA"],
+    mobileAdvertisingId: "12345678-1234-4234-9234-123456789abc",
+  };
+  const euPayload = JSON.stringify(euProfile);
+  const euSmtp = { ...smtpConfig, fromAddress: euProfile.contactEmail };
+  const euBroker = {
+    id: "adsquare_eu",
+    name: "Adsquare",
+    category: "data_broker",
+    process_class: "eu_controller_email_erasure",
+    official_domains: ["adsquare.com"],
+    lane: "email",
+    approval_gate: "send_request",
+    human_only: false,
+    removal: {
+      supported: true,
+      channel: "email",
+      request_kinds: ["gdpr_erasure_objection"],
+      template_id: "gdpr_erasure_objection_v1",
+      recipient: "privacy@adsquare.com",
+      smtp_recipient_domain: "adsquare.com",
+      disclosure_fields: ["contact_email", "mobile_advertising_id", "country"],
+      eligible_jurisdictions: ["EU", "EEA"],
+      identity_verification: "broker_may_request_follow_up",
+      confirmation_policy: "submitted_until_controller_response",
+      discovery_requirement: "not_required_for_data_subject_request",
+      processing_days: 30,
+      policy_revision: "2026-07-12",
+      last_verified: "2026-07-12",
+    },
+  };
+  const euAttestations = {
+    ...removalAttestations,
+    authorizedProfileDigests: { [profileId]: removalProfileDigest(euPayload) },
+    authorizedBrokerIds: [euBroker.id],
+    authorizedRequestKinds: [euInput.requestKind],
+    smtpTransportDigest: removalSmtpDigest(euSmtp),
+  };
+  const calls = [];
+  const report = await runRemovalSubmission({
+    input: euInput,
+    catalog: { schema_version: 4, brokers: [euBroker] },
+    profilePayload: euPayload,
+    smtpConfig: euSmtp,
+    operatorAttestations: euAttestations,
+    now: () => new Date("2026-07-12T09:00:00.000Z"),
+    async sendMail(value) {
+      calls.push(value);
+      return { accepted: [euBroker.removal.recipient], rejected: [] };
+    },
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].message.text, /GDPR Article 17/);
+  assert.match(calls[0].message.text, /Article 21\(2\)/);
+  assert.match(calls[0].message.text, /12345678-1234-4234-9234-123456789abc/);
+  assert.doesNotMatch(calls[0].message.text, /Avery Example/);
+  assert.equal(report.process_class, "eu_controller_email_erasure");
+  assert.equal(report.discovery_requirement, "not_required_for_data_subject_request");
+  assert.equal(report.delivery.next_state, "awaiting_controller_response");
+  assert.equal(report.delivery.removal_confirmed, false);
+  assert.ok(report.coverage_gaps.includes("no_universal_eu_broker_erasure_registry"));
+  const serialized = JSON.stringify(report);
+  for (const value of [euProfile.contactEmail, euProfile.mobileAdvertisingId, calls[0].message.text]) {
+    assert.equal(serialized.includes(value), false, value);
+  }
+
+  let sends = 0;
+  const { mobileAdvertisingId: _mobileAdvertisingId, ...euProfileWithoutId } = euProfile;
+  const missingIdPayload = JSON.stringify(euProfileWithoutId);
+  await assert.rejects(runRemovalSubmission({
+    input: euInput,
+    catalog: { schema_version: 4, brokers: [euBroker] },
+    profilePayload: missingIdPayload,
+    smtpConfig: euSmtp,
+    operatorAttestations: {
+      ...euAttestations,
+      authorizedProfileDigests: { [profileId]: removalProfileDigest(missingIdPayload) },
+    },
+    async sendMail() { sends += 1; },
+  }), /profile_missing_required_removal_identifier/);
+  const contradictoryPayload = JSON.stringify({ ...euProfile, country: "US", region: "CA" });
+  await assert.rejects(runRemovalSubmission({
+    input: euInput,
+    catalog: { schema_version: 4, brokers: [euBroker] },
+    profilePayload: contradictoryPayload,
+    smtpConfig: euSmtp,
+    operatorAttestations: {
+      ...euAttestations,
+      authorizedProfileDigests: { [profileId]: removalProfileDigest(contradictoryPayload) },
+    },
+    async sendMail() { sends += 1; },
+  }), /profile_not_eligible_for_removal_lane/);
+  assert.equal(sends, 0);
+});
+
 test("jurisdiction, catalog, transport rejection, and pre-write abort fail closed", async () => {
   let calls = 0;
   const common = {
@@ -204,6 +312,34 @@ test("jurisdiction, catalog, transport rejection, and pre-write abort fail close
     /unsupported_removal_lane/,
   );
   assert.equal(calls, 0);
+
+  await assert.rejects(
+    runRemovalSubmission({
+      ...common,
+      catalog: {
+        brokers: [{
+          ...broker,
+          removal: { ...broker.removal, recipient: "privacy@example.invalid", smtp_recipient_domain: "example.invalid" },
+        }],
+      },
+    }),
+    /unsupported_removal_lane/,
+  );
+  assert.equal(calls, 0);
+
+  assert.throws(() => resolveRemovalCatalogEntry({
+    brokers: [{
+      ...broker,
+      category: "data_broker",
+      process_class: "eu_controller_email_erasure",
+      removal: {
+        ...broker.removal,
+        confirmation_policy: "submitted_until_controller_response",
+        discovery_requirement: "not_required_for_data_subject_request",
+        processing_days: 30,
+      },
+    }],
+  }, toolInput), /unsupported_removal_lane/);
 
   await assert.rejects(
     runRemovalSubmission({ ...common, profilePayload: JSON.stringify({ ...privateProfile, jurisdictions: ["DE"] }) }),

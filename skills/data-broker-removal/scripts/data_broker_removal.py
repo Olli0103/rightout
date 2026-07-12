@@ -293,13 +293,117 @@ def load_catalog(skill_dir: Path) -> dict[str, Any]:
     return catalog
 
 
+def validate_policy_revision(value: Any, label: str, errors: list[str]) -> None:
+    if not isinstance(value, str) or not re.fullmatch(r"(?:\d{4}-\d{2}(?:-\d{2})?|reviewed-\d{4}-\d{2}-\d{2})", value):
+        errors.append(f"{label} removal.policy_revision is invalid")
+        return
+    normalized = value.removeprefix("reviewed-")
+    if re.fullmatch(r"\d{4}-\d{2}", normalized):
+        normalized += "-01"
+    try:
+        dt.date.fromisoformat(normalized)
+    except ValueError:
+        errors.append(f"{label} removal.policy_revision is invalid")
+
+
+def validate_eu_process(broker: dict[str, Any], official_domains: list[str], label: str, errors: list[str]) -> None:
+    process = broker.get("eu_process")
+    if not isinstance(process, dict) or set(process) != {
+        "effect_scope", "erasure_semantics", "one_click_level", "official_action_url"
+    }:
+        errors.append(f"{label} EU process metadata is incomplete")
+        return
+    allowed_effects = {
+        "controller_wide_for_identified_mobile_advertising_id",
+        "controller_wide_request_subject_to_identification",
+        "participating_companies_current_browser",
+        "emetriq_current_browser",
+        "controller_portal_selected_right",
+        "controller_data_linked_to_supplied_cookie_or_ad_id",
+    }
+    allowed_semantics = {
+        "controller_erasure_request_not_yet_confirmed",
+        "preference_only_not_controller_erasure",
+        "browser_opt_out_then_short_term_unlinked_data_deletion",
+        "controller_portal_erasure_request_not_yet_confirmed",
+    }
+    allowed_click_levels = {
+        "not_one_click_controller_email",
+        "multi_company_one_stop_preference",
+        "single_controller_browser_button",
+        "single_controller_form_not_one_click",
+        "single_controller_portal_or_app_not_one_click",
+    }
+    if process.get("effect_scope") not in allowed_effects:
+        errors.append(f"{label} EU process effect scope is invalid")
+    if process.get("erasure_semantics") not in allowed_semantics:
+        errors.append(f"{label} EU process erasure semantics are invalid")
+    if process.get("one_click_level") not in allowed_click_levels:
+        errors.append(f"{label} EU process one-click classification is invalid")
+    validate_catalog_url(process.get("official_action_url"), official_domains, label, "eu_process.official_action_url", errors)
+
+
+def validate_eu_data_broker(
+    broker: dict[str, Any], official_domains: list[str], label: str,
+    freshness: int, today: dt.date, errors: list[str],
+) -> None:
+    if broker.get("process_class") not in {"eu_controller_email_erasure", "eu_controller_portal_erasure"}:
+        errors.append(f"{label} EU data-broker process class is invalid")
+    validate_eu_process(broker, official_domains, label, errors)
+    removal = broker.get("removal")
+    if broker.get("human_only") is True:
+        if not (broker.get("lane") == "operator_browser" and broker.get("approval_gate") == "send_request" and removal is None):
+            errors.append(f"{label} human EU data-broker lane is inconsistent")
+        return
+    if not (
+        broker.get("lane") == "email"
+        and broker.get("approval_gate") == "send_request"
+        and isinstance(removal, dict)
+        and removal.get("supported") is True
+        and removal.get("channel") == "email"
+        and removal.get("request_kinds") == ["gdpr_erasure_objection"]
+        and removal.get("template_id") == "gdpr_erasure_objection_v1"
+        and removal.get("identity_verification") == "broker_may_request_follow_up"
+        and removal.get("confirmation_policy") == "submitted_until_controller_response"
+        and removal.get("discovery_requirement") == "not_required_for_data_subject_request"
+        and removal.get("processing_days") == 30
+        and removal.get("eligible_jurisdictions") == ["EU", "EEA"]
+    ):
+        errors.append(f"{label} automated EU data-broker lane is incomplete")
+        return
+    recipient = removal.get("recipient")
+    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
+        errors.append(f"{label} EU removal recipient is invalid")
+    else:
+        recipient_domain = recipient.rsplit("@", 1)[1].lower()
+        if recipient_domain != removal.get("smtp_recipient_domain"):
+            errors.append(f"{label} EU removal recipient domain is not locked")
+        if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
+            errors.append(f"{label} EU removal recipient is outside official domains")
+    allowed_disclosures = {
+        ("contact_email", "country"),
+        ("full_name", "contact_email", "country"),
+        ("contact_email", "mobile_advertising_id", "country"),
+    }
+    disclosures = removal.get("disclosure_fields")
+    if not isinstance(disclosures, list) or tuple(disclosures) not in allowed_disclosures:
+        errors.append(f"{label} EU disclosure fields violate minimum disclosure")
+    if broker.get("required_fields") != disclosures:
+        errors.append(f"{label} EU disclosure fields disagree with required_fields")
+    validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
+    removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
+    if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
+        errors.append(f"{label} EU removal policy provenance is stale or future-dated")
+    validate_policy_revision(removal.get("policy_revision"), label, errors)
+
+
 def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[str]:
     today = today or dt.datetime.now(dt.timezone.utc).date()
     errors: list[str] = []
     if not isinstance(catalog, dict):
         return ["catalog must be an object"]
-    if catalog.get("schema_version") != 3:
-        errors.append("catalog schema_version must be 3")
+    if catalog.get("schema_version") != 4:
+        errors.append("catalog schema_version must be 4")
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
         return errors + ["catalog brokers must be a non-empty list"]
@@ -434,6 +538,20 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             and broker.get("controller_domain_policy") == "platform_verified_out_of_band_only"
         ):
             errors.append(f"{label} legal_request must not self-authorize controller domains")
+        if category == "preference_service":
+            if not (
+                lane == "guided_flow"
+                and gate == "provider_write"
+                and broker.get("human_only") is True
+                and broker.get("process_class") == "eu_advertising_preference"
+                and broker.get("removal") is None
+            ):
+                errors.append(f"{label} EU preference service is inconsistent")
+            validate_eu_process(broker, official_domains, label, errors)
+        if category == "data_broker":
+            if not isinstance(broker.get("id"), str) or not re.fullmatch(r"[a-z0-9_]{2,24}", broker["id"]):
+                errors.append(f"{label} EU broker id exceeds the public tool contract")
+            validate_eu_data_broker(broker, official_domains, label, freshness, today, errors)
         if category == "people_search":
             if not isinstance(broker.get("id"), str) or not re.fullmatch(r"[a-z0-9_]{2,24}", broker["id"]):
                 errors.append(f"{label} live broker id exceeds the public tool contract")
@@ -462,14 +580,22 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 channel = removal.get("channel")
                 if removal.get("request_kinds") != ["delete_and_opt_out"]:
                     errors.append(f"{label} removal request kind is unsafe")
+                if removal.get("template_id") != "us_delete_opt_out_v1":
+                    errors.append(f"{label} removal template is unsafe")
+                if removal.get("discovery_requirement") != "prior_discovery_required":
+                    errors.append(f"{label} removal discovery requirement is unsafe")
                 if channel == "email":
                     if not (lane == "email" and gate == "send_request" and broker.get("human_only") is False):
                         errors.append(f"{label} automated email removal lane is inconsistent")
                     recipient = removal.get("recipient")
                     if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
                         errors.append(f"{label} removal recipient is invalid")
-                    elif recipient.rsplit("@", 1)[1].lower() != removal.get("smtp_recipient_domain"):
-                        errors.append(f"{label} removal recipient domain is not locked")
+                    else:
+                        recipient_domain = recipient.rsplit("@", 1)[1].lower()
+                        if recipient_domain != removal.get("smtp_recipient_domain"):
+                            errors.append(f"{label} removal recipient domain is not locked")
+                        if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
+                            errors.append(f"{label} removal recipient is outside official domains")
                     if removal.get("disclosure_fields") != ["full_name", "contact_email", "region", "country"]:
                         errors.append(f"{label} email removal disclosure fields violate minimum disclosure")
                     if broker.get("required_fields") != removal.get("disclosure_fields"):
@@ -478,6 +604,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                         errors.append(f"{label} email identity-verification posture is unsafe")
                     if removal.get("confirmation_policy") != "submitted_until_later_rescan":
                         errors.append(f"{label} email confirmation policy is unsafe")
+                    if removal.get("processing_days") != 14:
+                        errors.append(f"{label} email processing window is unsafe")
                     policy_domains = official_domains
                 elif channel == "browser_form":
                     if not (lane == "browser_form" and gate == "send_request" and broker.get("human_only") is False):
@@ -519,7 +647,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
                 if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
                     errors.append(f"{label} removal policy provenance is stale or future-dated")
-                parse_catalog_date(removal.get("policy_revision"), label, "removal.policy_revision", errors)
+                validate_policy_revision(removal.get("policy_revision"), label, errors)
             elif not (lane == "search_index" and gate == "live_scan" and broker.get("human_only") is False):
                 errors.append(f"{label} people_search has inconsistent live-scan lane")
             if not (

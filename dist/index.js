@@ -30,8 +30,11 @@ const RemovalParameters = Type.Object({
         pattern: "^[a-z0-9_]{2,24}$",
         description: "Catalog broker with a supported, official email-removal lane.",
     }),
-    requestKind: Type.Literal("delete_and_opt_out", {
-        description: "Catalog-validated deletion and sale/share opt-out request.",
+    requestKind: Type.Union([
+        Type.Literal("delete_and_opt_out"),
+        Type.Literal("gdpr_erasure_objection"),
+    ], {
+        description: "Catalog-validated US delete/opt-out or EU GDPR erasure/objection request.",
     }),
 }, { additionalProperties: false });
 const CaseParameters = Type.Object({
@@ -272,7 +275,7 @@ export default definePluginEntry({
                 || !Array.isArray(removalAttestations?.authorizedBrokerIds)
                 || removalAttestations.authorizedBrokerIds.length < 1
                 || !Array.isArray(removalAttestations?.authorizedRequestKinds)
-                || !removalAttestations.authorizedRequestKinds.includes("delete_and_opt_out")
+                || !removalAttestations.authorizedRequestKinds.some((kind) => ["delete_and_opt_out", "gdpr_erasure_objection"].includes(kind))
                 || typeof removalAttestations?.smtpTransportDigest !== "string"
                 || !/^[a-f0-9]{64}$/.test(removalAttestations.smtpTransportDigest))) {
                 findings.push({
@@ -727,7 +730,7 @@ export default definePluginEntry({
         api.registerTool({
             name: "rightout_submit_removal",
             label: "RightOut submit removal",
-            description: "Send one catalog-locked broker deletion and opt-out email through the operator's approved SMTP account. Requires a separate native OpenClaw allow-once approval. Submission is never reported as confirmed removal.",
+            description: "Send one catalog-locked US delete/opt-out or EU GDPR erasure/objection email through the operator's approved SMTP account. Requires a separate native OpenClaw allow-once approval. Submission is never reported as confirmed removal.",
             parameters: RemovalParameters,
             async execute(toolCallId, params, signal) {
                 let input;
@@ -763,7 +766,9 @@ export default definePluginEntry({
                     smtpConfig: config.smtpTransport,
                     operatorAttestations: attestations,
                 });
-                await caseLedger.removalContext(input.profileId, input.brokerId);
+                if (broker.discoveryRequirement !== "not_required_for_data_subject_request") {
+                    await caseLedger.removalContext(input.profileId, input.brokerId);
+                }
                 const dedupeKey = removalDedupeKey(input);
                 if (submittedScopes.has(dedupeKey))
                     throw new Error("rightout_duplicate_removal_request");

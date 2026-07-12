@@ -23,10 +23,15 @@ Review date: 2026-07-12.
 - `https://www.truepeoplesearch.com/` and `/removal`: official identity/entry-point facts only; no RightOut publisher request.
 - `https://www.spokeo.com/`, `/optout`, `/terms-of-use-consumer`, and `/robots.txt`: official identity/entry-point/restriction facts only; automation is disabled.
 
-## Removal source
+## Removal sources
 
 - `https://www.beenverified.com/faq/privacy/`: current official deletion/opt-out email channel, identity-verification caveat, and policy revision facts.
 - `https://oag.ca.gov/data-broker/registration/186586`: historical California registration used only to corroborate the email lane; not a current-policy substitute and not copied into the catalog.
+- `https://adsquare.com/privacy` and `/privacy/platform-privacy-policy`: official EU controller, rights channel, email, and minimum identifier facts.
+- `https://www.emetriq.com/datenschutz/` and `/opt-out/`: official rights email plus browser-scoped preference effect.
+- `https://edaa.eu/` and `https://www.youronlinechoices.eu/`: participating-company browser advertising-preference scope.
+- `https://www.criteo.com/privacy/your-rights/`: official controller form routing by GDPR right.
+- `https://zeotap.com/privacy-policy/` and `https://privacy.zeotap.com/`: official Cookie-ID portal and Ad-ID app routing.
 
 No real subject query or broker request was run during research/testing.
 
@@ -35,8 +40,10 @@ No real subject query or broker request was run during research/testing.
 - `https://privacy.ca.gov/drop/`: California DROP facts and eligibility warning.
 - `https://support.google.com/websearch/answer/12719076`: Google Results About You reference.
 - `https://eur-lex.europa.eu/eli/reg/2016/679/oj`: GDPR/DSGVO Article 17 primary text.
+- `https://www.edpb.europa.eu/sme/be-compliant/respect-individuals-rights_en`: electronic request, one-month response, extension, identity-doubt, erasure, recipient, and objection guidance.
+- `https://www.edpb.europa.eu/sme/be-compliant/process-personal-data-lawfully_en`: consent-withdrawal guidance.
 
-These remain human/reference-only.
+The generic legal reference remains human-only. Catalog-locked controller channels may be automated only through the separately approved plugin path described in `eu-removal.md`.
 
 ## Product architecture and UX benchmark
 

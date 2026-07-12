@@ -7,7 +7,7 @@ No Hermes/Unbroker code, broker records, BADBOOL-derived data, templates, prose,
 ## Product concepts adopted
 
 - recorded consent before action;
-- discovery before deletion;
+- discovery before people-search deletion; controller-specific data-subject requests may proceed without a public listing;
 - minimum disclosure;
 - explicit `submitted`, verification, processing, removal, reappearance, blocked, and human-task states;
 - no CAPTCHA bypass or automatic identity-document disclosure;
@@ -16,13 +16,13 @@ No Hermes/Unbroker code, broker records, BADBOOL-derived data, templates, prose,
 ## RightOut implementation
 
 - `rightout_live_scan`: Brave index-only discovery with native allow-once approval;
-- `rightout_submit_removal`: one catalog-locked BeenVerified email with a different native allow-once approval;
+- `rightout_submit_removal`: catalog-locked BeenVerified, Adsquare, or emetriq email with a different native allow-once approval;
 - `rightout_submit_form_removal`: one catalog-locked PeopleConnect browser flow with CAPTCHA/ID fail-closed handling;
 - Gmail-only, receiver-authenticated verification polling and a separately approved opaque confirmation-link open;
 - durable cases, deterministic planning/status/due rechecks, ownership clusters, direct known-listing rechecks, and reappearance tracking;
 - private profile, consent, provider credentials, and encrypted local state through OpenClaw SecretRefs;
-- catalog schema v3 for official source, destination, jurisdiction, request kind, disclosure fields, and confirmation policy;
-- outbound and form outputs stop at honest intermediate states; `confirmed_removed` requires later direct absence and remains scoped to the known listing set.
+- catalog schema v4 for official source, destination, jurisdiction, request kind, disclosure fields, confirmation policy, and EU process semantics;
+- outbound and form outputs stop at honest intermediate states; `confirmed_removed` requires later direct absence and remains scoped to the known listing set. EU controller-email responses stay human-reviewed and preference controls are never erasure evidence.
 
 ## Deliberate differences
 

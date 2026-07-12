@@ -112,7 +112,7 @@ def main() -> None:
         errors.append("doctor did not prove the separate removal tool boundary")
     if doctor.get("direct_rescan_tool") != "rightout_direct_rescan":
         errors.append("doctor did not prove the direct-rescan boundary")
-    if not validation.get("ok") or validation.get("catalog_schema_version") != 3:
+    if not validation.get("ok") or validation.get("catalog_schema_version") != 4:
         errors.append("catalog validation failed")
     if e2e_report.get("report_version") != 4:
         errors.append("report v4 is missing")

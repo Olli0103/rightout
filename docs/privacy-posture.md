@@ -11,12 +11,16 @@ An official-domain candidate URL may be encrypted with AES-256-GCM under an oper
 Removal disclosures are catalog-minimal:
 
 - BeenVerified email: full name, contact email, region, country;
+- Adsquare EU email: contact email, Mobile Advertising ID, country;
+- emetriq EU email: contact email, country;
 - PeopleConnect form initiation: contact email only.
+
+The Mobile Advertising ID remains inside the SecretRef profile and the approved SMTP body. It is never sent to Brave, returned in reports, or stored in the PII-safe ledger. EU controller emails use a fixed template and stop at `submitted`; any controller response or proportionate identity follow-up is human work. EDAA and emetriq browser-preference controls are human-only and never recorded as controller erasure.
 
 SMTP/IMAP providers and brokers process data under their own policies. RightOut does not claim zero provider retention. IMAP opens recent INBOX content read-only and emits neither raw messages nor links. Confirmation links are kept behind opaque short-lived handles.
 
 The durable ledger stores opaque subject/broker IDs, state, timestamps, disclosure field names, sanitized reasons, due dates, and opaque proofs. It excludes profile values, queries, candidate URLs, messages, page bodies, credentials, Message-IDs, and raw receipts.
 
-Evidence semantics are deliberately scoped: `indirect_exposure` is an index signal; `submitted` is outbound SMTP acceptance; `verification_pending` is a form/mail step; `awaiting_processing` follows a broker link; `confirmed_removed` requires prior removal plus direct absence across the encrypted known listing set. New/unindexed URLs are always a coverage gap.
+Evidence semantics are deliberately scoped: `indirect_exposure` is an index signal; `submitted` is outbound SMTP acceptance; `verification_pending` is a form/mail step; `awaiting_processing` follows a broker link; `confirmed_removed` requires prior removal plus direct absence across the encrypted known listing set. EU controller emails never automatically enter `confirmed_removed`. New/unindexed URLs and unidentified pseudonymous controller records are always coverage gaps.
 
 Consent and attestations are exact-scope, digest-bound, non-future technical gates. They are not proof of legal capacity, statutory applicability, or broker compliance. Operators remain responsible for SecretRef protection, subject authority, provider/publisher terms, least-privilege tool policy, Cron scope, and Gateway isolation.

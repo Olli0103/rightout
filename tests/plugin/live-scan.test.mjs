@@ -116,6 +116,7 @@ test("configured aliases, prior locations, emails, and phones become bounded Bra
     priorLocations: [{ city: "Oldtown", region: "WA", country: "US" }],
     emails: ["avery.old@example.invalid"],
     phones: ["+1 202 555 0100"],
+    mobileAdvertisingId: "12345678-1234-4234-9234-123456789abc",
   };
   const extendedPayload = JSON.stringify(extended);
   const extendedInput = { ...toolInput, subject: extendedPayload };
@@ -131,9 +132,10 @@ test("configured aliases, prior locations, emails, and phones become bounded Bra
   assert.equal(report.results[0].vectors_attempted, 6);
   assert.deepEqual(report.results[0].vector_types, ["name_location", "email", "phone"]);
   const serialized = JSON.stringify(report);
-  for (const secret of ["Avery Prior", "Oldtown", "avery.old@example.invalid", "+1 202 555 0100"]) {
+  for (const secret of ["Avery Prior", "Oldtown", "avery.old@example.invalid", "+1 202 555 0100", extended.mobileAdvertisingId]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
+  assert.equal(JSON.stringify(guardedFetch.calls).includes(extended.mobileAdvertisingId), false);
   assert.deepEqual(report.disclosures.to_search_provider, [
     "full_name", "aliases_if_configured", "current_and_prior_locations_and_addresses", "emails_if_configured", "phones_if_configured",
   ]);
@@ -417,6 +419,11 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
   assert.deepEqual(
     manifest.configSchema.properties.profiles.additionalProperties.properties.payload.type,
     ["string", "object"],
+  );
+  assert.equal(manifest.configSchema.properties.removalAttestations.properties.rightoutRemovalPolicyVersion.const, "2026-07-12-eu1");
+  assert.deepEqual(
+    manifest.configSchema.properties.removalAttestations.properties.authorizedRequestKinds.items.enum,
+    ["delete_and_opt_out", "gdpr_erasure_objection"],
   );
   assert.deepEqual(manifest.skills, ["./skills"]);
 });
