@@ -1,6 +1,6 @@
 # Hermes Unbroker clean-room review
 
-Review date: 2026-07-12. Reference snapshot: NousResearch/hermes-agent commit `7c14d2a046217c5ccbaa06a9449b0fcf329221f9`.
+Review date: 2026-07-12. Reference snapshot: NousResearch/hermes-agent commit `2d9fd870b6d105e3b367aaa97477931b6671192e`.
 
 No Hermes/Unbroker code, broker records, BADBOOL-derived data, templates, prose, or site playbooks are copied into RightOut.
 
@@ -17,24 +17,25 @@ No Hermes/Unbroker code, broker records, BADBOOL-derived data, templates, prose,
 
 - `rightout_live_scan`: Brave index-only discovery with native allow-once approval;
 - `rightout_submit_removal`: one catalog-locked BeenVerified email with a different native allow-once approval;
-- private profile, consent, Brave key, and SMTP values through OpenClaw SecretRefs;
+- `rightout_submit_form_removal`: one catalog-locked PeopleConnect browser flow with CAPTCHA/ID fail-closed handling;
+- Gmail-only, receiver-authenticated verification polling and a separately approved opaque confirmation-link open;
+- durable cases, deterministic planning/status/due rechecks, ownership clusters, direct known-listing rechecks, and reappearance tracking;
+- private profile, consent, provider credentials, and encrypted local state through OpenClaw SecretRefs;
 - catalog schema v3 for official source, destination, jurisdiction, request kind, disclosure fields, and confirmation policy;
-- live output stops at `submitted`; no false confirmation.
+- outbound and form outputs stop at honest intermediate states; `confirmed_removed` requires later direct absence and remains scoped to the known listing set.
 
 ## Deliberate differences
 
-Unbroker defaults to standing authorization and a hands-off action queue after intake. RightOut requires a fresh native approval for every external write. RightOut also excludes browser/form driving, soft-CAPTCHA handling, SMTP/IMAP auto-discovery, verification-link opening, scheduled jobs, autonomous fan-out, and broad broker imports.
+Unbroker defaults to standing authorization and a hands-off action queue after intake. RightOut requires a fresh native approval for every provider read/write and for local subject purge. RightOut uses an official OpenClaw Cron turn for due work instead of self-scheduling, refuses CAPTCHA/identity-document automation, and does not accept arbitrary custom URLs or broad imported broker playbooks.
 
-These exclusions reduce coverage and automation, but preserve the OpenClaw approval boundary and clean-room catalog policy.
+These differences reduce lane breadth and autonomy while preserving the OpenClaw approval boundary and clean-room catalog policy.
 
 ## Remaining gaps
 
-- durable live ledger and status query;
-- inbound broker confirmation/verification polling;
-- scheduled rechecks and automatic re-removal;
-- direct or screenshot removal proof;
-- custom URLs;
+- automated broker-lane breadth equivalent to Unbroker's 20 web-form, one email, and one phone entries;
+- custom URLs and operator-authored recipes;
 - more independently verified broker lanes;
-- consolidated human-task digest.
+- consolidated dashboard/family administration/managed-service capabilities;
+- removal effectiveness or private-database coverage evidence.
 
 Each added write lane requires official current source evidence, a fixed destination, minimum fields, terms/jurisdiction review, separate tests, and independent security review.

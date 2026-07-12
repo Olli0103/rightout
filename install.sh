@@ -245,8 +245,14 @@ typed_hooks = {item.get("name") for item in data.get("typedHooks", [])}
 tools = {name for item in data.get("tools", []) for name in item.get("names", [])}
 if plugin.get("status") != "loaded":
     raise SystemExit("RightOut runtime inspection did not report loaded")
-if {"rightout_live_scan", "rightout_submit_removal"} - tools or "before_tool_call" not in typed_hooks:
-    raise SystemExit("RightOut scan/removal tools or native approval hook are missing")
+required = {
+    "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
+    "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
+    "rightout_purge_subject_state",
+    "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
+}
+if required - tools or "before_tool_call" not in typed_hooks:
+    raise SystemExit("RightOut tools or native approval hook are missing")
 PY
 "$OPENCLAW_BIN" plugins doctor
 install_succeeded=1
@@ -255,8 +261,8 @@ cat <<EOF
 RightOut plugin installed and runtime-validated.
 
 Version: $(tr -d '\n' < "$REPO_ROOT/VERSION")
-Tools: rightout_live_scan and rightout_submit_removal (optional, non-replay-safe)
-Approval: separate native OpenClaw allow-once/deny per scan or removal, fail closed
+Tools: scan, direct rescan, email/form removal, inbox/link verification, approved local subject purge, and durable case planning/status/due checks
+Approval: separate native OpenClaw allow-once/deny per live read or external write, fail closed
 PII input: operator-configured SecretRef profile only
 Live readiness: install complete; provider/profile SecretRefs and exact attestations still required
 EOF

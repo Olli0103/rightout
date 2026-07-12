@@ -42,7 +42,7 @@ ALLOWED_STATES: dict[str, set[str]] = {
 }
 
 LIVE_ACTION_GATES = {"process_real_pii", "store_dossier", "live_scan", "send_request", "schedule_recheck", "provider_write"}
-LANES = {"registry", "web_form", "web_form_or_email", "email", "guided_flow", "operator_browser", "search_index", "human_task", "monitor_only"}
+LANES = {"registry", "web_form", "web_form_or_email", "browser_form", "email", "guided_flow", "operator_browser", "search_index", "human_task", "monitor_only"}
 SAFE_EVIDENCE_KEYS = {"kind", "dummy", "gate", "lane", "listing_urls", "matcher", "verification", "source_url", "confirmation_status", "redacted_proof"}
 SAFE_EVIDENCE_KEYS |= {"official_channel", "controller_url", "controller_verified", "human_completed", "sensitive_field_gate"}
 SENSITIVE_FIELDS = {"date_of_birth", "full_date_of_birth", "government_id", "passport", "drivers_license", "identity_document", "utility_bill"}
@@ -303,6 +303,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
         return errors + ["catalog brokers must be a non-empty list"]
+    catalog_ids = {item.get("id") for item in brokers if isinstance(item, dict) and isinstance(item.get("id"), str)}
     seen: set[str] = set()
     reserved_ids = {"con", "prn", "aux", "nul", "clock$", ".", ".."}
     forbidden_source_domains = {"privacyguides.org", "inteltechniques.com", "badbool.com"}
@@ -342,6 +343,41 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             errors.append(f"{label} official_domains must be a non-empty string list")
             official_domains = []
         validate_catalog_url(broker.get("official_url"), official_domains, label, "official_url", errors)
+        registry = broker.get("registry_provenance")
+        if registry is not None:
+            if not isinstance(registry, dict) or not {"url", "publisher", "entity", "last_verified"}.issubset(registry):
+                errors.append(f"{label} registry_provenance is incomplete")
+            else:
+                validate_catalog_url(registry.get("url"), ["cppa.ca.gov"], label, "registry_provenance.url", errors)
+                if registry.get("publisher") != "California Privacy Protection Agency":
+                    errors.append(f"{label} registry provenance publisher is not authoritative")
+                registry_date = parse_catalog_date(registry.get("last_verified"), label, "registry_provenance.last_verified", errors)
+                if registry_date and registry_date > today:
+                    errors.append(f"{label} registry provenance is future-dated")
+                if not isinstance(registry.get("entity"), str) or not registry["entity"].strip():
+                    errors.append(f"{label} registry provenance entity is missing")
+        cluster = broker.get("ownership_cluster")
+        if cluster is not None:
+            if not isinstance(cluster, dict):
+                errors.append(f"{label} ownership_cluster must be an object")
+            else:
+                cluster_id = cluster.get("id")
+                parent_id = cluster.get("parent_broker_id")
+                role = cluster.get("role")
+                if not isinstance(cluster_id, str) or not re.fullmatch(r"[a-z0-9_]{2,48}", cluster_id):
+                    errors.append(f"{label} ownership cluster id is invalid")
+                if parent_id not in catalog_ids:
+                    errors.append(f"{label} ownership cluster parent is missing")
+                if role not in {"parent", "child", "separate_optout_child"}:
+                    errors.append(f"{label} ownership cluster role is invalid")
+                if role == "parent" and parent_id != broker_id:
+                    errors.append(f"{label} ownership cluster parent role is inconsistent")
+                coverage = cluster.get("coverage_policy")
+                if coverage is not None and coverage not in {
+                    "official_registry_claims_one_site_request_applies_across_cluster",
+                    "official_registry_says_spokeo_optout_excludes_thatsthem",
+                }:
+                    errors.append(f"{label} ownership cluster coverage policy is invalid")
         fields = broker.get("required_fields")
         if not isinstance(fields, list) or not fields or not all(isinstance(field, str) and re.fullmatch(r"[a-z][a-z0-9_]{1,63}", field) for field in fields):
             errors.append(f"{label} required_fields must contain safe field ids")
@@ -359,6 +395,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
         if broker.get("source_license") not in allowed_source_licenses:
             errors.append(f"{label} has unsupported source_license")
         sources = broker.get("sources")
+        removal_domains = (broker.get("removal") or {}).get("allowed_form_domains", []) if isinstance(broker.get("removal"), dict) else []
+        source_allowed_domains = [*official_domains, *(removal_domains if isinstance(removal_domains, list) else [])]
         if not isinstance(sources, list) or not sources:
             errors.append(f"{label} sources must be a non-empty list")
         else:
@@ -369,7 +407,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                     continue
                 if not {"url", "title", "publisher", "license_scope", "last_verified"}.issubset(source):
                     errors.append(f"{source_label} missing provenance fields")
-                validate_catalog_url(source.get("url"), official_domains, source_label, "url", errors)
+                validate_catalog_url(source.get("url"), source_allowed_domains, source_label, "url", errors)
                 source_host = urlparse(str(source.get("url", ""))).hostname or ""
                 if source_host in forbidden_source_domains or any(source_host.endswith("." + item) for item in forbidden_source_domains):
                     errors.append(f"{source_label} uses a forbidden third-party list source")
@@ -421,27 +459,63 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             removal = broker.get("removal")
             removal_supported = isinstance(removal, dict) and removal.get("supported") is True
             if removal_supported:
-                if not (lane == "email" and gate == "send_request" and broker.get("human_only") is False):
-                    errors.append(f"{label} automated removal lane is inconsistent")
-                recipient = removal.get("recipient")
-                if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
-                    errors.append(f"{label} removal recipient is invalid")
-                elif recipient.rsplit("@", 1)[1].lower() != removal.get("smtp_recipient_domain"):
-                    errors.append(f"{label} removal recipient domain is not locked")
-                if removal.get("channel") != "email" or removal.get("request_kinds") != ["delete_and_opt_out"]:
-                    errors.append(f"{label} removal channel or request kind is unsafe")
-                if removal.get("disclosure_fields") != ["full_name", "contact_email", "region", "country"]:
-                    errors.append(f"{label} removal disclosure fields violate minimum disclosure")
-                if broker.get("required_fields") != removal.get("disclosure_fields"):
-                    errors.append(f"{label} removal disclosure fields disagree with required_fields")
+                channel = removal.get("channel")
+                if removal.get("request_kinds") != ["delete_and_opt_out"]:
+                    errors.append(f"{label} removal request kind is unsafe")
+                if channel == "email":
+                    if not (lane == "email" and gate == "send_request" and broker.get("human_only") is False):
+                        errors.append(f"{label} automated email removal lane is inconsistent")
+                    recipient = removal.get("recipient")
+                    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
+                        errors.append(f"{label} removal recipient is invalid")
+                    elif recipient.rsplit("@", 1)[1].lower() != removal.get("smtp_recipient_domain"):
+                        errors.append(f"{label} removal recipient domain is not locked")
+                    if removal.get("disclosure_fields") != ["full_name", "contact_email", "region", "country"]:
+                        errors.append(f"{label} email removal disclosure fields violate minimum disclosure")
+                    if broker.get("required_fields") != removal.get("disclosure_fields"):
+                        errors.append(f"{label} email removal disclosure fields disagree with required_fields")
+                    if removal.get("identity_verification") != "broker_may_request_follow_up":
+                        errors.append(f"{label} email identity-verification posture is unsafe")
+                    if removal.get("confirmation_policy") != "submitted_until_later_rescan":
+                        errors.append(f"{label} email confirmation policy is unsafe")
+                    policy_domains = official_domains
+                elif channel == "browser_form":
+                    if not (lane == "browser_form" and gate == "send_request" and broker.get("human_only") is False):
+                        errors.append(f"{label} automated browser-form lane is inconsistent")
+                    allowed_form_domains = removal.get("allowed_form_domains")
+                    if not isinstance(allowed_form_domains, list) or not allowed_form_domains or not all(
+                        isinstance(domain, str) and re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain)
+                        for domain in allowed_form_domains
+                    ):
+                        errors.append(f"{label} browser-form domains are invalid")
+                        allowed_form_domains = []
+                    validate_catalog_url(removal.get("form_url"), allowed_form_domains, label, "removal.form_url", errors)
+                    if removal.get("disclosure_fields") != ["contact_email"]:
+                        errors.append(f"{label} browser-form disclosure fields violate minimum disclosure")
+                    if removal.get("identity_verification") != "email_control_then_subject_selection":
+                        errors.append(f"{label} browser-form identity-verification posture is unsafe")
+                    if removal.get("confirmation_policy") != "verification_pending_until_email_confirmed":
+                        errors.append(f"{label} browser-form confirmation policy is unsafe")
+                    recipe = removal.get("form_recipe")
+                    if not (
+                        isinstance(recipe, dict)
+                        and set(recipe) == {"recipe_version", "fields", "checkboxes", "submit", "success_phrases", "captcha_policy"}
+                        and recipe.get("recipe_version") == 1
+                        and recipe.get("captcha_policy") == "fail_closed_human_task"
+                        and recipe.get("fields") == [{"profile_field": "contact_email", "type": "text", "roles": ["textbox"], "name_contains": ["email"]}]
+                        and recipe.get("checkboxes") == [{"roles": ["checkbox"], "name_contains": ["agree", "terms"]}]
+                        and recipe.get("submit") == {"roles": ["button"], "name_contains": ["continue"]}
+                        and recipe.get("success_phrases") == ["check your email", "verification email"]
+                    ):
+                        errors.append(f"{label} browser-form recipe is not closed and deterministic")
+                    policy_domains = allowed_form_domains
+                else:
+                    errors.append(f"{label} removal channel is unsafe")
+                    policy_domains = official_domains
                 eligible = removal.get("eligible_jurisdictions")
                 if not isinstance(eligible, list) or not eligible or not all(isinstance(item, str) and re.fullmatch(r"(?:EU|EEA|[A-Z]{2}(?:-[A-Z0-9]{2,3})?)", item) for item in eligible):
                     errors.append(f"{label} removal jurisdictions are invalid")
-                if removal.get("identity_verification") != "broker_may_request_follow_up":
-                    errors.append(f"{label} removal identity-verification posture is unsafe")
-                if removal.get("confirmation_policy") != "submitted_until_later_rescan":
-                    errors.append(f"{label} removal confirmation policy is unsafe")
-                validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
+                validate_catalog_url(removal.get("policy_url"), policy_domains, label, "removal.policy_url", errors)
                 removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
                 if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
                     errors.append(f"{label} removal policy provenance is stale or future-dated")
@@ -453,13 +527,28 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 and scan.get("automated_access_policy") == "search_index_only_no_publisher_access"
                 and scan.get("terms_status") == "publisher_not_accessed"
                 and scan.get("strategy") == "brave_site_query_no_publisher_fetch"
-                and scan.get("query_fields") == ["full_name", "city", "region"]
+                and scan.get("query_fields") == [
+                    "full_name", "also_known_as", "current_and_prior_locations",
+                    "current_and_prior_addresses", "emails", "phones",
+                ]
                 and scan.get("search_provider_host") == "api.search.brave.com"
                 and scan.get("not_found_policy") == "never_from_index_absence"
                 and "candidate_path_pattern" not in scan
                 and "max_candidates" not in scan
             ):
                 errors.append(f"{label} has unsafe or incomplete live-scan policy")
+            direct_rescan = broker.get("direct_rescan")
+            if direct_rescan is not None and not (
+                isinstance(direct_rescan, dict)
+                and direct_rescan.get("supported") is True
+                and direct_rescan.get("strategy") == "exact_encrypted_index_candidate_urls"
+                and direct_rescan.get("publisher_terms_gate") == "operator_attestation_required"
+                and direct_rescan.get("redirect_policy") == "deny"
+                and direct_rescan.get("confirmation_scope") == "known_listing_set_only"
+                and direct_rescan.get("identity_match") == "full_name_plus_one_configured_corroborator"
+                and parse_catalog_date(direct_rescan.get("last_verified"), label, "direct_rescan.last_verified", errors)
+            ):
+                errors.append(f"{label} direct-rescan policy is unsafe or incomplete")
     return errors
 
 
@@ -1253,6 +1342,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         catalog_path(skill_dir),
         plugin_root / "index.ts",
         plugin_root / "lib" / "live-scan.mjs",
+        plugin_root / "lib" / "listing-tokens.mjs",
+        plugin_root / "lib" / "file-keyed-store.mjs",
+        plugin_root / "lib" / "direct-rescan.mjs",
         plugin_root / "lib" / "removal.mjs",
         plugin_root / "openclaw.plugin.json",
     ]
@@ -1263,10 +1355,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "missing": missing,
         "broker_count": len(catalog["brokers"]),
         "runner": "openclaw-data-broker-removal",
-        "capability_posture": "separately_approval_gated_live_scan_and_removal_plus_dummy_runner",
+        "capability_posture": "minimum_unbroker_workflow_parity_with_separate_native_approvals",
         "public_commands": sorted(PUBLIC_COMMANDS),
         "live_tool": "rightout_live_scan",
+        "direct_rescan_tool": "rightout_direct_rescan",
         "removal_tool": "rightout_submit_removal",
+        "form_removal_tool": "rightout_submit_form_removal",
+        "verification_poll_tool": "rightout_poll_verification",
+        "verification_open_tool": "rightout_open_verification",
+        "subject_purge_tool": "rightout_purge_subject_state",
+        "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_due_rechecks"],
         "live_approval_adapter": "native_openclaw_plugin_permission_allow_once",
         "live_pii_input": "secretref_profile_not_tool_params",
     }, indent=2))
@@ -1333,24 +1431,61 @@ def cmd_validate(args: argparse.Namespace) -> None:
         manifest = load_json(manifest_path)
         tool = manifest.get("toolMetadata", {}).get("rightout_live_scan", {})
         removal_tool = manifest.get("toolMetadata", {}).get("rightout_submit_removal", {})
+        form_tool = manifest.get("toolMetadata", {}).get("rightout_submit_form_removal", {})
+        poll_tool = manifest.get("toolMetadata", {}).get("rightout_poll_verification", {})
+        open_tool = manifest.get("toolMetadata", {}).get("rightout_open_verification", {})
+        direct_tool = manifest.get("toolMetadata", {}).get("rightout_direct_rescan", {})
+        purge_tool = manifest.get("toolMetadata", {}).get("rightout_purge_subject_state", {})
         secret_paths = {
             item.get("path")
             for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])
             if isinstance(item, dict)
         }
-        if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != ["rightout_live_scan", "rightout_submit_removal"]:
+        expected_tools = [
+            "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal", "rightout_submit_form_removal", "rightout_poll_verification",
+            "rightout_open_verification", "rightout_purge_subject_state", "rightout_next_actions", "rightout_case_status",
+            "rightout_due_rechecks",
+        ]
+        if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != expected_tools:
             errors.append("OpenClaw plugin tool contract is inconsistent")
         if tool.get("optional") is not True or tool.get("replaySafe") is not False:
             errors.append("live tool must be optional and non-replay-safe")
         if removal_tool.get("optional") is not True or removal_tool.get("replaySafe") is not False:
             errors.append("removal tool must be optional and non-replay-safe")
+        if form_tool.get("optional") is not True or form_tool.get("replaySafe") is not False:
+            errors.append("form removal tool must be optional and non-replay-safe")
+        if poll_tool.get("optional") is not True or poll_tool.get("replaySafe") is not False:
+            errors.append("verification poll tool must be optional and non-replay-safe")
+        if open_tool.get("optional") is not True or open_tool.get("replaySafe") is not False:
+            errors.append("verification open tool must be optional and non-replay-safe")
+        if direct_tool.get("optional") is not True or direct_tool.get("replaySafe") is not False:
+            errors.append("direct rescan tool must be optional and non-replay-safe")
+        if purge_tool.get("optional") is not True or purge_tool.get("replaySafe") is not False:
+            errors.append("subject purge tool must be optional and non-replay-safe")
         required_config = set((tool.get("configSignals") or [{}])[0].get("required", []))
-        if "operatorAttestations" not in required_config:
-            errors.append("live tool must require operator attestations")
+        if {"operatorAttestations", "stateEncryptionKey"} - required_config:
+            errors.append("live tool must require operator attestations and encrypted state")
         removal_required_config = set((removal_tool.get("configSignals") or [{}])[0].get("required", []))
-        if {"smtpTransport", "profiles", "removalAttestations"} - removal_required_config:
-            errors.append("removal tool must require SMTP, profiles, and removal attestations")
-        if {"braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password", "smtpTransport.fromAddress"} - secret_paths:
+        if {"smtpTransport", "profiles", "removalAttestations", "stateEncryptionKey"} - removal_required_config:
+            errors.append("removal tool must require SMTP, profiles, encrypted state, and removal attestations")
+        form_required_config = set((form_tool.get("configSignals") or [{}])[0].get("required", []))
+        if {"profiles", "formAttestations", "stateEncryptionKey"} - form_required_config:
+            errors.append("form removal tool must require profiles, encrypted state, and form attestations")
+        poll_required_config = set((poll_tool.get("configSignals") or [{}])[0].get("required", []))
+        open_required_config = set((open_tool.get("configSignals") or [{}])[0].get("required", []))
+        if {"imapTransport", "profiles", "verificationAttestations", "stateEncryptionKey"} - poll_required_config:
+            errors.append("verification poll tool must require IMAP, profiles, encrypted state, and verification attestations")
+        if {"imapTransport", "profiles", "verificationAttestations", "stateEncryptionKey"} - open_required_config:
+            errors.append("verification open tool must require IMAP, profiles, encrypted state, and verification attestations")
+        direct_required_config = set((direct_tool.get("configSignals") or [{}])[0].get("required", []))
+        if {"stateEncryptionKey", "profiles", "directScanAttestations"} - direct_required_config:
+            errors.append("direct rescan tool must require encrypted tokens, profiles, and direct attestations")
+        required_secret_paths = {
+            "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
+            "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
+            "imapTransport.address", "stateEncryptionKey",
+        }
+        if required_secret_paths - secret_paths:
             errors.append("live secrets must use declared SecretInput contracts")
     print(json.dumps({"ok": not errors, "errors": errors, "broker_count": len(catalog.get("brokers", [])), "catalog_schema_version": catalog.get("schema_version")}, indent=2))
     if errors:

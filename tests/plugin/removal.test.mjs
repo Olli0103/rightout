@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspect } from "node:util";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { scanProfileDigest } from "../../lib/live-scan.mjs";
 
@@ -15,6 +18,11 @@ import {
   validateRemovalPublicToolInput,
   validateSmtpConfig,
 } from "../../lib/removal.mjs";
+
+function fakeRuntime() {
+  const stateDir = mkdtempSync(join(tmpdir(), "rightout-removal-runtime-"));
+  return { state: { resolveStateDir() { return stateDir; } } };
+}
 
 const profileId = "profile_a1b2c3d4e5f60718";
 const toolInput = { profileId, brokerId: "beenverified", requestKind: "delete_and_opt_out" };
@@ -305,6 +313,7 @@ test("runtime uses a removal-specific allow-once binding that scan approval cann
   let beforeToolCall;
   const tools = new Map();
   const pluginConfig = {
+    stateEncryptionKey: "dummy-state-key-with-more-than-32-characters",
     braveApiKey: "dummy-test-key",
     profiles: { [profileId]: { payload: JSON.stringify(privateProfile) } },
     operatorAttestations: {
@@ -320,6 +329,7 @@ test("runtime uses a removal-specific allow-once binding that scan approval cann
     removalAttestations,
   };
   plugin.register({
+    runtime: fakeRuntime(),
     on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
     registerTool(tool) { tools.set(tool.name, tool); },
     registerSecurityAuditCollector() {},

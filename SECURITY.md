@@ -1,59 +1,39 @@
-# Security policy
+# Security and privacy posture
 
-## Supported live posture
+RightOut `0.4.0` treats live broker work as a sequence of independent high-impact actions. Native OpenClaw approval is mandatory for Brave discovery, exact-URL publisher reads, IMAP reads, confirmation-link opens, SMTP sends, and sandbox-browser form writes. Decisions are `allow-once` or `deny`, expire after two minutes, and are bound to the host tool-call ID, exact opaque scope, configuration attestations, and profile digest.
 
-RightOut `0.3.0` supports two distinct live actions:
+## Data boundaries
 
-- Brave index-only discovery for catalog entries with `scan.supported: true`;
-- one minimum-disclosure SMTP removal request for catalog entries with `removal.supported: true`.
+- Public tool arguments and reports contain opaque references and field categories only.
+- Profiles, Brave/SMTP/IMAP credentials, sender/mailbox addresses, and the listing-token encryption key are declared SecretInput paths and must be SecretRefs.
+- Brave queries use POST to the fixed guarded endpoint. Search result content is discarded; same-domain candidate URLs become encrypted tokens in private contained state-directory files only when an encryption key is configured.
+- The durable case ledger stores broker IDs, state, dates, disclosure field names, sanitized reasons, and opaque proof references—never raw PII, messages, URLs, queries, or page bodies.
+- Direct rechecks decrypt exact candidate URLs only inside the plugin, allow only catalog official domains, deny redirects, bound responses to 1 MB, and require a full name plus one configured corroborator for presence.
+- IMAP is read-only and Gmail-only, bounded to post-submission INBOX messages, and requires the intended recipient, IMAP `INTERNALDATE` after the recorded submission, exactly one receiver-added `mx.google.com` authentication result with aligned DKIM for the catalog sender domain, plus a catalog-domain link. Raw mail and URLs never enter output; injected authentication headers fail closed.
+- SMTP is provider/port/TLS pinned and the sender must equal the subject contact email. Browser form recipes are closed catalog contracts through the host sandbox bridge.
 
-The current write scope is BeenVerified only, request kind `delete_and_opt_out`, and an attested `US-CA` subject. Forms, CAPTCHAs, browser automation, identity documents, verification-link opening, mailbox polling, and recurring scheduling are not implemented.
+## Fail-closed rules
 
-Never put real PII or credentials in chat, tool arguments, repository files, dummy-runner files, logs, issues, or vulnerability reports.
+CAPTCHA, identity-document requests, ambiguous form controls, missing success evidence, redirects, block pages, oversized responses, partial direct checks, changed profiles/transports, invalid catalog scope, expired handles, and denied/expired approvals perform no unapproved follow-on action. They become inconclusive, blocked, or human tasks.
 
-## Enforced controls
+Durable submission deduplication has a 24-hour TTL and survives Gateway restart. A possible write failure retains cooldown; only a clearly pre-write failure releases it.
 
-- Both tools are optional and non-replay-safe.
-- Public parameters contain only opaque profile/broker references and fixed request-kind enums.
-- Profiles, Brave key, SMTP username/password, and sender address are declared SecretInput paths.
-- Scan and removal have separate revision-bound operator attestations, recorded action-specific subject consent, normalized profile bindings, and separate native approvals.
-- `before_tool_call.requireApproval` offers only `allow-once` and `deny`, at critical severity with a 120-second deny-on-timeout.
-- The host tool-call ID, normalized input, current attestations, action class, catalog removal destination, and operator-generated normalized profile/SMTP SHA-256 bindings are bound into a single-use expiring approval.
-- A scan approval cannot authorize `rightout_submit_removal`; mutated, replayed, expired, or directly executed calls fail closed.
-- After approval and before network access, removal additionally rechecks both bound snapshots, recorded subject consent in the SecretRef profile, matching jurisdiction, exact SMTP sender/profile email equality, and minimum-disclosure acceptance.
-- Removal recipient and disclosure categories are catalog-locked. The agent cannot supply an address, subject, body, SMTP host, or arbitrary field.
-- SMTP is restricted to a static provider/port/TLS matrix. TLS 1.2+, certificate validation, timeouts, and Nodemailer file/URL access denial are enforced.
-- A deterministic Message-ID reduces accidental duplicate handling; successful submissions also receive a process-local 24-hour cooldown. Restarting the Gateway clears that cooldown, so every later send still requires a new explicit approval.
-- SMTP acceptance is reported only as `submitted`; it is never broker receipt or `confirmed_removed`.
-- Reports contain only opaque proof references and field categories, not the email body, Message-ID, credentials, or profile values.
-- Scan traffic uses OpenClaw's SSRF-guarded fixed Brave endpoint, zero redirects, bounded response reads, disabled capture, and abort propagation.
-- No publisher page is fetched. A same-domain candidate is only `indirect_exposure`; absence is `inconclusive`.
-- Spokeo automated access remains disabled by catalog policy.
-- The Python runner remains dummy-only and cannot transition a real catalog case.
+Removal execution requires durable discovery evidence first. Inbox verification additionally requires a submitted case and binds every opaque link handle to that case's submission timestamp and proof reference. Subject-state purge is local-only, separately approved, and reports that the configured profile SecretRef remains until the operator removes it from OpenClaw configuration.
 
-Prompt text, caller JSON, model-created tokens, local receipts, HMACs, environment flags, broker content, and controller-provided destinations are not approval authority.
+## Evidence semantics
 
-## Trust and limitations
+- Brave candidate: `indirect_exposure`, never identity proof.
+- Search-index absence: `inconclusive`, never removal proof.
+- SMTP acceptance: `submitted`, not broker delivery or processing.
+- Browser form success: `verification_pending`, not removal.
+- Confirmation-link open: `awaiting_processing`, not removal.
+- Direct presence: `found`, or `reappeared` after a prior confirmation.
+- Direct 404/410 across every known encrypted listing URL after a prior removal: `confirmed_removed`, scoped to `known_listing_set_only`.
 
-OpenClaw plugins execute inside the Gateway trust boundary. SecretRefs reduce persisted-secret exposure but do not isolate secrets from a same-privilege process or an agent that can inspect the Gateway environment, memory, or provider files. Use OS-user/container separation and a hardened external secret provider where shell or file access is broad.
+Operator attestations are deployment gates, not legal certification. RightOut does not provide legal advice, guarantee deletion, cover private databases, or verify that no other listing exists.
 
-The SMTP server's acceptance only proves that the operator's outbound server accepted the message. Broker delivery, identity verification, processing, suppression, deletion, and later reappearance remain open until separately evidenced. RightOut currently has no durable live case database or mailbox-verification integration; the returned PII-safe report is the submission record.
+## Deployment guidance
 
-Operator attestations are deployment gates, not legal certification. The operator must establish subject authority and eligibility. RightOut does not provide legal advice or guarantee compliance.
+Add all seven approval-gated tools to `gateway.tools.deny` unless full-operator `/tools/invoke` is intentionally required. Run `openclaw secrets audit --check` and `openclaw security audit --deep` after every configuration change. Third-party OpenClaw plugins are trusted in-process code, not tenant sandboxes; isolate mutually untrusted operators by Gateway and OS identity.
 
-Consent records are scope-bound, non-future, digest-bound, and separately reviewed by the operator, but v0.3.0 does not impose a universal maximum age or maintain a revocation registry. Deployments must update/revoke the SecretRef profile and bindings when authority changes. SHA-256 bindings are pseudonymous sensitive metadata, not anonymous data.
-
-## Recommended deployment controls
-
-- use a hardened file or exec SecretRef provider outside the workspace;
-- use a scoped SMTP app password;
-- run `openclaw secrets audit --check` and `openclaw security audit --deep`;
-- deny both RightOut tools on `gateway.tools.deny` unless direct operator invocation is required;
-- keep the Gateway on authenticated loopback/private ingress;
-- keep debug proxy capture disabled for private workflows;
-- protect approval channels from unauthorized users;
-- separate OS/container privileges when the agent has shell access.
-
-## Report a vulnerability
-
-Use a private GitHub security advisory with synthetic fixtures only. Report approval crossover/bypass, plaintext SecretRef failures, arbitrary SMTP destinations, recipient/body injection, TLS downgrade, duplicate/replay behavior, unexpected network destinations, publisher requests, PII leakage, catalog provenance failures, filesystem escapes, hidden writes, or incorrect exposure/removal-state claims.
+Report vulnerabilities privately through the repository security advisory channel. Do not include real PII, credentials, live listing URLs, or broker mail in reports or fixtures.

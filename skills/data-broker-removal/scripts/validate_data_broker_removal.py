@@ -102,7 +102,7 @@ def main() -> None:
 
     e2e_report = e2e["report"]
     scan_report = scan["report"]
-    if not doctor.get("ok") or doctor.get("capability_posture") != "separately_approval_gated_live_scan_and_removal_plus_dummy_runner":
+    if not doctor.get("ok") or doctor.get("capability_posture") != "minimum_unbroker_workflow_parity_with_separate_native_approvals":
         errors.append("doctor did not prove the split live-plugin/dummy-runner posture")
     if doctor.get("live_approval_adapter") != "native_openclaw_plugin_permission_allow_once":
         errors.append("doctor did not prove the native approval boundary")
@@ -110,6 +110,8 @@ def main() -> None:
         errors.append("doctor did not prove the private-profile boundary")
     if doctor.get("removal_tool") != "rightout_submit_removal":
         errors.append("doctor did not prove the separate removal tool boundary")
+    if doctor.get("direct_rescan_tool") != "rightout_direct_rescan":
+        errors.append("doctor did not prove the direct-rescan boundary")
     if not validation.get("ok") or validation.get("catalog_schema_version") != 3:
         errors.append("catalog validation failed")
     if e2e_report.get("report_version") != 4:

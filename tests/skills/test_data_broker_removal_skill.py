@@ -74,10 +74,11 @@ class PublicBoundaryTests(unittest.TestCase):
     def test_validator_and_doctor_prove_split_live_plugin_boundary(self) -> None:
         result = run([sys.executable, str(VALIDATOR), "--skill-dir", str(SKILL)])
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["doctor"]["capability_posture"], "separately_approval_gated_live_scan_and_removal_plus_dummy_runner")
+        self.assertEqual(result["doctor"]["capability_posture"], "minimum_unbroker_workflow_parity_with_separate_native_approvals")
         self.assertEqual(result["doctor"]["live_approval_adapter"], "native_openclaw_plugin_permission_allow_once")
         self.assertEqual(result["doctor"]["live_pii_input"], "secretref_profile_not_tool_params")
         self.assertEqual(result["doctor"]["removal_tool"], "rightout_submit_removal")
+        self.assertEqual(result["doctor"]["direct_rescan_tool"], "rightout_direct_rescan")
 
     def test_public_command_surface_excludes_live_and_mutating_commands(self) -> None:
         help_result = run([sys.executable, str(RUNNER), "--help"])
@@ -223,7 +224,7 @@ class ReportingAndStateTests(unittest.TestCase):
     def test_report_distinguishes_catalog_coverage_from_fixtures(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rightout-coverage-") as tmp:
             report = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
-        self.assertEqual(report["coverage"]["catalog_case_count"], 6)
+        self.assertEqual(report["coverage"]["catalog_case_count"], len(load_catalog()["brokers"]))
         self.assertEqual(report["coverage"]["fixture_case_count"], 3)
         self.assertTrue(all(not item["fixture_only"] for item in report["scan_report"]["not_checked"]))
 
@@ -333,6 +334,9 @@ class CatalogValidationTests(unittest.TestCase):
         unsafe_strategy = load_catalog()
         next(item for item in unsafe_strategy["brokers"] if item["id"] == "truepeoplesearch")["scan"]["strategy"] = "brave_site_query_then_same_domain_verify"
         self.assertTrue(any("live-scan policy" in error for error in rightout.validate_catalog_data(unsafe_strategy)))
+        unsafe_direct = load_catalog()
+        next(item for item in unsafe_direct["brokers"] if item["id"] == "truepeoplesearch")["direct_rescan"]["publisher_terms_gate"] = "model_attestation"
+        self.assertTrue(any("direct-rescan policy" in error for error in rightout.validate_catalog_data(unsafe_direct)))
 
     def test_published_automation_prohibition_disables_live_scan(self) -> None:
         catalog = load_catalog()
@@ -389,6 +393,7 @@ class InstallerTests(unittest.TestCase):
             env = self.isolated_env(tmp)
             env.update({
                 "RIGHTOUT_TEST_BRAVE_KEY": "dummy-test-key",
+                "RIGHTOUT_TEST_STATE_KEY": "dummy-state-key-with-more-than-32-characters",
                 "RIGHTOUT_TEST_PROFILE": json.dumps({
                     "fullName": "Avery Example",
                     "city": "Exampleville",
@@ -401,6 +406,10 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("native OpenClaw allow-once/deny", first["stdout"])
             run(
                 [env["OPENCLAW_BIN"], "config", "set", "plugins.entries.rightout.config.braveApiKey", "--ref-provider", "default", "--ref-source", "env", "--ref-id", "RIGHTOUT_TEST_BRAVE_KEY"],
+                env_extra=env,
+            )
+            run(
+                [env["OPENCLAW_BIN"], "config", "set", "plugins.entries.rightout.config.stateEncryptionKey", "--ref-provider", "default", "--ref-source", "env", "--ref-id", "RIGHTOUT_TEST_STATE_KEY"],
                 env_extra=env,
             )
             run(
@@ -427,7 +436,7 @@ class InstallerTests(unittest.TestCase):
                 env_extra=env,
             )
             run(
-                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_submit_removal"]', "--strict-json"],
+                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification"]', "--strict-json"],
                 env_extra=env,
             )
             validation = run([env["OPENCLAW_BIN"], "config", "validate"], env_extra=env)
@@ -439,6 +448,7 @@ class InstallerTests(unittest.TestCase):
             self.assertNotIn("rightout.secretref", security["stdout"] + security["stderr"])
             self.assertNotIn("rightout.scan_operator_attestations", security["stdout"] + security["stderr"])
             self.assertNotIn("rightout.removal_operator_attestations", security["stdout"] + security["stderr"])
+            self.assertNotIn("rightout.state_encryption_key", security["stdout"] + security["stderr"])
             self.assertNotIn("rightout.gateway.tools_invoke", security["stdout"] + security["stderr"])
             second = run([str(INSTALLER), "--force"], env_extra=env)
             self.assertIn("plugin installed and runtime-validated", second["stdout"])

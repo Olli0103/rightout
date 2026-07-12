@@ -11,6 +11,7 @@ import {
   validateSmtpConfig,
 } from "../dist/lib/removal.mjs";
 import { scanProfileDigest } from "../dist/lib/live-scan.mjs";
+import { imapTransportDigest, validateImapConfig } from "../dist/lib/imap.mjs";
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -44,18 +45,24 @@ async function readPrivateJson(path, label) {
 }
 
 async function main() {
-  const [profileId, profilePath, smtpPath] = process.argv.slice(2);
+  const [profileId, profilePath, smtpPath, imapPath] = process.argv.slice(2);
   if (!/^profile_[a-f0-9]{16,32}$/.test(profileId ?? "") || !profilePath || !smtpPath) {
-    throw new Error("usage: compute-removal-bindings.mjs PROFILE_ID PRIVATE_PROFILE_JSON PRIVATE_SMTP_JSON");
+    throw new Error("usage: compute-removal-bindings.mjs PROFILE_ID PRIVATE_PROFILE_JSON PRIVATE_SMTP_JSON [PRIVATE_IMAP_JSON]");
   }
   const profilePayload = await readPrivateJson(profilePath, "profile");
   const smtpPayload = await readPrivateJson(smtpPath, "smtp");
   const profile = parseRemovalProfile(profilePayload);
   const smtp = validateSmtpConfig(JSON.parse(smtpPayload), profile);
+  let imapDigest;
+  if (imapPath) {
+    const imapPayload = await readPrivateJson(imapPath, "imap");
+    imapDigest = imapTransportDigest(validateImapConfig(JSON.parse(imapPayload), profile.contactEmail));
+  }
   process.stdout.write(`${JSON.stringify({
     scanProfileDigests: { [profileId]: scanProfileDigest(profilePayload) },
     authorizedProfileDigests: { [profileId]: removalProfileDigest(profilePayload) },
     smtpTransportDigest: removalSmtpDigest(smtp),
+    ...(imapDigest ? { imapTransportDigest: imapDigest } : {}),
   }, null, 2)}\n`);
 }
 

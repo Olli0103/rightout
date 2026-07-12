@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Separately approval-gated live data-broker scans and broker removal requests",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "skills": [
     "./skills"
   ],
@@ -12,7 +12,15 @@
   "contracts": {
     "tools": [
       "rightout_live_scan",
-      "rightout_submit_removal"
+      "rightout_direct_rescan",
+      "rightout_submit_removal",
+      "rightout_submit_form_removal",
+      "rightout_poll_verification",
+      "rightout_open_verification",
+      "rightout_purge_subject_state",
+      "rightout_next_actions",
+      "rightout_case_status",
+      "rightout_due_rechecks"
     ]
   },
   "toolMetadata": {
@@ -24,9 +32,20 @@
           "rootPath": "plugins.entries.rightout.config",
           "required": [
             "braveApiKey",
+            "stateEncryptionKey",
             "profiles",
             "operatorAttestations"
           ]
+        }
+      ]
+    },
+    "rightout_direct_rescan": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey", "profiles", "directScanAttestations"]
         }
       ]
     },
@@ -38,9 +57,94 @@
           "rootPath": "plugins.entries.rightout.config",
           "required": [
             "smtpTransport",
+            "stateEncryptionKey",
             "profiles",
             "removalAttestations"
           ]
+        }
+      ]
+    },
+    "rightout_submit_form_removal": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": [
+            "profiles",
+            "stateEncryptionKey",
+            "formAttestations"
+          ]
+        }
+      ]
+    },
+    "rightout_poll_verification": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": [
+            "imapTransport",
+            "stateEncryptionKey",
+            "profiles",
+            "verificationAttestations"
+          ]
+        }
+      ]
+    },
+    "rightout_open_verification": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": [
+            "imapTransport",
+            "stateEncryptionKey",
+            "profiles",
+            "verificationAttestations"
+          ]
+        }
+      ]
+    },
+    "rightout_purge_subject_state": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_next_actions": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_case_status": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_due_rechecks": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
         }
       ]
     }
@@ -67,6 +171,22 @@
         },
         {
           "path": "smtpTransport.fromAddress",
+          "expected": "string"
+        },
+        {
+          "path": "imapTransport.username",
+          "expected": "string"
+        },
+        {
+          "path": "imapTransport.password",
+          "expected": "string"
+        },
+        {
+          "path": "imapTransport.address",
+          "expected": "string"
+        },
+        {
+          "path": "stateEncryptionKey",
           "expected": "string"
         }
       ]
@@ -102,6 +222,25 @@
       "help": "Must equal the subject profile contact email. Configure as an OpenClaw SecretRef.",
       "sensitive": true
     },
+    "imapTransport.host": {
+      "label": "IMAP host",
+      "help": "Fail-closed allowlist: Gmail IMAP over port 993 only, with receiver-added mx.google.com authentication results."
+    },
+    "imapTransport.username": {
+      "label": "IMAP username",
+      "help": "Configure as an OpenClaw SecretRef.",
+      "sensitive": true
+    },
+    "imapTransport.password": {
+      "label": "IMAP app password",
+      "help": "Configure as an OpenClaw SecretRef.",
+      "sensitive": true
+    },
+    "imapTransport.address": {
+      "label": "Verification mailbox address",
+      "help": "Must equal the subject profile contact email. Configure as an OpenClaw SecretRef.",
+      "sensitive": true
+    },
     "operatorAttestations": {
       "label": "Live-scan attestations",
       "help": "Exact profile/broker scope plus pinned Brave terms and customer responsibilities.",
@@ -110,6 +249,26 @@
     "removalAttestations": {
       "label": "Removal-write attestations",
       "help": "Separate exact scope for subject consent, SMTP authority, minimum disclosure, and removal policy.",
+      "advanced": true
+    },
+    "verificationAttestations": {
+      "label": "Inbox-verification attestations",
+      "help": "Separate exact scope for subject consent, read-only inbox access, confirmation-link opening, and verification policy.",
+      "advanced": true
+    },
+    "formAttestations": {
+      "label": "Browser-form attestations",
+      "help": "Separate exact scope for subject consent, minimum disclosure, sandbox-browser form writes, and the form policy.",
+      "advanced": true
+    },
+    "stateEncryptionKey": {
+      "label": "RightOut state encryption key",
+      "help": "At least 32 random characters. Encrypts all durable plugin state at rest; configure only as an OpenClaw SecretRef.",
+      "sensitive": true
+    },
+    "directScanAttestations": {
+      "label": "Direct-rescan attestations",
+      "help": "Separate exact scope for subject consent, publisher access, publisher terms review, and direct-rescan policy.",
       "advanced": true
     }
   },
@@ -123,6 +282,11 @@
           "object"
         ],
         "minLength": 1
+      },
+      "stateEncryptionKey": {
+        "type": ["string", "object"],
+        "minLength": 32,
+        "maxLength": 4096
       },
       "profiles": {
         "type": "object",
@@ -201,6 +365,43 @@
           }
         }
       },
+      "imapTransport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host",
+          "port",
+          "secure",
+          "username",
+          "password",
+          "address"
+        ],
+        "properties": {
+          "host": {
+            "enum": [
+              "imap.gmail.com"
+            ]
+          },
+          "port": {
+            "const": 993
+          },
+          "secure": {
+            "const": true
+          },
+          "username": {
+            "type": ["string", "object"],
+            "minLength": 1
+          },
+          "password": {
+            "type": ["string", "object"],
+            "minLength": 1
+          },
+          "address": {
+            "type": ["string", "object"],
+            "minLength": 3
+          }
+        }
+      },
       "operatorAttestations": {
         "type": "object",
         "additionalProperties": false,
@@ -251,7 +452,7 @@
           "authorizedBrokerIds": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 20,
+            "maxItems": 50,
             "uniqueItems": true,
             "items": {
               "type": "string",
@@ -316,7 +517,7 @@
           "authorizedBrokerIds": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 20,
+            "maxItems": 50,
             "uniqueItems": true,
             "items": {
               "type": "string",
@@ -335,6 +536,137 @@
           "smtpTransportDigest": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "verificationAttestations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rightoutVerificationPolicyAccepted",
+          "rightoutVerificationPolicyVersion",
+          "subjectConsentReviewed",
+          "inboxReadAuthorized",
+          "verificationLinkOpenAuthorized",
+          "authorizedProfileIds",
+          "authorizedProfileDigests",
+          "authorizedBrokerIds",
+          "imapTransportDigest"
+        ],
+        "properties": {
+          "rightoutVerificationPolicyAccepted": { "const": true },
+          "rightoutVerificationPolicyVersion": { "const": "2026-07-12" },
+          "subjectConsentReviewed": { "const": true },
+          "inboxReadAuthorized": { "const": true },
+          "verificationLinkOpenAuthorized": { "const": true },
+          "authorizedProfileIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^profile_[a-f0-9]{16,32}$" }
+          },
+          "authorizedProfileDigests": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 20,
+            "propertyNames": { "pattern": "^profile_[a-f0-9]{16,32}$" },
+            "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          "authorizedBrokerIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9_]{2,24}$" }
+          },
+          "imapTransportDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "formAttestations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rightoutFormPolicyAccepted",
+          "rightoutFormPolicyVersion",
+          "subjectConsentReviewed",
+          "browserFormAuthorized",
+          "minimumDisclosureAccepted",
+          "authorizedProfileIds",
+          "authorizedProfileDigests",
+          "authorizedBrokerIds"
+        ],
+        "properties": {
+          "rightoutFormPolicyAccepted": { "const": true },
+          "rightoutFormPolicyVersion": { "const": "2026-07-12" },
+          "subjectConsentReviewed": { "const": true },
+          "browserFormAuthorized": { "const": true },
+          "minimumDisclosureAccepted": { "const": true },
+          "authorizedProfileIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^profile_[a-f0-9]{16,32}$" }
+          },
+          "authorizedProfileDigests": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 20,
+            "propertyNames": { "pattern": "^profile_[a-f0-9]{16,32}$" },
+            "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          "authorizedBrokerIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9_]{2,24}$" }
+          }
+        }
+      },
+      "directScanAttestations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rightoutDirectScanPolicyAccepted",
+          "rightoutDirectScanPolicyVersion",
+          "subjectConsentReviewed",
+          "publisherAccessAuthorized",
+          "publisherTermsReviewed",
+          "authorizedProfileIds",
+          "authorizedProfileDigests",
+          "authorizedBrokerIds"
+        ],
+        "properties": {
+          "rightoutDirectScanPolicyAccepted": { "const": true },
+          "rightoutDirectScanPolicyVersion": { "const": "2026-07-12" },
+          "subjectConsentReviewed": { "const": true },
+          "publisherAccessAuthorized": { "const": true },
+          "publisherTermsReviewed": { "const": true },
+          "authorizedProfileIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^profile_[a-f0-9]{16,32}$" }
+          },
+          "authorizedProfileDigests": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 20,
+            "propertyNames": { "pattern": "^profile_[a-f0-9]{16,32}$" },
+            "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          "authorizedBrokerIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9_]{2,24}$" }
           }
         }
       }
