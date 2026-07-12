@@ -162,14 +162,14 @@ export function createEncryptedFileKeyedStore({ stateDir, namespace, maxEntries,
     async function cleanupCreatedLock(lockDir, identity, token) {
         const current = await lstat(lockDir).catch(() => undefined);
         if (!sameIdentity(identity, current))
-            return false;
+            return "replaced";
         const owner = await readLockOwner(lockDir);
         if (owner && (owner.pid !== process.pid || owner.token !== token))
-            return true;
+            return "contended";
         if (owner)
             await unlink(join(lockDir, "owner.json")).catch(() => undefined);
         await rmdir(lockDir).catch(() => undefined);
-        return true;
+        return "cleaned";
     }
     async function acquireFileLock() {
         const directory = await ensurePrivateDirectory(stateDir);
@@ -208,11 +208,11 @@ export function createEncryptedFileKeyedStore({ stateDir, namespace, maxEntries,
             }
             catch (error) {
                 if (createdIdentity) {
-                    const stillCanonical = await cleanupCreatedLock(lockDir, createdIdentity, token);
-                    if (stillCanonical && error?.message !== "rightout_state_lock_lost") {
+                    const cleanup = await cleanupCreatedLock(lockDir, createdIdentity, token);
+                    if (cleanup === "cleaned" && error?.message !== "rightout_state_lock_lost") {
                         throw new Error("rightout_state_lock_failed");
                     }
-                    if (!stillCanonical || error?.message === "rightout_state_lock_lost") {
+                    if (cleanup !== "cleaned" || error?.message === "rightout_state_lock_lost") {
                         await new Promise((resolveWait) => setTimeout(resolveWait, 25));
                         continue;
                     }
