@@ -9,6 +9,40 @@ import { createEncryptedFileKeyedStore } from "../../lib/file-keyed-store.mjs";
 const previousKey = "dummy-previous-state-key-with-more-than-32-characters";
 const activeKey = "dummy-active-state-key-with-more-than-32-characters";
 
+function registerRuntime(stateDir, pluginConfig) {
+  const tools = new Map();
+  let beforeToolCall;
+  return import("../../index.ts").then(({ default: plugin }) => {
+    plugin.register({
+      runtime: { state: { resolveStateDir() { return stateDir; } } },
+      on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
+      registerTool(tool) {
+        const resolved = typeof tool === "function" ? tool({ browser: {} }) : tool;
+        tools.set(resolved.name, resolved);
+      },
+      registerSecurityAuditCollector() {},
+      pluginConfig,
+      resolvePath(value) { return value; },
+      logger: { info() {}, warn() {}, error() {}, debug() {} },
+    });
+    return { tools, beforeToolCall };
+  });
+}
+
+test("state-key secrets are not required or inspected before allow-once", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "rightout-state-rotation-preapproval-"));
+  const { tools, beforeToolCall } = await registerRuntime(stateDir, {});
+  const pending = await beforeToolCall({
+    toolName: "rightout_rotate_state_key", params: {}, toolCallId: "rotate-unconfigured",
+  });
+  assert.deepEqual(pending.requireApproval.allowedDecisions, ["allow-once", "deny"]);
+  pending.requireApproval.onResolution("allow-once");
+  await assert.rejects(
+    tools.get("rightout_rotate_state_key").execute("rotate-unconfigured", {}),
+    /rightout_state_rotation_not_configured/,
+  );
+});
+
 test("state-key rotation is separately approved, restart-safe, and provider-free", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "rightout-state-rotation-runtime-"));
   const previousStore = createEncryptedFileKeyedStore({
@@ -25,21 +59,10 @@ test("state-key rotation is separately approved, restart-safe, and provider-free
     brokers: {},
   });
 
-  const plugin = (await import("../../index.ts")).default;
-  const tools = new Map();
-  let beforeToolCall;
-  plugin.register({
-    runtime: { state: { resolveStateDir() { return stateDir; } } },
-    on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
-    registerTool(tool) {
-      const resolved = typeof tool === "function" ? tool({ browser: {} }) : tool;
-      tools.set(resolved.name, resolved);
-    },
-    registerSecurityAuditCollector() {},
-    pluginConfig: { stateEncryptionKey: activeKey, previousStateEncryptionKeys: [previousKey] },
-    resolvePath(value) { return value; },
-    logger: { info() {}, warn() {}, error() {}, debug() {} },
-  });
+  const { tools, beforeToolCall } = await registerRuntime(
+    stateDir,
+    { stateEncryptionKey: activeKey, previousStateEncryptionKeys: [previousKey] },
+  );
 
   const denied = await beforeToolCall({ toolName: "rightout_rotate_state_key", params: {}, toolCallId: "rotate-denied" });
   assert.doesNotMatch(denied.requireApproval.description, new RegExp(previousKey));

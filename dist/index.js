@@ -555,8 +555,6 @@ export default definePluginEntry({
                     if (!event.params || typeof event.params !== "object" || Array.isArray(event.params) || Object.keys(event.params).length !== 0) {
                         throw new Error("invalid_state_rotation_scope");
                     }
-                    if (!stateRotationReady(config))
-                        throw new Error("state_rotation_not_configured");
                     const binding = rotationScopeBinding();
                     const toolCallId = event.toolCallId;
                     return {
