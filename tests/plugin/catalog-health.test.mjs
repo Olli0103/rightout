@@ -22,8 +22,10 @@ test("catalog health is deterministic, PII-free, and performs no network work", 
 
 test("live provider I/O fails closed for stale, missing, or malformed catalog facts", () => {
   const now = Date.parse("2026-07-12T00:00:00.000Z");
-  assert.doesNotThrow(() => assertFreshCatalogEntries(catalog, ["fresh_broker"], { now }));
+  const freshCatalog = { brokers: [catalog.brokers[0]] };
+  assert.doesNotThrow(() => assertFreshCatalogEntries(freshCatalog, ["fresh_broker"], { now }));
+  assert.throws(() => assertFreshCatalogEntries(catalog, ["fresh_broker"], { now }), /lane_stale/);
   assert.throws(() => assertFreshCatalogEntries(catalog, ["stale_broker"], { now }), /lane_stale/);
-  assert.throws(() => assertFreshCatalogEntries(catalog, ["missing_broker"], { now }), /lane_stale/);
+  assert.throws(() => assertFreshCatalogEntries(freshCatalog, ["missing_broker"], { now }), /lane_stale/);
   assert.throws(() => catalogPolicyHealth({ brokers: [{ id: "bad", last_verified: "2026-02-30", freshness_days: 90 }] }, { now }), /freshness_invalid/);
 });

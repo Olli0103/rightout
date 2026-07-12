@@ -60,10 +60,12 @@ export function assertFreshCatalogEntries(catalog, brokerIds, { now = Date.now()
         throw new Error("rightout_catalog_freshness_invalid");
     }
     const rows = catalogRows(catalog);
+    const health = catalogPolicyHealth(catalog, { now });
+    if (!health.live_provider_io_allowed)
+        throw new Error("rightout_catalog_lane_stale");
     for (const brokerId of brokerIds) {
         const entry = rows.find((row) => row?.id === brokerId);
-        if (!entry || healthForEntry(entry, now, 30).status === "stale") {
+        if (!entry)
             throw new Error("rightout_catalog_lane_stale");
-        }
     }
 }
