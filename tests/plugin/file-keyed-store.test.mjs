@@ -154,6 +154,57 @@ test("an old live-process lock is never stolen by another store instance", async
   } finally { await rm(stateDir, { recursive: true, force: true }); }
 });
 
+test("a lock removed after EEXIST but before inspection is retried", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-vanished-lock-"));
+  try {
+    const dataDir = join(stateDir, "rightout-plugin-state-v1");
+    const lockDir = join(dataDir, "rightout-test-state.lock");
+    const ownerPath = join(lockDir, "owner.json");
+    await mkdir(dataDir, { mode: 0o700 });
+    await mkdir(lockDir, { mode: 0o700 });
+    await writeFile(ownerPath, JSON.stringify({ pid: process.pid, token: "a".repeat(32), createdAt: 1 }), { mode: 0o600 });
+    let removeOnce = true;
+    const store = createEncryptedFileKeyedStore({
+      stateDir,
+      namespace: "rightout-test-state",
+      maxEntries: 5,
+      getSecret: () => secret,
+      _testHooks: {
+        async afterLockExists() {
+          if (!removeOnce) return;
+          removeOnce = false;
+          await unlink(ownerPath);
+          await rmdir(lockDir);
+        },
+      },
+    });
+    await store.register("opaque-key", { value: 1 });
+    assert.deepEqual(await store.lookup("opaque-key"), { value: 1 });
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
+test("non-ENOENT lock metadata failures remain fail-closed", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-lock-stat-failure-"));
+  try {
+    const dataDir = join(stateDir, "rightout-plugin-state-v1");
+    const lockDir = join(dataDir, "rightout-test-state.lock");
+    await mkdir(dataDir, { mode: 0o700 });
+    await mkdir(lockDir, { mode: 0o700 });
+    const store = createEncryptedFileKeyedStore({
+      stateDir,
+      namespace: "rightout-test-state",
+      maxEntries: 5,
+      getSecret: () => secret,
+      _testHooks: {
+        async lstatLockDir() {
+          throw Object.assign(new Error("synthetic metadata denial"), { code: "EACCES" });
+        },
+      },
+    });
+    await assert.rejects(store.register("opaque-key", { value: 1 }), /rightout_state_lock_unsafe/);
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
 test("a delayed stale acquirer cannot delete the replacement owner's lock", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-replaced-lock-"));
   try {

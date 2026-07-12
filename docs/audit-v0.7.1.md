@@ -24,10 +24,11 @@ person's data was found or removed.
 | RO-080 | P2 | The root and installed-skill SPDX documents reused one document namespace. | The installed-skill SBOM now has its own UUID-backed SPDX `documentNamespace`. |
 | RO-081 | P3 | The exported SMTP digest helper relied on callers to normalize and validate the transport first. | The helper now invokes `validateSmtpConfig` internally before deriving the binding. |
 | RO-082 | P3 | Transport-binding tests did not cover every variable or immutable endpoint invariant. | Regression coverage now includes SMTP host/port/TLS/from-address changes, IMAP address changes, and invalid IMAP endpoint/TLS rejection. |
+| RO-083 | P2 | A lock removed between an `EEXIST` result and metadata inspection was misclassified as an unsafe path; the first fix also treated every metadata error as disappearance. | Only `ENOENT` is now a benign contention retry; permission/I/O failures, non-directories, and symlinks remain fail-closed. |
 
 ## Reproduced evidence
 
-- 136 Node plugin tests, including regression coverage for all four CodeQL findings;
+- 138 Node plugin tests, including regression coverage for all four CodeQL findings plus benign-disappearance and non-`ENOENT` lock races;
 - 50 Python tests, dummy E2E, installer matrix, TypeScript build and coverage gates;
 - production dependency audit with zero known vulnerabilities;
 - package/release checker and local OpenClaw runtime inspection/plugin doctor.
