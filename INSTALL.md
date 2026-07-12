@@ -97,7 +97,9 @@ Back up the state encryption key through the secret provider. RightOut 0.7.0
 keeps the v1 encrypted-store schema and forced upgrades preserve it. Encrypted
 subject cases expire after `stateRetentionDays` without an update; the range is
 30-730 days and the default is 365. Verification/listing/dedupe records retain
-their shorter fixed TTLs. A missing key fails closed.
+their shorter fixed TTLs. On first access, an untouched legacy v1 case without
+an expiry is migrated under lock to `createdAt + stateRetentionDays`; an already
+expired case is removed immediately. A missing key fails closed.
 
 To rotate the key, configure a new active `stateEncryptionKey` and up to three
 temporary old-key SecretRefs under `previousStateEncryptionKeys`, reload the

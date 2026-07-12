@@ -12,9 +12,7 @@ import { __test as fileStoreTest } from "../../lib/file-keyed-store.mjs";
 const profileId = "profile_a1b2c3d4e5f60718";
 const stateKey = "dummy-state-key-with-more-than-32-characters";
 
-test("configured finite retention is persisted on encrypted subject cases", async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), "rightout-retention-runtime-"));
-  const plugin = (await import("../../index.ts")).default;
+function registerPlugin(plugin, stateDir, stateRetentionDays = 45) {
   const tools = new Map();
   let beforeToolCall;
   plugin.register({
@@ -27,12 +25,43 @@ test("configured finite retention is persisted on encrypted subject cases", asyn
     registerSecurityAuditCollector() {},
     pluginConfig: {
       stateEncryptionKey: stateKey,
-      stateRetentionDays: 45,
+      stateRetentionDays,
       profiles: { [profileId]: { payload: JSON.stringify({ fullName: "Avery Example", contactEmail: "avery@example.invalid" }) } },
     },
     resolvePath(value) { return value; },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   });
+  return { tools, beforeToolCall };
+}
+
+test("an untouched legacy case receives the configured finite retention on first read", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "rightout-retention-legacy-runtime-"));
+  const legacyStore = createEncryptedFileKeyedStore({
+    stateDir, namespace: "rightout-cases-v1", maxEntries: 100, getSecret: () => stateKey,
+  });
+  await legacyStore.register(profileId, {
+    schema_version: 1,
+    subject_ref: profileId,
+    created_at: "2026-07-12T00:00:00.000Z",
+    updated_at: "2026-07-12T00:00:00.000Z",
+    brokers: {},
+  });
+
+  const plugin = (await import("../../index.ts")).default;
+  const { tools } = registerPlugin(plugin, stateDir);
+  await tools.get("rightout_case_status").execute("legacy-read", { profileId });
+
+  const bytes = await readFile(join(stateDir, "rightout-plugin-state-v1", "rightout-cases-v1.json.enc"));
+  const state = fileStoreTest.decryptState(bytes, stateKey, "rightout-cases-v1");
+  const envelope = state.entries[profileId];
+  assert.ok(envelope);
+  assert.equal(envelope.expiresAt - envelope.createdAt, 45 * 24 * 60 * 60_000);
+});
+
+test("configured finite retention is persisted on encrypted subject cases", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "rightout-retention-runtime-"));
+  const plugin = (await import("../../index.ts")).default;
+  const { tools, beforeToolCall } = registerPlugin(plugin, stateDir);
 
   const bootstrapLedger = createCaseLedger(createEncryptedFileKeyedStore({
     stateDir, namespace: "rightout-cases-v1", maxEntries: 100, getSecret: () => stateKey,

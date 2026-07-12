@@ -23,10 +23,13 @@ The durable ledger stores opaque subject/broker IDs, state, timestamps, disclosu
 
 Encrypted subject cases expire after the configured 30-730 day inactivity
 period (365 days by default). Short-lived verification, listing, and dedupe
-records keep narrower fixed TTLs. An explicitly approved subject purge deletes
-local state earlier. State-key rotation uses one active and temporary previous
-SecretRef keys; every store is rewritten under the active key without exposing
-key material or PII, and prior refs are removed after successful verification.
+records keep narrower fixed TTLs. On first access, a legacy v1 case without an
+expiry is migrated under lock to `createdAt + stateRetentionDays`; an already
+expired legacy case is removed immediately. An explicitly approved subject
+purge deletes local state earlier. State-key rotation uses one active and
+temporary previous SecretRef keys; every store is rewritten under the active
+key without exposing key material or PII, and prior refs are removed after
+successful verification.
 
 Catalog `last_verified` plus `freshness_days` is an execute-time privacy and
 destination gate, not only a release-time lint. A stale official source disables

@@ -309,10 +309,24 @@ export function createEncryptedFileKeyedStore({ stateDir, namespace, maxEntries,
         }
     }
     function prune(state, at) {
+        let changed = false;
         for (const [key, entry] of Object.entries(state.entries)) {
-            if (!entry || typeof entry !== "object" || (entry.expiresAt !== undefined && entry.expiresAt <= at))
+            if (!entry || typeof entry !== "object" || !Number.isFinite(entry.createdAt)) {
                 delete state.entries[key];
+                changed = true;
+                continue;
+            }
+            if (entry.expiresAt === undefined && defaultTtlMs !== undefined) {
+                entry.expiresAt = entry.createdAt + defaultTtlMs;
+                changed = true;
+            }
+            if (entry.expiresAt !== undefined
+                && (!Number.isFinite(entry.expiresAt) || entry.expiresAt <= entry.createdAt || entry.expiresAt <= at)) {
+                delete state.entries[key];
+                changed = true;
+            }
         }
+        return changed;
     }
     async function writeState(directory, file, state, secret) {
         const bytes = encryptState(state, secret, namespace);
@@ -395,10 +409,9 @@ export function createEncryptedFileKeyedStore({ stateDir, namespace, maxEntries,
             const keys = secretRing(getSecret, getPreviousSecrets);
             const { file } = await locations();
             const state = await readState(file, keys.all);
-            const before = Object.keys(state.entries).length;
-            prune(state, now());
+            const changed = prune(state, now());
             const entry = state.entries[clean];
-            if (Object.keys(state.entries).length !== before) {
+            if (changed) {
                 const { directory } = await locations();
                 await writeState(directory, file, state, keys.active);
             }
@@ -426,9 +439,8 @@ export function createEncryptedFileKeyedStore({ stateDir, namespace, maxEntries,
             const keys = secretRing(getSecret, getPreviousSecrets);
             const { directory, file } = await locations();
             const state = await readState(file, keys.all);
-            const before = Object.keys(state.entries).length;
-            prune(state, now());
-            if (Object.keys(state.entries).length !== before)
+            const changed = prune(state, now());
+            if (changed)
                 await writeState(directory, file, state, keys.active);
             return Object.entries(state.entries).map(([key, entry]) => ({
                 key, value: cloneValue(entry.value), createdAt: entry.createdAt, ...(entry.expiresAt ? { expiresAt: entry.expiresAt } : {}),
