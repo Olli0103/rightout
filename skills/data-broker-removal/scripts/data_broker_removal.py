@@ -1587,7 +1587,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     plugin_root = skill_dir.parents[1]
     required = [
         skill_dir / "SKILL.md",
-        skill_dir / "README.md",
         skill_dir / "LICENSE",
         skill_dir / "THIRD_PARTY_NOTICES.md",
         skill_dir / "references" / "security-model.md",
@@ -1623,7 +1622,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "subject_purge_tool": "rightout_purge_subject_state",
         "controller_outcome_tool": "rightout_record_controller_outcome",
         "submission_reconciliation_tool": "rightout_reconcile_submission",
-        "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_due_rechecks"],
+        "state_rotation_tool": "rightout_rotate_state_key",
+        "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_catalog_health", "rightout_due_rechecks"],
         "live_approval_adapter": "native_openclaw_plugin_permission_allow_once",
         "live_pii_input": "secretref_profile_not_tool_params",
     }, indent=2))
@@ -1697,6 +1697,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
         purge_tool = manifest.get("toolMetadata", {}).get("rightout_purge_subject_state", {})
         controller_outcome_tool = manifest.get("toolMetadata", {}).get("rightout_record_controller_outcome", {})
         reconciliation_tool = manifest.get("toolMetadata", {}).get("rightout_reconcile_submission", {})
+        rotation_tool = manifest.get("toolMetadata", {}).get("rightout_rotate_state_key", {})
+        health_tool = manifest.get("toolMetadata", {}).get("rightout_catalog_health", {})
         secret_paths = {
             item.get("path")
             for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])
@@ -1704,8 +1706,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
         }
         expected_tools = [
             "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal", "rightout_submit_form_removal", "rightout_poll_verification",
-            "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission", "rightout_next_actions", "rightout_case_status",
-            "rightout_due_rechecks",
+            "rightout_open_verification", "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
+            "rightout_next_actions", "rightout_case_status", "rightout_catalog_health", "rightout_due_rechecks",
         ]
         if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != expected_tools:
             errors.append("OpenClaw plugin tool contract is inconsistent")
@@ -1725,6 +1727,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
             errors.append("controller outcome tool must be optional and non-replay-safe")
         if reconciliation_tool.get("optional") is not True or reconciliation_tool.get("replaySafe") is not False:
             errors.append("submission reconciliation tool must be optional and non-replay-safe")
+        if rotation_tool.get("optional") is not True or rotation_tool.get("replaySafe") is not False:
+            errors.append("state-key rotation tool must be optional and non-replay-safe")
+        if health_tool.get("optional") is not True or health_tool.get("replaySafe") is not True:
+            errors.append("catalog-health tool must be optional and replay-safe")
         if purge_tool.get("optional") is not True or purge_tool.get("replaySafe") is not False:
             errors.append("subject purge tool must be optional and non-replay-safe")
         required_config = set((tool.get("configSignals") or [{}])[0].get("required", []))
@@ -1733,6 +1739,9 @@ def cmd_validate(args: argparse.Namespace) -> None:
         removal_required_config = set((removal_tool.get("configSignals") or [{}])[0].get("required", []))
         if {"smtpTransport", "profiles", "removalAttestations", "stateEncryptionKey"} - removal_required_config:
             errors.append("removal tool must require SMTP, profiles, encrypted state, and removal attestations")
+        rotation_required_config = set((rotation_tool.get("configSignals") or [{}])[0].get("required", []))
+        if rotation_required_config != {"stateEncryptionKey", "previousStateEncryptionKeys"}:
+            errors.append("state-key rotation config signals are incomplete")
         form_required_config = set((form_tool.get("configSignals") or [{}])[0].get("required", []))
         if {"profiles", "formAttestations", "stateEncryptionKey"} - form_required_config:
             errors.append("form removal tool must require profiles, encrypted state, and form attestations")
@@ -1748,10 +1757,17 @@ def cmd_validate(args: argparse.Namespace) -> None:
         required_secret_paths = {
             "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
             "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
-            "imapTransport.address", "stateEncryptionKey",
+            "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*",
         }
         if required_secret_paths - secret_paths:
             errors.append("live secrets must use declared SecretInput contracts")
+        config_properties = manifest.get("configSchema", {}).get("properties", {})
+        retention = config_properties.get("stateRetentionDays", {})
+        previous_keys = config_properties.get("previousStateEncryptionKeys", {})
+        if retention.get("minimum") != 30 or retention.get("maximum") != 730 or retention.get("default") != 365:
+            errors.append("state retention schema is incomplete")
+        if previous_keys.get("minItems") != 1 or previous_keys.get("maxItems") != 3 or previous_keys.get("uniqueItems") is not True:
+            errors.append("previous state-key schema is incomplete")
     print(json.dumps({"ok": not errors, "errors": errors, "broker_count": len(catalog.get("brokers", [])), "catalog_schema_version": catalog.get("schema_version")}, indent=2))
     if errors:
         raise SystemExit(1)

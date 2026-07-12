@@ -1,6 +1,6 @@
 # RightOut minimum Unbroker parity contract
 
-Status: implementation-complete; release evidence/audit pending. Reviewed against the official
+Status: v0.6.0 release evidence closed; v0.7.0 hardening in progress. Reviewed against the official
 Hermes Unbroker skill at NousResearch/hermes-agent commit
 `2d9fd870b6d105e3b367aaa97477931b6671192e` on 2026-07-12.
 

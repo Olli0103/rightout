@@ -73,6 +73,37 @@ test("TTL expiry, unsafe permissions, symlinks, and wrong keys fail closed", asy
   }
 });
 
+test("a previous SecretRef key can decrypt once and reencrypt under the active key", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-rotation-"));
+  const previousSecret = "dummy-previous-state-key-with-more-than-32-characters";
+  const activeSecret = "dummy-active-state-key-with-more-than-32-characters";
+  try {
+    const original = createEncryptedFileKeyedStore({
+      stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => previousSecret,
+    });
+    await original.register("opaque-key", { value: "retained" });
+
+    const rotating = createEncryptedFileKeyedStore({
+      stateDir,
+      namespace: "rightout-test-state",
+      maxEntries: 5,
+      getSecret: () => activeSecret,
+      getPreviousSecrets: () => [previousSecret],
+    });
+    assert.deepEqual(await rotating.lookup("opaque-key"), { value: "retained" });
+    assert.equal(await rotating.reencrypt(), 1);
+
+    const activeOnly = createEncryptedFileKeyedStore({
+      stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => activeSecret,
+    });
+    assert.deepEqual(await activeOnly.lookup("opaque-key"), { value: "retained" });
+    const previousOnly = createEncryptedFileKeyedStore({
+      stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => previousSecret,
+    });
+    await assert.rejects(previousOnly.lookup("opaque-key"), /decryption_failed/);
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
 test("an old live-process lock is never stolen by another store instance", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-live-lock-"));
   try {

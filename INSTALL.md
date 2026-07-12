@@ -1,19 +1,36 @@
 # Install and enable RightOut
 
-## 1. Prerequisites and install
+## 1. Prerequisites and verified install
 
-Use OpenClaw `2026.6.11+`, Node.js `22.19+`, Python `3.11+`, npm, and git.
+Use OpenClaw `2026.6.11+`, Node.js `22.19+`, Python `3.11+`, GitHub CLI, and a
+SHA-256 utility. Install the immutable release archive rather than moving
+`main`:
 
 ```bash
-git clone https://github.com/Olli0103/rightout.git
-cd rightout
-npm ci --ignore-scripts
-./install.sh
+VERSION=0.7.0
+mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
+gh release download "v${VERSION}" --repo Olli0103/rightout
+shasum -a 256 -c RELEASE-SHA256SUMS
+gh attestation verify "olli0103-openclaw-rightout-${VERSION}.tgz" \
+  --repo Olli0103/rightout \
+  --signer-workflow Olli0103/rightout/.github/workflows/release.yml \
+  --source-ref "refs/tags/v${VERSION}" \
+  --deny-self-hosted-runners
+openclaw plugins install "./olli0103-openclaw-rightout-${VERSION}.tgz"
+openclaw plugins enable rightout
 openclaw plugins inspect rightout --runtime --json
 openclaw plugins doctor
 ```
 
-`--force` updates an existing registration; `--link` is development-only. The installer typechecks/builds (or syntax-checks a production-only package), packs the exact archive, installs it into an isolated OpenClaw home/state, verifies all twelve tools plus the approval hook and plugin doctor, and only then mutates the target installation. It serializes concurrent changes, snapshots prior config/managed extension state, and rolls back if real runtime inspection or plugin doctor fails.
+Use `sha256sum -c RELEASE-SHA256SUMS` on Linux. Inspect
+`RELEASE-EVIDENCE.json`, `SBOM.spdx.json`, and `catalog-provenance.json` before
+activation. A managed Gateway normally reloads the recorded install; restart an
+unmanaged Gateway before live use. For source development, clone the repository, run
+`npm ci --ignore-scripts`, and use `./install.sh`; `--force` updates an existing
+registration and `--link` is development-only. The source installer stages the
+packed archive in an isolated OpenClaw home, verifies all fourteen tools plus
+the approval hook and plugin doctor, and only then mutates the target with
+rollback and serialization.
 
 ## 2. Create SecretRefs out of band
 
@@ -59,6 +76,7 @@ openclaw config set plugins.entries.rightout.config.stateEncryptionKey \
   --ref-provider rightout_secrets --ref-source file --ref-id /stateEncryptionKey
 openclaw config set plugins.entries.rightout.config.profiles.profile_a1b2c3d4e5f60718.payload \
   --ref-provider rightout_secrets --ref-source file --ref-id /profiles/profile_a1b2c3d4e5f60718
+openclaw config set plugins.entries.rightout.config.stateRetentionDays --strict-json '365'
 ```
 
 SMTP supports Gmail, Yahoo, iCloud, and Fastmail on pinned TLS ports. IMAP verification is intentionally Gmail-only because RightOut pins receiver-added `mx.google.com` authentication results; other providers require a future evidence-backed authserv/OAuth contract. Arbitrary hosts, plaintext, port 25, proxy-selected destinations, or custom TLS overrides are rejected. Configure host/port/TLS as public facts and username/password/from-address/mailbox-address as SecretRefs. SMTP `fromAddress` and IMAP `address` must equal the profile `contactEmail`.
@@ -75,7 +93,18 @@ node scripts/compute-removal-bindings.mjs \
 
 The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. For a non-US profile, `scanProfileDigests` is intentionally empty because Brave people-search discovery is US-only. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. RightOut 0.6.0 keeps the v1 encrypted-store schema and forced upgrades preserve it. Changing or losing the key intentionally fails closed and makes existing cases, dedupe entries, and opaque handles unreadable; there is no unsafe best-effort recovery or in-place key rotation. Purge old subject state before an intentional key replacement, or retain the old deployment/key until its cases are closed.
+Back up the state encryption key through the secret provider. RightOut 0.7.0
+keeps the v1 encrypted-store schema and forced upgrades preserve it. Encrypted
+subject cases expire after `stateRetentionDays` without an update; the range is
+30-730 days and the default is 365. Verification/listing/dedupe records retain
+their shorter fixed TTLs. A missing key fails closed.
+
+To rotate the key, configure a new active `stateEncryptionKey` and up to three
+temporary old-key SecretRefs under `previousStateEncryptionKeys`, reload the
+configuration, and explicitly approve `rightout_rotate_state_key({})`. Each
+store remains readable throughout an interrupted rotation and is rewritten
+under the active key. Only after the success report may the previous-key refs be
+removed and secrets reloaded. Run the full readiness gate after both changes.
 
 ## 4. Configure exact attestations
 
@@ -123,12 +152,39 @@ Allow only needed RightOut tools in the applicable agent policy. Unless full-ope
     "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
     "rightout_purge_subject_state", "rightout_record_controller_outcome",
-    "rightout_reconcile_submission"
+    "rightout_reconcile_submission", "rightout_rotate_state_key"
   ] } }
 }
 ```
 
-Configure an interactive plugin approval route; without one, calls fail closed. For recurring work, create an official OpenClaw Cron job that invokes `rightout_due_rechecks` for an exact opaque profile, then `rightout_next_actions` to resume the catalog-bound campaign. Every later live action requests its own approval. If `campaign.resume_mode` is `reconcile_before_external_writes`, the operator must first inspect provider-side evidence and approve `rightout_reconcile_submission`; the agent must not infer the result. The plugin cannot and does not self-schedule.
+Configure an interactive plugin approval route; without one, calls fail closed.
+For recurring work, create an official OpenClaw Cron job that first invokes
+`rightout_catalog_health({})`, then `rightout_due_rechecks` for an exact opaque
+profile, followed by `rightout_next_actions`. Any stale catalog entry stops live
+provider I/O. Every later live action requests its own approval. If
+`campaign.resume_mode` is `reconcile_before_external_writes`, the operator must
+inspect provider-side evidence and approve `rightout_reconcile_submission`;
+the agent must not infer the result. The plugin cannot self-schedule.
+
+Example weekly read-only campaign monitor (replace only the opaque profile and
+agent IDs):
+
+```bash
+openclaw cron create \
+  --name rightout-profile-a1b2c3d4 \
+  --cron '17 9 * * 1' \
+  --tz Europe/Berlin \
+  --session isolated \
+  --agent main \
+  --tools rightout_catalog_health,rightout_due_rechecks,rightout_next_actions,rightout_case_status \
+  --message 'For profile_a1b2c3d4e5f60718, call RightOut catalog health first. If fresh, list due rechecks, current status, and deterministic next actions. Do not use any live provider-I/O or critical local-state tool in this turn. Report the exact approvals and human tasks required.' \
+  --announce
+```
+
+This job performs no provider call. A later interactive turn may execute a live
+action only through its own native approval. Use `openclaw cron run <jobId>` and
+`openclaw cron runs <jobId>` to validate the sanitized output before enabling a
+long-lived schedule.
 
 ## 6. Readiness gate
 

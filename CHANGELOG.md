@@ -2,6 +2,17 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.7.0 - Unreleased
+
+- Separate distributable operator documentation from repository-only audit and
+  historical release evidence.
+- Add a deployment compliance gate, honest broker-coverage document, and
+  machine-readable release evidence asset.
+- Require a version-pinned, checksum- and attestation-verified installation
+  path for stable releases.
+- Add runtime catalog freshness, finite case retention, safe state-key rotation,
+  policy-health reporting, coverage gates, CodeQL, and dependency automation.
+
 ## 0.6.0 - 2026-07-12
 
 - Added durable pre-write intent and `submission_uncertain`; possible SMTP/form effects never auto-retry.
