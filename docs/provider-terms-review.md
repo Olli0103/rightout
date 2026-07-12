@@ -82,7 +82,7 @@ Official source:
 
 - [Microsoft Exchange Online Basic authentication deprecation](https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/deprecation-of-basic-authentication-exchange-online).
 
-RightOut 0.7.0 supports app-password SMTP/IMAP only and has no OAuth 2.0 token contract. Microsoft documents permanent removal of Basic authentication for SMTP AUTH client submission beginning in March 2026; Microsoft 365 does not fit this password-only contract. SMTP remains pinned to Gmail, Yahoo, iCloud, and Fastmail. IMAP verification is Gmail-only and accepts exactly one receiver-added `mx.google.com` authentication result; Yahoo, iCloud, Fastmail, and Microsoft 365 IMAP remain unsupported until their authserv/OAuth behavior is separately evidenced and implemented.
+RightOut 0.7.1 supports app-password SMTP/IMAP only and has no OAuth 2.0 token contract. Microsoft documents permanent removal of Basic authentication for SMTP AUTH client submission beginning in March 2026; Microsoft 365 does not fit this password-only contract. SMTP remains pinned to Gmail, Yahoo, iCloud, and Fastmail. IMAP verification is Gmail-only and accepts exactly one receiver-added `mx.google.com` authentication result; Yahoo, iCloud, Fastmail, and Microsoft 365 IMAP remain unsupported until their authserv/OAuth behavior is separately evidenced and implemented.
 
 ## Stable-release meaning
 

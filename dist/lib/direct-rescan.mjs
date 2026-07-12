@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { convert } from "html-to-text";
 import { scanProfileDigest } from "./live-scan.mjs";
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_BROKER_ID = /^[a-z0-9_]{2,24}$/;
@@ -155,7 +156,24 @@ async function boundedText(response, signal) {
     return new TextDecoder().decode(Buffer.concat(chunks.map((item) => Buffer.from(item))));
 }
 function pageMatch(html, signals) {
-    const text = normalizedText(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " "));
+    const visibleText = convert(String(html ?? ""), {
+        wordwrap: false,
+        limits: {
+            maxBaseElements: 1,
+            maxChildNodes: 100_000,
+            maxDepth: 100,
+            maxInputLength: MAX_RESPONSE_BYTES,
+        },
+        selectors: [
+            { selector: "a", options: { ignoreHref: true } },
+            { selector: "img", format: "skip" },
+            { selector: "script", format: "skip" },
+            { selector: "style", format: "skip" },
+            { selector: "template", format: "skip" },
+            { selector: "noscript", format: "skip" },
+        ],
+    });
+    const text = normalizedText(visibleText);
     if (/captcha|verify you are human|access denied|unusual traffic/.test(text))
         return { blocked: true };
     if (!text.includes(signals.name))

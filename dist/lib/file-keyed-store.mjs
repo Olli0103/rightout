@@ -252,8 +252,18 @@ export function createEncryptedFileKeyedStore({ stateDir, namespace, maxEntries,
                 }
                 if (error?.code !== "EEXIST")
                     throw new Error("rightout_state_lock_failed");
-                const metadata = await lstat(lockDir).catch(() => undefined);
-                if (!metadata || !metadata.isDirectory() || metadata.isSymbolicLink())
+                await _testHooks?.afterLockExists?.({ lockDir });
+                let metadata;
+                try {
+                    metadata = await (_testHooks?.lstatLockDir ?? lstat)(lockDir);
+                }
+                catch (metadataError) {
+                    if (metadataError?.code !== "ENOENT")
+                        throw new Error("rightout_state_lock_unsafe");
+                    await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+                    continue;
+                }
+                if (!metadata.isDirectory() || metadata.isSymbolicLink())
                     throw new Error("rightout_state_lock_unsafe");
                 const owner = await readLockOwner(lockDir);
                 if (owner && !processIsAlive(owner.pid)) {

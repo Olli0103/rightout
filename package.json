@@ -1,6 +1,6 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Separately approval-gated US and EU data-broker scanning and removal requests for OpenClaw",
   "type": "module",
   "license": "MIT",
@@ -41,6 +41,7 @@
     "prepack": "npm run check"
   },
   "dependencies": {
+    "html-to-text": "10.0.0",
     "imapflow": "1.4.7",
     "mailparser": "3.9.14",
     "nodemailer": "9.0.3",

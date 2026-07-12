@@ -104,3 +104,21 @@ test("direct approval and attestations are exact-scope and PII-safe", () => {
   assert.doesNotMatch(text, /private-record|Avery|Exampleville/);
   assert.deepEqual(__test.pageMatch("Avery Example Exampleville CA", __test.subjectSignals(profilePayload)), { matched: true, corroborator: "location" });
 });
+
+test("direct page matching ignores non-visible HTML without regex parsing", () => {
+  const signals = __test.subjectSignals(profilePayload);
+  for (const hidden of [
+    "<script>Avery Example Exampleville CA</script >",
+    "<style>.x::after { content: 'Avery Example Exampleville CA'; }</style >",
+    "<template>Avery Example Exampleville CA</template>",
+    "<noscript>Avery Example Exampleville CA</noscript>",
+    "<a href='https://example.invalid/Avery-Example-Exampleville-CA'>unrelated</a>",
+    "<img alt='Avery Example Exampleville CA'>",
+  ]) {
+    assert.deepEqual(__test.pageMatch(`<html><body>${hidden}</body></html>`, signals), { matched: false });
+  }
+  assert.deepEqual(
+    __test.pageMatch("<html><body><p>Avery Example</p><p>Exampleville CA</p></body></html>", signals),
+    { matched: true, corroborator: "location" },
+  );
+});

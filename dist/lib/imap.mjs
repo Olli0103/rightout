@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, scryptSync } from "node:crypto";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 const ALLOWED_IMAP_ENDPOINTS = new Map([
@@ -76,7 +76,11 @@ function hasAlignedDkimPass(headers, allowedSenderDomains, imapHost) {
     });
 }
 function decodeHtmlEntities(value) {
-    return value.replaceAll("&amp;", "&").replaceAll("&#x3D;", "=").replaceAll("&#61;", "=");
+    // Decode the ampersand last so input such as &amp;#61; is decoded once, not
+    // recursively into an equals sign. We only need the entities that occur in
+    // HTML-escaped HTTPS query strings; this is deliberately not a general HTML
+    // decoder.
+    return value.replaceAll("&#x3D;", "=").replaceAll("&#61;", "=").replaceAll("&amp;", "&");
 }
 export function extractBoundVerificationLink({ text, html, senderDomains, allowedSenderDomains, allowedLinkDomains }) {
     const senders = senderDomains.map((value) => value.toLowerCase());
@@ -124,9 +128,15 @@ export function validateImapConfig(value, expectedAddress) {
 }
 export function imapTransportDigest(config) {
     const clean = validateImapConfig(config, config?.address);
-    return createHash("sha256")
-        .update(JSON.stringify([clean.host, clean.port, clean.secure, clean.username, clean.password, clean.address]))
-        .digest("hex");
+    const salt = JSON.stringify([
+        "rightout-imap-transport-v2",
+        clean.host,
+        clean.port,
+        clean.secure,
+        clean.username,
+        clean.address,
+    ]);
+    return scryptSync(clean.password, salt, 32).toString("hex");
 }
 function verificationLane(broker) {
     const verification = broker?.verification;

@@ -9,7 +9,7 @@ consented people-search exposure, submits supported US and EU/EEA requests,
 tracks ambiguous outcomes, and resumes due work—without giving the model raw
 PII or standing permission to contact providers.
 
-RightOut `0.7.0` keeps every live disclosure, publisher read, inbox read,
+RightOut `0.7.1` keeps every live disclosure, publisher read, inbox read,
 confirmation-link open, email, and form write behind a fresh native OpenClaw
 `allow-once`. The agent cannot create, persist, or reuse an approval.
 
@@ -26,7 +26,7 @@ flowchart LR
 
 ## Coverage snapshot
 
-| Capability | v0.7.0 |
+| Capability | v0.7.1 |
 | --- | ---: |
 | Clean-room catalog entries | 56 |
 | Brave discovery lanes | 21 |
@@ -96,7 +96,7 @@ Prerequisites: OpenClaw `2026.6.11+`, Node.js `22.19+`, Python `3.11+`, `gh`, an
 `shasum` (macOS) or `sha256sum` (Linux).
 
 ```bash
-VERSION=0.7.0
+VERSION=0.7.1
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 shasum -a 256 -c RELEASE-SHA256SUMS

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, scryptSync } from "node:crypto";
 const SAFE_ID = /^[a-z0-9_]{2,24}$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
@@ -259,9 +259,16 @@ export function removalProfileDigest(profilePayload) {
     return normalizedProfileDigest(parseRemovalProfile(profilePayload));
 }
 export function removalSmtpDigest(smtp) {
-    return createHash("sha256")
-        .update(JSON.stringify([smtp.host, smtp.port, smtp.secure, smtp.username, smtp.password, smtp.fromAddress]), "utf8")
-        .digest("hex");
+    const clean = validateSmtpConfig(smtp, { contactEmail: smtp?.fromAddress });
+    const salt = JSON.stringify([
+        "rightout-smtp-transport-v2",
+        clean.host,
+        clean.port,
+        clean.secure,
+        clean.username,
+        clean.fromAddress,
+    ]);
+    return scryptSync(clean.password, salt, 32).toString("hex");
 }
 export function validateRemovalOperatorAttestations(input, value) {
     const publicInput = validateRemovalPublicToolInput(input);

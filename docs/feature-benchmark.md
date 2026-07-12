@@ -12,7 +12,7 @@ Primary product references:
 
 Claims from commercial pages describe vendor offerings; RightOut does not independently verify their effectiveness or private-database coverage.
 
-| Capability | RightOut 0.7.0 | Hermes Unbroker | Managed services | Result |
+| Capability | RightOut 0.7.1 | Hermes Unbroker | Managed services | Result |
 |---|---|---|---|---|
 | Multiple subjects | Up to 20 opaque SecretRef profiles | consented dossiers | family/team tiers vary | minimum parity |
 | Discovery vectors | name/aliases, current/prior location/address, email, phone via Brave | dossier-driven search | broad scans claimed | minimum class parity; RightOut indirect |
