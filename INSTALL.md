@@ -40,13 +40,13 @@ Never ask an agent to create or display a real subject profile. A full logical p
 }
 ```
 
-For an EU/EEA controller lane, use the real ISO country in both `country` and `jurisdictions`, include `EU` or `EEA`, and keep the same recorded `broker_removal` consent. Adsquare additionally requires the subject's Mobile Advertising ID in the private profile:
+For an EU/EEA controller lane, use the applicable ISO country in both `country` and `jurisdictions`, include `EU` or `EEA`, and keep the same recorded `broker_removal` consent. The currently supported lanes require contact email and country; Lead411, 6sense, Cognism, and Lusha additionally require full name:
 
 ```json
-{"fullName":"Avery Example","city":"Berlin","region":"BE","country":"DE","contactEmail":"avery@example.invalid","mobileAdvertisingId":"12345678-1234-4234-9234-123456789abc","jurisdictions":["DE","EU","EEA"],"consent":{"authorized":true,"recordedAt":"2026-07-12T08:00:00.000Z","validUntil":"2026-10-10T08:00:00.000Z","scope":["broker_removal"]}}
+{"fullName":"Avery Example","city":"Berlin","region":"BE","country":"DE","contactEmail":"avery@example.invalid","jurisdictions":["DE","EU","EEA"],"consent":{"authorized":true,"recordedAt":"2026-07-12T08:00:00.000Z","validUntil":"2026-10-10T08:00:00.000Z","scope":["broker_removal"]}}
 ```
 
-Do not add an advertising identifier for emetriq unless a later human follow-up is proportionate and independently authorized. Never put either profile into chat or tool parameters.
+Do not add extra identifiers unless a later human follow-up is proportionate and independently authorized. Never put either profile into chat or tool parameters.
 
 `validUntil` is mandatory, must be later than `recordedAt`, must still be in the future when the action executes, and may be at most 365 days after `recordedAt`. Shorter purpose-specific periods are preferable. Revocation is performed out of band by disabling/removing the SecretRef profile or replacing its consent payload; a cached approval never overrides the execute-time check.
 
@@ -93,10 +93,10 @@ Direct recheck scope, only after independently reviewing publisher terms and est
 {"rightoutDirectScanPolicyAccepted":true,"rightoutDirectScanPolicyVersion":"2026-07-12","subjectConsentReviewed":true,"publisherAccessAuthorized":true,"publisherTermsReviewed":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["truepeoplesearch","beenverified"]}
 ```
 
-Email removal scope (example authorizing BeenVerified plus the two EU controller lanes):
+Email removal scope (example authorizing BeenVerified plus selected EU controller lanes):
 
 ```json
-{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12-eu1","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["adsquare_eu","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
+{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12-eu1","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
 ```
 
 Browser-form scope (currently Intelius/PeopleConnect initiation):

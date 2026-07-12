@@ -36,6 +36,17 @@ def release_files() -> list[Path]:
 
 def main() -> None:
     errors: list[str] = []
+    catalog_validation = subprocess.run(
+        [sys.executable, "skills/data-broker-removal/scripts/data_broker_removal.py", "validate"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if catalog_validation.returncode != 0:
+        detail = catalog_validation.stderr.strip() or catalog_validation.stdout.strip()
+        fail(errors, f"catalog semantic validation failed: {detail}")
     provenance_check = subprocess.run(
         [sys.executable, "scripts/catalog_provenance.py", "--check"],
         cwd=ROOT,
@@ -76,13 +87,24 @@ def main() -> None:
         "inbound_verification": sum(item.get("verification", {}).get("supported") is True for item in brokers),
         "eu_processes": sum(str(item.get("process_class", "")).startswith("eu_") for item in brokers),
         "eu_email": sum(
-            item.get("category") == "data_broker" and item.get("removal", {}).get("channel") == "email"
+            item.get("process_class") == "eu_controller_email_erasure" and item.get("removal", {}).get("channel") == "email"
+            for item in brokers
+        ),
+        "us_executable": sum(
+            item.get("removal", {}).get("supported") is True
+            and item.get("human_only") is False
+            and any(value in {"US", "US-CA"} for value in item.get("removal", {}).get("eligible_jurisdictions", []))
+            for item in brokers
+        ),
+        "executable": sum(
+            item.get("removal", {}).get("supported") is True and item.get("human_only") is False
             for item in brokers
         ),
     }
     minimums = {
-        "people_search": 22, "scan": 21, "email": 3, "browser_form": 1,
-        "direct_rescan": 1, "inbound_verification": 1, "eu_processes": 9, "eu_email": 2,
+        "people_search": 22, "scan": 21, "email": 27, "browser_form": 1,
+        "direct_rescan": 1, "inbound_verification": 1, "eu_processes": 23, "eu_email": 18,
+        "us_executable": 10, "executable": 28,
     }
     for capability, minimum in minimums.items():
         if parity_counts[capability] < minimum:
@@ -91,6 +113,7 @@ def main() -> None:
         "cases.test.mjs", "direct-rescan.test.mjs", "file-keyed-store.test.mjs", "form-runtime.test.mjs",
         "listing-tokens.test.mjs", "verification-runtime.test.mjs", "adversarial-input-property.test.mjs",
         "controller-outcome-runtime.test.mjs", "submission-reconciliation-runtime.test.mjs", "dedupe-recovery-runtime.test.mjs",
+        "removal-lane-matrix.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -357,8 +380,14 @@ def main() -> None:
     if any(item.get("scan", {}).get("automated_access_policy") != "search_index_only_no_publisher_access" for item in live_brokers):
         fail(errors, "every live broker must use search-index-only discovery")
     removal_brokers = [item for item in catalog.get("brokers", []) if item.get("removal", {}).get("supported") is True]
-    if [item.get("id") for item in removal_brokers] != ["adsquare_eu", "emetriq_eu", "beenverified", "intelius"]:
-        fail(errors, "removal catalog must contain the reviewed US and EU lanes")
+    if (
+        len(removal_brokers) != 28
+        or len({item.get("id") for item in removal_brokers}) != 28
+        or sum(item.get("process_class") == "eu_controller_email_erasure" for item in removal_brokers) != 18
+        or sum(item.get("process_class") == "us_data_broker_email_deletion" for item in removal_brokers) != 8
+        or any(item.get("human_only") is not False for item in removal_brokers)
+    ):
+        fail(errors, "removal catalog must contain the reviewed 28-target US and EU scope")
     removal_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "beenverified"), {})
     if (
         removal_lane.get("recipient") != "privacy@beenverified.com"
@@ -373,15 +402,15 @@ def main() -> None:
         or form_lane.get("captcha_policy", form_lane.get("form_recipe", {}).get("captcha_policy")) != "fail_closed_human_task"
     ):
         fail(errors, "browser-form broker must use the catalog-locked minimum-disclosure lane")
-    adsquare_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "adsquare_eu"), {})
+    fullenrich_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "fullenrich_eu"), {})
     emetriq_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "emetriq_eu"), {})
     if (
-        adsquare_lane.get("recipient") != "privacy@adsquare.com"
-        or adsquare_lane.get("disclosure_fields") != ["contact_email", "mobile_advertising_id", "country"]
+        fullenrich_lane.get("recipient") != "support@fullenrich.com"
+        or fullenrich_lane.get("disclosure_fields") != ["contact_email", "country"]
         or emetriq_lane.get("recipient") != "datenschutz@emetriq.com"
         or emetriq_lane.get("disclosure_fields") != ["contact_email", "country"]
-        or any(lane.get("request_kinds") != ["gdpr_erasure_objection"] for lane in [adsquare_lane, emetriq_lane])
-        or any(lane.get("confirmation_policy") != "submitted_until_controller_response" for lane in [adsquare_lane, emetriq_lane])
+        or any(lane.get("request_kinds") != ["gdpr_erasure_objection"] for lane in [fullenrich_lane, emetriq_lane])
+        or any(lane.get("confirmation_policy") != "submitted_until_controller_response" for lane in [fullenrich_lane, emetriq_lane])
     ):
         fail(errors, "EU removal lanes must keep official destinations, minimum disclosure, and controller-response semantics")
     spokeo = next((item for item in catalog.get("brokers", []) if item.get("id") == "spokeo"), {})

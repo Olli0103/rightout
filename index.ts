@@ -193,11 +193,13 @@ const CaseParameters = Type.Object(
 const ControllerOutcomeParameters = Type.Object(
   {
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
-    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU controller whose response was reviewed by the operator." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU or US controller whose response was reviewed by the operator." }),
     outcome: Type.Union([
       Type.Literal("processing_acknowledged"),
       Type.Literal("erasure_confirmed"),
       Type.Literal("partial_erasure"),
+      Type.Literal("deletion_confirmed"),
+      Type.Literal("partial_deletion"),
       Type.Literal("identity_required"),
       Type.Literal("request_rejected"),
     ], { description: "Human-reviewed controller response outcome; never inferred from SMTP acceptance." }),
@@ -253,7 +255,7 @@ type PublicRemovalInput = { profileId: string; brokerId: string; requestKind: "d
 type PublicCaseInput = { profileId: string };
 type PublicControllerOutcomeInput = PublicCaseInput & {
   brokerId: string;
-  outcome: "processing_acknowledged" | "erasure_confirmed" | "partial_erasure" | "identity_required" | "request_rejected";
+  outcome: "processing_acknowledged" | "erasure_confirmed" | "partial_erasure" | "deletion_confirmed" | "partial_deletion" | "identity_required" | "request_rejected";
 };
 type PublicSubmissionReconciliationInput = PublicCaseInput & {
   brokerId: string;
@@ -355,7 +357,7 @@ function validateControllerOutcomeInput(value: unknown): PublicControllerOutcome
   if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome"].includes(key))) throw new Error("invalid_controller_outcome");
   if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("invalid_controller_outcome");
   if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId)) throw new Error("invalid_controller_outcome");
-  if (!["processing_acknowledged", "erasure_confirmed", "partial_erasure", "identity_required", "request_rejected"].includes(String(input.outcome))) {
+  if (!["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"].includes(String(input.outcome))) {
     throw new Error("invalid_controller_outcome");
   }
   return input as PublicControllerOutcomeInput;
@@ -388,6 +390,31 @@ function resolveSubmissionReconciliationBroker(catalog: Record<string, unknown>,
     requestKind: String(raw.removal.request_kinds?.[0]),
     processingDays: Number(raw.removal.processing_days ?? 14),
   };
+}
+
+function resolveControllerOutcomeBroker(catalog: Record<string, unknown>, input: PublicControllerOutcomeInput) {
+  const rows = Array.isArray(catalog.brokers) ? catalog.brokers : [];
+  const raw = rows.find((value) => value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).id === input.brokerId) as Record<string, any> | undefined;
+  if (!raw || raw.removal?.confirmation_policy !== "submitted_until_controller_response") {
+    throw new Error("unsupported_controller_outcome_lane");
+  }
+  const requestKind = raw.process_class === "eu_controller_email_erasure"
+    ? "gdpr_erasure_objection"
+    : raw.process_class === "us_data_broker_email_deletion"
+      ? "delete_and_opt_out"
+      : null;
+  if (!requestKind) throw new Error("unsupported_controller_outcome_lane");
+  const euOnly = new Set(["erasure_confirmed", "partial_erasure"]);
+  const usOnly = new Set(["deletion_confirmed", "partial_deletion"]);
+  if (
+    (raw.process_class === "eu_controller_email_erasure" && usOnly.has(input.outcome))
+    || (raw.process_class === "us_data_broker_email_deletion" && euOnly.has(input.outcome))
+  ) throw new Error("unsupported_controller_outcome_lane");
+  return resolveRemovalCatalogEntry(catalog, {
+    profileId: input.profileId,
+    brokerId: input.brokerId,
+    requestKind,
+  });
 }
 
 function submissionReconciliationScopeBinding(input: PublicSubmissionReconciliationInput, broker: unknown): string {
@@ -756,12 +783,8 @@ export default definePluginEntry({
       if (event.toolName === "rightout_record_controller_outcome") {
         try {
           const input = validateControllerOutcomeInput(event.params);
-          const broker = resolveRemovalCatalogEntry(catalog, {
-            profileId: input.profileId,
-            brokerId: input.brokerId,
-            requestKind: "gdpr_erasure_objection",
-          });
-          if (broker.processClass !== "eu_controller_email_erasure" || broker.confirmationPolicy !== "submitted_until_controller_response") {
+          const broker = resolveControllerOutcomeBroker(catalog, input);
+          if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.processClass) || broker.confirmationPolicy !== "submitted_until_controller_response") {
             throw new Error("unsupported_controller_outcome_lane");
           }
           const binding = controllerOutcomeScopeBinding(input, broker);
@@ -769,7 +792,7 @@ export default definePluginEntry({
           return {
             params: input,
             requireApproval: {
-              title: "Record reviewed EU controller outcome",
+              title: "Record reviewed controller outcome",
               description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed the official controller response and record '${input.outcome}'. This can change removal status; no provider write.`,
               severity: "critical" as const,
               allowedDecisions: ["allow-once", "deny"] as const,
@@ -1606,18 +1629,14 @@ export default definePluginEntry({
       {
         name: "rightout_record_controller_outcome",
         label: "RightOut record controller outcome",
-        description: "Record one operator-reviewed EU controller response in the encrypted case ledger. Requires native allow-once approval and performs no provider write. SMTP acceptance alone is never sufficient.",
+        description: "Record one operator-reviewed EU or US controller response in the encrypted case ledger. Requires native allow-once approval and performs no provider write. SMTP acceptance alone is never sufficient.",
         parameters: ControllerOutcomeParameters,
         async execute(toolCallId, params) {
           let input: PublicControllerOutcomeInput;
           try { input = validateControllerOutcomeInput(params); }
           catch { throw new Error("rightout_approval_binding_failed"); }
           const catalog = await catalogPromise;
-          const broker = resolveRemovalCatalogEntry(catalog, {
-            profileId: input.profileId,
-            brokerId: input.brokerId,
-            requestKind: "gdpr_erasure_objection",
-          });
+          const broker = resolveControllerOutcomeBroker(catalog, input);
           pruneTransientState();
           const approval = approvalBindings.get(toolCallId);
           approvalBindings.delete(toolCallId);
@@ -1629,7 +1648,7 @@ export default definePluginEntry({
           const outcome = await caseLedger.recordControllerOutcome(input.profileId, input.brokerId, input.outcome, {
             id: broker.id,
             process_class: broker.processClass,
-            removal: { confirmation_policy: broker.confirmationPolicy },
+            removal: { confirmation_policy: broker.confirmationPolicy, processing_days: broker.processingDays },
           });
           const report = {
             report_version: 1,

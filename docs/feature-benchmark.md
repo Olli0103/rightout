@@ -16,9 +16,9 @@ Claims from commercial pages describe vendor offerings; RightOut does not indepe
 |---|---|---|---|---|
 | Multiple subjects | Up to 20 opaque SecretRef profiles | consented dossiers | family/team tiers vary | minimum parity |
 | Discovery vectors | name/aliases, current/prior location/address, email, phone via Brave | dossier-driven search | broad scans claimed | minimum class parity; RightOut indirect |
-| Broker breadth | 34 catalog entries: 22 people-search plus 12 legal/EU/preference/monitoring entries; 21 Brave lanes and nine classified EU processes | 22 reviewed broker entries | hundreds claimed by some vendors | broad planning, not executable breadth parity |
+| Broker breadth | 56 catalog entries; 21 Brave lanes, 23 EU processes, and 28 executable targets | 22 reviewed executable broker entries | hundreds claimed by some vendors | RightOut exceeds reviewed public executable count; managed inventory not parity |
 | Deterministic ledger/queue | durable encrypted state-directory cases, due dates, clusters, proof refs | ledger and queue | dashboard/status tracking | minimum parity |
-| Email removal | three catalog-locked lanes: one US, two EU | one email lane | broad | capability parity, not breadth |
+| Email removal | 27 catalog-locked lanes: nine US and 18 EU | one email lane | broad | exceeds reviewed public count in this lane |
 | Browser form | one closed sandbox-browser recipe | 20 web-form lanes | broad/manual automation | capability parity, much narrower |
 | Phone lane | human task only | one phone lane | specialist handling varies | safe human parity only |
 | CAPTCHA/ID | fail closed to human task | human digest/manual work | human specialists | minimum parity |
@@ -32,14 +32,15 @@ Claims from commercial pages describe vendor offerings; RightOut does not indepe
 | EU controller outcomes | separately approved human-reviewed processing/partial/ID/rejection/controller-confirmed states | not evidenced in reviewed public skill | managed follow-up varies | RightOut explicit and scoped |
 | Dashboard/app | PII-safe reports and read tools only | CLI/agent workflow | usually yes | missing UI parity |
 | Custom removals/team service | human tasks only | human digest | offered by some vendors | not parity |
-| EU legal/process semantics | fixed GDPR request kind, country consistency, 30-day reminder for the one-month response rule, controller-response review | no separate EU process taxonomy evidenced in reviewed skill | Incogni says it uses GDPR/CCPA requests and recurring follow-up | RightOut explicit and narrow |
+| EU legal/process semantics | 18 fixed controller-email lanes, country consistency, 30-day reminder for the one-month response rule, controller-response review | no separate EU process taxonomy evidenced in reviewed skill | Incogni says it uses GDPR/CCPA requests and recurring follow-up | RightOut explicit and scoped |
+| US/CCPA semantics | ten executable targets, eight controller-email lanes with 45-day recheck, DROP human handoff, no automatic ID documents | no separate CCPA process taxonomy evidenced in reviewed skill | managed services abstract per-broker processes | RightOut explicit and scoped |
 | EU “one click” distinction | EDAA/emetriq preference controls separated from erasure; Criteo/Zeotap portals human-only | not evidenced in reviewed skill | managed services abstract per-broker processes | RightOut prevents false deletion claims |
 
 ## Clean-room boundary
 
 RightOut adopts product capability classes, not Unbroker implementation or broker data. It does not copy Hermes code, templates, prose, broker records, BADBOOL material, privacy-guide lists, or commercial inventories. RightOut catalog provenance is limited to official broker/government facts with original notes and semantic validation.
 
-The official Unbroker reference at the reviewed commit has broader immediately executable people-search operations: 20 web-form, one email, and one phone lane. RightOut has one US email, one US form, and two EU controller-email lanes; other brokers are still scan, portal, preference, or human work. RightOut is stronger in native per-effect approvals, durable ambiguous-write recovery, controller-outcome semantics, encrypted restart-safe handles, and build provenance. Managed services additionally claim much broader inventories, hosted dashboards, recurring managed submissions, screenshot reports, compliance scoring, custom removals, and human escalation. Therefore the accurate claim is **approval-safe workflow parity**, not broker-lane, effectiveness, hosted-dashboard, or commercial-service parity.
+The official Unbroker reference at the reviewed commit has 22 executable operations: 20 web-form, one email, and one phone lane. RightOut has 28 independently tested targets: 27 email and one browser-form initiation. RightOut therefore exceeds the reviewed public target count, while Unbroker retains a broader web-form/phone people-search mix. RightOut is also explicit about native per-effect approvals, durable ambiguous-write recovery, EU/US controller outcomes, encrypted restart-safe handles, and build provenance. Managed services additionally claim much broader inventories, hosted dashboards, recurring managed submissions, screenshot reports, compliance scoring, custom removals, and human escalation. The accurate claim is **reviewed public executable-count parity plus a stronger approval/safety boundary**, not removal-effectiveness, hosted-dashboard, or commercial-service parity.
 
 ## Approval difference
 

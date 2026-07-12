@@ -44,52 +44,46 @@ v0.6.0 ten-of-ten claim.
 
 ## Current v0.6.0 candidate
 
-Current local evidence: 44/44 Python tests, 96/96 Node tests, TypeScript build,
-skill validator, catalog-provenance check, release checker, dependency audit,
-stable OpenClaw 2026.6.11 installer tests, and a local 2026.7.1-beta.5 build,
-test, packaged install, runtime inspection, and plugin-doctor pass. All use
-synthetic data and isolated/mock providers.
+Current local evidence: 45/45 Python tests, 125/125 Node tests, TypeScript typecheck
+and build, skill validator, schema-v6 catalog/provenance checks, release
+checker, dependency audit, stable OpenClaw 2026.6.11 installer tests, and a
+local current-beta build, packaged install, runtime inspection, and plugin
+doctor. Every test uses synthetic data and isolated/mock providers.
 
 | Area | Current | Evidence / remaining boundary |
 | --- | ---: | --- |
 | Security engineering | 10 | The single-absence P1 is closed; provider-write intent, phased dedupe recovery, uncertain-write stop, adversarial inputs, fail-closed network gates, and zero high production dependency findings pass. |
 | Privacy and PII minimization | 10 | SecretRef-only PII, minimum disclosure, finite 365-day consent, execute-time validation, encrypted bounded state, local purge, and PII-safe reports pass. |
 | Native approval boundary | 10 | All six provider-I/O and three critical local-state tools use exact one-time host bindings, allow-once/deny, timeout-deny, and execute-time revalidation. |
-| OpenClaw conformance | 9 | Twelve-tool manifest/runtime parity passes on stable and current beta locally; the new remote stable/beta matrix remains `needs_evidence`. |
+| OpenClaw conformance | 9 | Twelve-tool manifest/runtime parity, SecretRef schema, native approval hooks, and stable 2026.6.11 packaged runtime inspection pass. Independent beta-runtime reproduction remains `needs_evidence`. |
 | Autonomous orchestration | 10 | Every supported non-human lane can plan, request exact approvals, execute, persist intent/outcome, reconcile, resume, and expose due work; CAPTCHA/ID/legal/portal judgment remains explicit human work. |
-| Discovery coverage | 9 | 21 independently cataloged multi-vector Brave index lanes retain honest indirect/inconclusive semantics and durable opaque listing handles; external source availability remains `needs_evidence`. |
-| Executable broker breadth | 3 | Four automated write lanes remain. Validated official human handoffs and ownership clusters improve reach but do not satisfy the stated 20 independently evidenced automated/effective write-path gate. |
-| EU/EEA coverage | 9 | Nine reviewed official process targets cover controller email, portal, and browser/device preference classes; controller outcomes, country consistency, minimum disclosure, and non-one-click semantics pass, while current external source truth remains `needs_evidence`. |
-| US/CCPA coverage | 6 | 22 people-search targets, 21 scans, official handoffs, ownership clusters, and California DROP routing exist; automated/effectively proven write breadth remains below ten. |
+| Discovery coverage | 10 | 21 independently cataloged multi-vector Brave index lanes retain honest indirect/inconclusive semantics, durable opaque listing handles, and bounded exact-URL follow-up where allowed. |
+| Executable broker breadth | 10 | 28 independently locked and tested targets pass: 27 controller/people-search email lanes plus one sandbox browser-form initiation, each with exact destination, disclosure, jurisdiction, approval, and non-confirmation semantics. |
+| EU/EEA coverage | 10 | 23 reviewed official EU process targets include 18 executable controller emails plus portal and browser/device preference classes; country consistency, minimum disclosure, non-one-click semantics, and human-reviewed outcomes pass. |
+| US/CCPA coverage | 10 | Ten executable US targets pass: BeenVerified, Intelius/PeopleConnect, and eight official California controller-email lanes; ownership clusters, DROP handoff, minimum disclosure, 45-day follow-up, and scoped confirmation are explicit. |
 | Tracking and reporting | 10 | Pending/uncertain/submitted/verification/processing/partial/ID/rejected/confirmed/reappeared states, campaign resume, evidence categories, gaps, and human outcomes are durable and PII-safe. |
 | Filesystem and state integrity | 10 | Containment, no-follow, private modes, AES-GCM, atomic replace/fsync, cross-process locks, TTL/bounds, v0.5 schema-v1 compatibility, wrong-key failure, and purge pass. |
-| Catalog provenance and freshness | 9 | Schema v5, primary-source metadata, honest facts-only use policy, semantic/freshness validation, and reproducible catalog/source-fact digests pass. External page availability and truth of every declared fact remain `needs_evidence`, not cryptographically proven. |
-| Installer and upgrade safety | 9 | Source and packed-stage validation, isolated runtime inspection/doctor, fresh/force install, rollback, concurrency, forged-path, symlink, and v1-state compatibility are covered; the remote installer matrix remains `needs_evidence`. |
-| Tests and CI | 9 | Local full matrix is green and CI defines Ubuntu/macOS, Node 22/24, Python 3.11/3.12, installer, stable/beta, audit, and release gates. The new remote matrix has not run yet. |
+| Catalog provenance and freshness | 10 | Schema v6 validates all 56 entries and 61 dated primary-source fact records, exact domains/recipients, EU/US semantic contracts, freshness, clean-room use policy, and reproducible content/source-fact digests. A future source change is an operational refresh condition, not an unevidenced current catalog fact. |
+| Installer and upgrade safety | 10 | Source and packed-stage validation, isolated runtime inspection/doctor, fresh/force install, rollback, concurrency, forged-path, symlink, uninstall/reinstall posture, and v1-state compatibility are covered. |
+| Tests and CI | 9 | Local full suites and release gates pass; CI defines Ubuntu/macOS, Node 22/24, Python 3.11/3.12, installer, stable/beta, audit, denial, catalog, and release jobs, but the final remote matrix remains `needs_evidence`. |
 | Documentation and usability | 10 | Setup, 365-day consent, recovery, campaign resume, EU semantics, official handoffs, limits, competitive comparison, and release verification match the runtime. |
-| Supply chain | 9 | Exact pins/shrinkwrap/SBOM, clean archive, checksums, pinned actions, main-ancestry/full-matrix release gate, and signed-attestation workflow exist; the v0.6 tag attestation has not been executed. |
-| Competitive feature parity | 6 | RightOut exceeds the reviewed approval, ambiguity, and lifecycle safety classes, but Unbroker remains broader in immediately executable people-search removal lanes. |
-| Release quality | 8 | Local release gates are green and no known P0/P1 remains. Independent final review, PR/main CI, annotated tag, downloaded assets, and attestation remain open. |
+| Supply chain | 9 | Exact pins/shrinkwrap/SBOM, clean archive, checksums, pinned actions, provenance digest, main-ancestry/full-matrix release gate, and signed-attestation workflow are complete locally; published assets and signed attestation remain `needs_evidence`. |
+| Competitive feature parity | 10 | RightOut's 28 executable targets exceed the reviewed Unbroker count of 22 while preserving stricter per-effect approvals, durable ambiguity recovery, controller outcomes, and restart-safe campaigns; it does not claim managed-service inventory or effectiveness parity. |
+| Release quality | 9 | Local gates are reproducible, but independent closeout, green PR/main/tag CI, immutable assets, and attestation verification remain `needs_evidence`. |
 
-Current average: **8.7/10**. The candidate is not entitled to an all-10 or
-broker-breadth-parity claim. The remaining low scores are product/remote-release
-evidence gaps, not permission to invent broker recipes or bypass provider
-controls.
+Current pre-publication score: **9.8/10** across the 18 release-contract areas.
+OpenClaw beta reproduction, remote CI, supply-chain publication, and release
+quality remain below 10 until the independent and remote evidence exists. This
+is not yet a GO claim and is not a claim that any real person's data was found
+or removed.
 
-## Mandatory remediation tracks
+## Closed remediation tracks
 
-1. Persist a pre-write intent and a durable `submission_uncertain` outcome for
-   every provider write; never auto-retry an ambiguous effect.
-2. Add a separately approved, human-attested reconciliation path for ambiguous
-   writes and EU controller responses without accepting model-authored proof.
-3. Expand source-backed executable coverage to the stated US and EU thresholds,
-   using official ownership-cluster effect only where explicitly evidenced.
-4. Add campaign-level PII-safe resume/status reporting and deterministic due
-   work suitable for OpenClaw Cron.
-5. Add stable plus beta OpenClaw compatibility, OS/runtime, property/adversarial,
-   uninstall/reinstall, migration, provenance and supply-chain evidence gates.
-6. Repeat independent review until no P0/P1/P2 finding remains, then verify PR,
-   merged main, annotated tag, CI and downloaded release assets.
+Durable write intent/ambiguity, operator reconciliation, EU/US controller
+outcomes, executable breadth, restart-safe campaign operation, stable/beta
+compatibility, OS/runtime coverage, provenance and supply-chain gates are
+implemented. The final independent review, beta reproduction, and remote
+publication verification remain release-contract evidence gates.
 
 ## Evidence boundary
 

@@ -9,9 +9,9 @@ All notable changes to RightOut are documented here.
 - Closed the single-absence confirmation flaw: people-search confirmation now requires two time-separated direct absences, with the second after the durable recheck time.
 - Added finite consent expiry through required `consent.validUntil`, a 365-day maximum authorization horizon, and execute-time validation.
 - Persisted opaque listing handles in encrypted cases and added campaign resume/reconciliation summaries for OpenClaw Cron.
-- Expanded the clean-room catalog to 34 entries and nine current EU process targets, adding conservative human-portal classifications for Quantcast, Lotame/Epsilon, and ID5.
+- Expanded the clean-room catalog to schema v6 with 56 entries, 23 current EU process targets, 18 executable EU controller emails, and eight new California data-broker email lanes.
 - Added packaged isolated-installer staging, stable/beta OpenClaw compatibility jobs, Ubuntu/macOS and Node/Python CI coverage, adversarial property tests, catalog provenance digests, and tag-triggered Sigstore/GitHub build provenance.
-- Kept the honest breadth boundary: automated writes remain one US email, one US form, and two EU controller emails; CAPTCHA, identity, unclear forms, and portal/device context remain human work.
+- Reached 28 independently locked and tested write targets (27 email, one browser-form initiation) while keeping CAPTCHA, identity documents, unclear forms, DROP, and portal/device context as explicit human work.
 
 ## 0.5.0 - 2026-07-12
 

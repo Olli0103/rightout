@@ -24,12 +24,11 @@ Cookie, browser, device, consent, and marketing controls must never be reported 
 
 ## RightOut automated EU lanes
 
-RightOut can send one separately approved `gdpr_erasure_objection` email to either reviewed controller:
+RightOut has 18 independently catalog-locked controller-email targets. The catalog records the current official policy URL, recipient domain, minimum initial identifiers, dated review, and exact process semantics for FullEnrich, emetriq, Dealfront, Snov.io, Kaspr, StackAdapt, Bombora, Seedtag, Audiencerate, Lead411, Surfe, GumGum, Smaato, Teads, MiQ, 6sense, Cognism, and Lusha.
 
-- Adsquare: official `privacy@adsquare.com`; the [official privacy center](https://adsquare.com/privacy) says deletion/opt-out requests require the Mobile Advertising ID and an email address. RightOut discloses only contact email, Mobile Advertising ID, and country.
-- emetriq: official `datenschutz@emetriq.com`; the [official privacy notice](https://www.emetriq.com/datenschutz/) routes data-subject rights to that address. RightOut initially discloses only contact email and country. Pseudonymous data may require proportionate follow-up context.
+Lead411, 6sense, Cognism, and Lusha use full name, subject-controlled email, and country to locate a professional profile. The remaining initial requests disclose only the catalog-declared minimum email/country set. A controller may request proportionate follow-up, but RightOut never attaches an identity document automatically.
 
-For both lanes:
+For every lane:
 
 - EU/EEA membership, exact country tag, consent, profile digest, SMTP digest, broker, request kind, and minimum fields are checked before transport;
 - no listing discovery is required to exercise a data-subject right;

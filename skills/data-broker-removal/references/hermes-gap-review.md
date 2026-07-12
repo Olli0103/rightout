@@ -16,25 +16,23 @@ No Hermes/Unbroker code, broker records, BADBOOL-derived data, templates, prose,
 ## RightOut implementation
 
 - `rightout_live_scan`: Brave index-only discovery with native allow-once approval;
-- `rightout_submit_removal`: catalog-locked BeenVerified, Adsquare, or emetriq email with a different native allow-once approval;
+- `rightout_submit_removal`: 27 catalog-locked US/EU email targets, each with a different native allow-once approval;
 - `rightout_submit_form_removal`: one catalog-locked PeopleConnect browser flow with CAPTCHA/ID fail-closed handling;
 - Gmail-only, receiver-authenticated verification polling and a separately approved opaque confirmation-link open;
 - durable cases, deterministic planning/status/due rechecks, ownership clusters, direct known-listing rechecks, and reappearance tracking;
 - private profile, consent, provider credentials, and encrypted local state through OpenClaw SecretRefs;
-- catalog schema v5 for official source, facts-only use policy, destination, jurisdiction, request kind, disclosure fields, confirmation policy, and EU process semantics;
+- catalog schema v6 for official source, facts-only use policy, destination, jurisdiction, request kind, disclosure fields, confirmation policy, and distinct EU/US process semantics;
 - outbound and form outputs stop at honest intermediate states; `confirmed_removed` requires later direct absence and remains scoped to the known listing set. EU controller-email responses stay human-reviewed and preference controls are never erasure evidence.
 
 ## Deliberate differences
 
 Unbroker defaults to standing authorization and a hands-off action queue after intake. RightOut requires a fresh native approval for every provider read/write and for local subject purge. RightOut uses an official OpenClaw Cron turn for due work instead of self-scheduling, refuses CAPTCHA/identity-document automation, and does not accept arbitrary custom URLs or broad imported broker playbooks.
 
-These differences reduce lane breadth and autonomy while preserving the OpenClaw approval boundary and clean-room catalog policy.
+These differences reduce unattended autonomy while preserving the OpenClaw approval boundary and clean-room catalog policy.
 
 ## Remaining gaps
 
-- automated broker-lane breadth equivalent to Unbroker's 20 web-form, one email, and one phone entries;
 - custom URLs and operator-authored recipes;
-- more independently verified broker lanes;
 - consolidated dashboard/family administration/managed-service capabilities;
 - removal effectiveness or private-database coverage evidence.
 

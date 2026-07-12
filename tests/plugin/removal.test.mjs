@@ -202,23 +202,22 @@ test("one approved broker email is sent but reported only as submitted", async (
 });
 
 test("EU GDPR lane sends only catalog-approved identifiers and never claims erasure", async () => {
-  const euInput = { profileId, brokerId: "adsquare_eu", requestKind: "gdpr_erasure_objection" };
+  const euInput = { profileId, brokerId: "fullenrich_eu", requestKind: "gdpr_erasure_objection" };
   const euProfile = {
     ...privateProfile,
     city: "Berlin",
     region: "BE",
     country: "DE",
     jurisdictions: ["DE", "EU", "EEA"],
-    mobileAdvertisingId: "12345678-1234-4234-9234-123456789abc",
   };
   const euPayload = JSON.stringify(euProfile);
   const euSmtp = { ...smtpConfig, fromAddress: euProfile.contactEmail };
   const euBroker = {
-    id: "adsquare_eu",
-    name: "Adsquare",
+    id: "fullenrich_eu",
+    name: "FullEnrich",
     category: "data_broker",
     process_class: "eu_controller_email_erasure",
-    official_domains: ["adsquare.com"],
+    official_domains: ["fullenrich.com"],
     lane: "email",
     approval_gate: "send_request",
     human_only: false,
@@ -227,9 +226,9 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
       channel: "email",
       request_kinds: ["gdpr_erasure_objection"],
       template_id: "gdpr_erasure_objection_v1",
-      recipient: "privacy@adsquare.com",
-      smtp_recipient_domain: "adsquare.com",
-      disclosure_fields: ["contact_email", "mobile_advertising_id", "country"],
+      recipient: "support@fullenrich.com",
+      smtp_recipient_domain: "fullenrich.com",
+      disclosure_fields: ["contact_email", "country"],
       eligible_jurisdictions: ["EU", "EEA"],
       identity_verification: "broker_may_request_follow_up",
       confirmation_policy: "submitted_until_controller_response",
@@ -262,7 +261,6 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
   assert.equal(calls.length, 1);
   assert.match(calls[0].message.text, /GDPR Article 17/);
   assert.match(calls[0].message.text, /Article 21\(2\)/);
-  assert.match(calls[0].message.text, /12345678-1234-4234-9234-123456789abc/);
   assert.doesNotMatch(calls[0].message.text, /Avery Example/);
   assert.equal(report.process_class, "eu_controller_email_erasure");
   assert.equal(report.discovery_requirement, "not_required_for_data_subject_request");
@@ -270,24 +268,11 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
   assert.equal(report.delivery.removal_confirmed, false);
   assert.ok(report.coverage_gaps.includes("no_universal_eu_broker_erasure_registry"));
   const serialized = JSON.stringify(report);
-  for (const value of [euProfile.contactEmail, euProfile.mobileAdvertisingId, calls[0].message.text]) {
+  for (const value of [euProfile.contactEmail, calls[0].message.text]) {
     assert.equal(serialized.includes(value), false, value);
   }
 
   let sends = 0;
-  const { mobileAdvertisingId: _mobileAdvertisingId, ...euProfileWithoutId } = euProfile;
-  const missingIdPayload = JSON.stringify(euProfileWithoutId);
-  await assert.rejects(runRemovalSubmission({
-    input: euInput,
-    catalog: { schema_version: 5, brokers: [euBroker] },
-    profilePayload: missingIdPayload,
-    smtpConfig: euSmtp,
-    operatorAttestations: {
-      ...euAttestations,
-      authorizedProfileDigests: { [profileId]: removalProfileDigest(missingIdPayload) },
-    },
-    async sendMail() { sends += 1; },
-  }), /profile_missing_required_removal_identifier/);
   const contradictoryPayload = JSON.stringify({ ...euProfile, country: "US", region: "CA" });
   await assert.rejects(runRemovalSubmission({
     input: euInput,
@@ -301,6 +286,59 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
     async sendMail() { sends += 1; },
   }), /profile_not_eligible_for_removal_lane/);
   assert.equal(sends, 0);
+});
+
+test("US data-broker lane uses a controller response lifecycle and never sends identity documents", async () => {
+  const usInput = { profileId, brokerId: "amplemarket_us", requestKind: "delete_and_opt_out" };
+  const usBroker = {
+    id: "amplemarket_us",
+    name: "Amplemarket",
+    category: "data_broker",
+    process_class: "us_data_broker_email_deletion",
+    official_domains: ["amplemarket.com"],
+    lane: "email",
+    approval_gate: "send_request",
+    human_only: false,
+    removal: {
+      supported: true,
+      channel: "email",
+      request_kinds: ["delete_and_opt_out"],
+      template_id: "us_delete_opt_out_v1",
+      recipient: "privacy@amplemarket.com",
+      smtp_recipient_domain: "amplemarket.com",
+      disclosure_fields: ["full_name", "contact_email", "region", "country"],
+      eligible_jurisdictions: ["US-CA"],
+      identity_verification: "broker_may_request_follow_up",
+      confirmation_policy: "submitted_until_controller_response",
+      discovery_requirement: "not_required_for_data_subject_request",
+      processing_days: 45,
+      policy_revision: "reviewed-2026-07-12",
+      last_verified: "2026-07-12",
+    },
+  };
+  const attestations = {
+    ...removalAttestations,
+    authorizedBrokerIds: [usBroker.id],
+  };
+  const calls = [];
+  const report = await runRemovalSubmission({
+    input: usInput,
+    catalog: { schema_version: 6, brokers: [usBroker] },
+    profilePayload,
+    smtpConfig,
+    operatorAttestations: attestations,
+    async sendMail(value) {
+      calls.push(value);
+      return { accepted: [usBroker.removal.recipient], rejected: [] };
+    },
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(report.process_class, "us_data_broker_email_deletion");
+  assert.equal(report.delivery.next_state, "awaiting_controller_response");
+  assert.equal(report.disclosures.attachments, 0);
+  assert.equal(report.disclosures.identity_documents, 0);
+  assert.ok(report.coverage_gaps.includes("california_drop_and_other_identifiers_not_checked"));
+  assert.equal(report.coverage_gaps.includes("no_universal_eu_broker_erasure_registry"), false);
 });
 
 test("jurisdiction, catalog, transport rejection, and pre-write abort fail closed", async () => {

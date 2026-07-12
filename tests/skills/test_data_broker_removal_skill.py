@@ -288,9 +288,9 @@ class ReportingAndStateTests(unittest.TestCase):
 
 
 class CatalogValidationTests(unittest.TestCase):
-    def test_catalog_is_schema_v4_and_valid(self) -> None:
+    def test_catalog_is_schema_v6_and_valid(self) -> None:
         catalog = load_catalog()
-        self.assertEqual(catalog["schema_version"], 5)
+        self.assertEqual(catalog["schema_version"], 6)
         self.assertEqual(rightout.validate_catalog_data(catalog), [])
 
     def test_email_removal_lane_is_catalog_locked_and_minimum_disclosure(self) -> None:
@@ -305,14 +305,37 @@ class CatalogValidationTests(unittest.TestCase):
 
     def test_eu_processes_separate_erasure_from_browser_preference(self) -> None:
         catalog = load_catalog()
-        adsquare = next(item for item in catalog["brokers"] if item["id"] == "adsquare_eu")
+        fullenrich = next(item for item in catalog["brokers"] if item["id"] == "fullenrich_eu")
         edaa = next(item for item in catalog["brokers"] if item["id"] == "edaa_yoc")
-        self.assertEqual(adsquare["removal"]["request_kinds"], ["gdpr_erasure_objection"])
-        self.assertEqual(adsquare["removal"]["confirmation_policy"], "submitted_until_controller_response")
+        self.assertEqual(fullenrich["removal"]["request_kinds"], ["gdpr_erasure_objection"])
+        self.assertEqual(fullenrich["removal"]["confirmation_policy"], "submitted_until_controller_response")
         self.assertEqual(edaa["eu_process"]["erasure_semantics"], "preference_only_not_controller_erasure")
         unsafe = load_catalog()
         next(item for item in unsafe["brokers"] if item["id"] == "edaa_yoc")["eu_process"]["erasure_semantics"] = "controller_erasure_request_not_yet_confirmed"
         self.assertTrue(any("process tuple" in error for error in rightout.validate_catalog_data(unsafe)))
+
+    def test_us_data_broker_email_lane_has_distinct_legal_semantics(self) -> None:
+        catalog = load_catalog()
+        amplemarket = next(item for item in catalog["brokers"] if item["id"] == "amplemarket_us")
+        self.assertEqual(amplemarket["process_class"], "us_data_broker_email_deletion")
+        self.assertEqual(amplemarket["removal"]["request_kinds"], ["delete_and_opt_out"])
+        self.assertEqual(amplemarket["removal"]["eligible_jurisdictions"], ["US-CA"])
+        self.assertEqual(amplemarket["us_process"]["legal_scope"], "us_ca_consumer_request")
+        self.assertNotIn("eu_process", amplemarket)
+        unsafe = load_catalog()
+        next(item for item in unsafe["brokers"] if item["id"] == "amplemarket_us")["removal"]["processing_days"] = 30
+        self.assertTrue(any("US data-broker lane" in error for error in rightout.validate_catalog_data(unsafe)))
+
+    def test_executable_controller_email_requires_policy_matched_channel_evidence(self) -> None:
+        eu_unsafe = load_catalog()
+        eu = next(item for item in eu_unsafe["brokers"] if item["id"] == "fullenrich_eu")
+        eu["sources"][0]["fact_scope"] = "official_general_contact_facts_only"
+        self.assertTrue(any("erasure and email-submission evidence" in error for error in rightout.validate_catalog_data(eu_unsafe)))
+
+        us_unsafe = load_catalog()
+        us = next(item for item in us_unsafe["brokers"] if item["id"] == "amplemarket_us")
+        us["sources"][0]["fact_scope"] = "official_general_contact_facts_only"
+        self.assertTrue(any("deletion and email-submission evidence" in error for error in rightout.validate_catalog_data(us_unsafe)))
 
     def test_catalog_rejects_unsafe_ids(self) -> None:
         catalog = load_catalog()

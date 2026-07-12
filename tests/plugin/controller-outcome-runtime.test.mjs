@@ -10,7 +10,7 @@ import { createEncryptedFileKeyedStore } from "../../lib/file-keyed-store.mjs";
 const profileId = "profile_a1b2c3d4e5f60718";
 const stateKey = "dummy-state-key-with-more-than-32-characters";
 
-test("EU controller outcome requires a separate human-review approval", async () => {
+test("EU and US controller outcomes require separate human-review approvals", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "rightout-controller-outcome-"));
   const runtime = { state: { resolveStateDir() { return stateDir; } } };
   const plugin = (await import("../../index.ts")).default;
@@ -38,21 +38,21 @@ test("EU controller outcome requires a separate human-review approval", async ()
     maxEntries: 100,
     getSecret: () => stateKey,
   }));
-  await ledger.reserveSubmission(profileId, "adsquare_eu", {
+  await ledger.reserveSubmission(profileId, "fullenrich_eu", {
     channel: "smtp_email",
     discoveryRequirement: "not_required_for_data_subject_request",
   });
   await ledger.recordRemoval({
     state: "submitted",
     subject_ref: profileId,
-    broker_id: "adsquare_eu",
+    broker_id: "fullenrich_eu",
     generated_at: "2026-07-12T10:00:00Z",
     delivery: { accepted_by_outbound_smtp: true },
     proof_references: ["smtp_0123456789abcdef01234567"],
     disclosures: { to_broker: ["contact_email"] },
   }, 30);
 
-  const input = { profileId, brokerId: "adsquare_eu", outcome: "erasure_confirmed" };
+  const input = { profileId, brokerId: "fullenrich_eu", outcome: "erasure_confirmed" };
   const denied = await beforeToolCall({ toolName: "rightout_record_controller_outcome", params: input, toolCallId: "controller-denied" });
   assert.match(denied.requireApproval.description, /personally reviewed/);
   assert.doesNotMatch(denied.requireApproval.description, /Avery|avery@example/);
@@ -71,6 +71,35 @@ test("EU controller outcome requires a separate human-review approval", async ()
   assert.equal(result.details.provider_writes, 0);
   assert.equal(result.details.invariants.smtp_acceptance_used_as_outcome, false);
   assert.equal((await ledger.status(profileId)).counts.confirmed_removed, 1);
+
+  await ledger.reserveSubmission(profileId, "amplemarket_us", {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted",
+    subject_ref: profileId,
+    broker_id: "amplemarket_us",
+    generated_at: "2026-07-12T10:01:00Z",
+    delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_1123456789abcdef01234567"],
+    disclosures: { to_broker: ["full_name", "contact_email", "region", "country"] },
+  }, 45);
+  const usInput = { profileId, brokerId: "amplemarket_us", outcome: "deletion_confirmed" };
+  const usApproved = await beforeToolCall({ toolName: "rightout_record_controller_outcome", params: usInput, toolCallId: "controller-us-approved" });
+  assert.match(usApproved.requireApproval.title, /controller outcome/i);
+  usApproved.requireApproval.onResolution("allow-once");
+  const usResult = await tools.get("rightout_record_controller_outcome").execute("controller-us-approved", usInput);
+  assert.equal(usResult.details.state, "confirmed_removed");
+  assert.equal(usResult.details.removal_confirmation_scope, "controller_response_only");
+  assert.equal((await ledger.status(profileId)).counts.confirmed_removed, 2);
+
+  const crossedSemantics = await beforeToolCall({
+    toolName: "rightout_record_controller_outcome",
+    params: { ...usInput, outcome: "erasure_confirmed" },
+    toolCallId: "controller-us-crossed-semantics",
+  });
+  assert.equal(crossedSemantics.block, true);
 
   const unsupported = await beforeToolCall({
     toolName: "rightout_record_controller_outcome",

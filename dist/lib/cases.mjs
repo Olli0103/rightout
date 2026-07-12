@@ -76,7 +76,7 @@ function safeMetadataToken(value, fallback = "needs_evidence") {
     return typeof value === "string" && /^[a-z0-9_]{2,80}$/.test(value) ? value : fallback;
 }
 function safeOfficialActionUrl(broker) {
-    const raw = broker?.eu_process?.official_action_url ?? broker?.human_action_url ?? broker?.official_url;
+    const raw = broker?.eu_process?.official_action_url ?? broker?.us_process?.official_action_url ?? broker?.human_action_url ?? broker?.official_url;
     const domains = Array.isArray(broker?.official_domains) ? broker.official_domains : [];
     try {
         const url = new URL(raw);
@@ -471,11 +471,18 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
     async function recordControllerOutcome(profileId, brokerId, outcome, broker) {
         const cleanProfile = safeProfileId(profileId);
         const cleanBroker = safeBrokerId(brokerId);
-        const allowedOutcomes = new Set(["processing_acknowledged", "erasure_confirmed", "partial_erasure", "identity_required", "request_rejected"]);
+        const allowedOutcomes = new Set(["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"]);
         if (!allowedOutcomes.has(outcome))
             throw new Error("invalid_controller_outcome");
-        if (!broker || broker.id !== cleanBroker || broker.process_class !== "eu_controller_email_erasure"
+        if (!broker || broker.id !== cleanBroker || !["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.process_class)
             || broker.removal?.confirmation_policy !== "submitted_until_controller_response")
+            throw new Error("unsupported_controller_outcome_lane");
+        const processingDays = broker.removal?.processing_days;
+        if ((broker.process_class === "eu_controller_email_erasure" && processingDays !== 30)
+            || (broker.process_class === "us_data_broker_email_deletion" && processingDays !== 45))
+            throw new Error("unsupported_controller_outcome_lane");
+        if ((broker.process_class === "eu_controller_email_erasure" && ["deletion_confirmed", "partial_deletion"].includes(outcome))
+            || (broker.process_class === "us_data_broker_email_deletion" && ["erasure_confirmed", "partial_erasure"].includes(outcome)))
             throw new Error("unsupported_controller_outcome_lane");
         return withProfile(cleanProfile, (profile, at) => {
             const brokerCase = profile.brokers[cleanBroker];
@@ -490,6 +497,8 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
                 processing_acknowledged: "awaiting_processing",
                 erasure_confirmed: "confirmed_removed",
                 partial_erasure: "partially_removed",
+                deletion_confirmed: "confirmed_removed",
+                partial_deletion: "partially_removed",
                 identity_required: "identity_verification_required",
                 request_rejected: "request_rejected",
             }[outcome];
@@ -498,11 +507,11 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
             brokerCase.submission_outcome = outcome;
             brokerCase.human_task_reason = outcome === "identity_required"
                 ? "proportionate_identity_review_required"
-                : outcome === "partial_erasure" || outcome === "request_rejected"
+                : ["partial_erasure", "partial_deletion", "request_rejected"].includes(outcome)
                     ? "controller_outcome_review_required"
                     : null;
             if (target === "awaiting_processing")
-                brokerCase.next_recheck_at = addDays(at, 30);
+                brokerCase.next_recheck_at = addDays(at, processingDays);
             if (target === "confirmed_removed") {
                 brokerCase.removal_confirmed_at = at;
                 brokerCase.removal_confirmation_scope = "controller_response_only";
@@ -638,6 +647,11 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
                         effect_scope: safeMetadataToken(broker.eu_process.effect_scope),
                         erasure_semantics: safeMetadataToken(broker.eu_process.erasure_semantics),
                         one_click_level: safeMetadataToken(broker.eu_process.one_click_level, "none"),
+                    } : broker.us_process && typeof broker.us_process === "object" ? {
+                        effect_scope: safeMetadataToken(broker.us_process.effect_scope),
+                        deletion_semantics: safeMetadataToken(broker.us_process.deletion_semantics),
+                        legal_scope: safeMetadataToken(broker.us_process.legal_scope),
+                        one_click_level: safeMetadataToken(broker.us_process.one_click_level, "none"),
                     } : {}),
                 } : {}),
                 ...(cluster ? {
@@ -691,6 +705,7 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
                 actionable_now: rows.filter((row) => !row.next_action.startsWith("wait_")).length,
                 human_tasks: rows.filter((row) => ["queue_human_task", "complete_human_task", "retry_or_route_human"].includes(row.next_action)).length,
                 eu_processes: rows.filter((row) => row.process_class.startsWith("eu_")).length,
+                us_executable_processes: rows.filter((row) => row.process_class.startsWith("us_") && ["email", "browser_form"].includes(row.lane)).length,
                 executable_write_targets: executableWriteTargets,
                 effective_write_coverage_targets: executableWriteTargets + effectiveClusterChildren,
             },

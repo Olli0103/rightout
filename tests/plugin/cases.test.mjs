@@ -208,31 +208,68 @@ test("ambiguous writes can resume only after operator-reviewed reconciliation", 
   assert.equal(status.cases[0].next_recheck_at, "2026-07-26T10:00:00.000Z");
 });
 
-test("human-reviewed EU controller outcomes are explicit and scoped", async () => {
+test("human-reviewed EU and US controller outcomes are explicit and scoped", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
-  await ledger.reserveSubmission(PROFILE, "adsquare_eu", {
+  await ledger.reserveSubmission(PROFILE, "fullenrich_eu", {
     channel: "smtp_email",
     discoveryRequirement: "not_required_for_data_subject_request",
   });
   await ledger.recordRemoval({
-    state: "submitted", subject_ref: PROFILE, broker_id: "adsquare_eu",
+    state: "submitted", subject_ref: PROFILE, broker_id: "fullenrich_eu",
     generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
     proof_references: ["smtp_0123456789abcdef01234567"], disclosures: { to_broker: ["contact_email"] },
   }, 30);
   const broker = {
-    id: "adsquare_eu",
+    id: "fullenrich_eu",
     process_class: "eu_controller_email_erasure",
-    removal: { confirmation_policy: "submitted_until_controller_response" },
+    removal: { confirmation_policy: "submitted_until_controller_response", processing_days: 30 },
   };
-  const outcome = await ledger.recordControllerOutcome(PROFILE, "adsquare_eu", "erasure_confirmed", broker);
+  const outcome = await ledger.recordControllerOutcome(PROFILE, "fullenrich_eu", "erasure_confirmed", broker);
   assert.equal(outcome.state, "confirmed_removed");
   assert.equal(outcome.confirmation_scope, "controller_response_only");
   const status = await ledger.status(PROFILE);
   assert.equal(status.counts.confirmed_removed, 1);
   assert.equal(status.cases[0].coverage_gap, "other_identifiers_or_controllers_not_checked");
   assert.match(status.cases[0].proof_references.at(-1), /^controller_[a-f0-9]{24}$/);
+  await ledger.reserveSubmission(PROFILE, "amplemarket_us", {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted", subject_ref: PROFILE, broker_id: "amplemarket_us",
+    generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_1123456789abcdef01234567"], disclosures: { to_broker: ["full_name", "contact_email", "region", "country"] },
+  }, 45);
+  const usBroker = {
+    id: "amplemarket_us",
+    process_class: "us_data_broker_email_deletion",
+    removal: { confirmation_policy: "submitted_until_controller_response", processing_days: 45 },
+  };
+  const usOutcome = await ledger.recordControllerOutcome(PROFILE, "amplemarket_us", "deletion_confirmed", usBroker);
+  assert.equal(usOutcome.state, "confirmed_removed");
+  assert.equal((await ledger.status(PROFILE)).counts.confirmed_removed, 2);
   await assert.rejects(
-    ledger.recordControllerOutcome(PROFILE, "adsquare_eu", "erasure_confirmed", {
+    ledger.recordControllerOutcome(PROFILE, "amplemarket_us", "erasure_confirmed", usBroker),
+    /unsupported_controller_outcome_lane/,
+  );
+  await ledger.reserveSubmission(PROFILE, "wiza_us", {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted", subject_ref: PROFILE, broker_id: "wiza_us",
+    generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_2123456789abcdef01234567"], disclosures: { to_broker: ["full_name", "contact_email", "region", "country"] },
+  }, 45);
+  await ledger.recordControllerOutcome(PROFILE, "wiza_us", "processing_acknowledged", {
+    id: "wiza_us",
+    process_class: "us_data_broker_email_deletion",
+    removal: { confirmation_policy: "submitted_until_controller_response", processing_days: 45 },
+  });
+  const wiza = (await ledger.status(PROFILE)).cases.find((item) => item.broker_id === "wiza_us");
+  assert.equal(wiza.next_recheck_at, "2026-08-26T10:00:00.000Z");
+  await assert.rejects(
+    ledger.recordControllerOutcome(PROFILE, "fullenrich_eu", "erasure_confirmed", {
       ...broker, process_class: "eu_advertising_preference",
     }),
     /unsupported_controller_outcome_lane/,
@@ -368,9 +405,9 @@ test("EU plan distinguishes controller erasure from browser-scoped preference co
   const euCatalog = {
     brokers: [
       {
-        id: "adsquare_eu",
-        official_url: "https://adsquare.com/privacy",
-        official_domains: ["adsquare.com"],
+        id: "fullenrich_eu",
+        official_url: "https://fullenrich.com/privacy-policy",
+        official_domains: ["fullenrich.com"],
         lane: "email",
         human_only: false,
         process_class: "eu_controller_email_erasure",
@@ -382,10 +419,10 @@ test("EU plan distinguishes controller erasure from browser-scoped preference co
           confirmation_policy: "submitted_until_controller_response",
         },
         eu_process: {
-          effect_scope: "controller_wide_for_identified_mobile_advertising_id",
+          effect_scope: "controller_wide_request_subject_to_identification",
           erasure_semantics: "controller_erasure_request_not_yet_confirmed",
           one_click_level: "not_one_click_controller_email",
-          official_action_url: "https://adsquare.com/privacy",
+          official_action_url: "https://fullenrich.com/privacy-policy",
         },
       },
       {
@@ -406,38 +443,38 @@ test("EU plan distinguishes controller erasure from browser-scoped preference co
     ],
   };
   const plan = await ledger.plan(PROFILE, euCatalog);
-  assert.equal(plan.actions[0].broker_id, "adsquare_eu");
+  assert.equal(plan.actions[0].broker_id, "fullenrich_eu");
   assert.equal(plan.actions[0].next_action, "submit_email_removal");
   assert.equal(plan.actions[0].erasure_semantics, "controller_erasure_request_not_yet_confirmed");
   assert.equal(plan.actions[1].next_action, "queue_human_task");
   assert.equal(plan.actions[1].erasure_semantics, "preference_only_not_controller_erasure");
   assert.equal(plan.summary.eu_processes, 2);
 
-  for (const unsafeUrl of ["https://adsquare.com/privacy?next=evil", "https://adsquare.com:444/privacy"]) {
+  for (const unsafeUrl of ["https://fullenrich.com/privacy-policy?next=evil", "https://fullenrich.com:444/privacy-policy"]) {
     const unsafeCatalog = structuredClone(euCatalog);
     unsafeCatalog.brokers[0].eu_process.official_action_url = unsafeUrl;
     const unsafePlan = await ledger.plan(PROFILE, unsafeCatalog);
-    const unsafeAdsquare = unsafePlan.actions.find((row) => row.broker_id === "adsquare_eu");
-    assert.equal(Object.hasOwn(unsafeAdsquare, "official_action_url"), false);
-    assert.equal(Object.hasOwn(unsafeAdsquare, "erasure_semantics"), false);
+    const unsafeFullenrich = unsafePlan.actions.find((row) => row.broker_id === "fullenrich_eu");
+    assert.equal(Object.hasOwn(unsafeFullenrich, "official_action_url"), false);
+    assert.equal(Object.hasOwn(unsafeFullenrich, "erasure_semantics"), false);
   }
 
-  await ledger.reserveSubmission(PROFILE, "adsquare_eu", { channel: "smtp_email", discoveryRequirement: "not_required_for_data_subject_request" });
+  await ledger.reserveSubmission(PROFILE, "fullenrich_eu", { channel: "smtp_email", discoveryRequirement: "not_required_for_data_subject_request" });
   await ledger.recordRemoval({
     state: "submitted",
     subject_ref: PROFILE,
-    broker_id: "adsquare_eu",
+    broker_id: "fullenrich_eu",
     discovery_requirement: "not_required_for_data_subject_request",
     generated_at: "2026-07-12T10:00:00Z",
     delivery: { accepted_by_outbound_smtp: true },
     proof_references: ["smtp_0123456789abcdef01234567"],
-    disclosures: { to_broker: ["contact_email", "mobile_advertising_id", "country"] },
+    disclosures: { to_broker: ["contact_email", "country"] },
   }, 30);
   const after = await ledger.plan(PROFILE, euCatalog);
-  const adsquareAfter = after.actions.find((row) => row.broker_id === "adsquare_eu");
-  assert.equal(adsquareAfter.state, "submitted");
-  assert.equal(adsquareAfter.next_action, "wait_for_controller_response");
-  assert.equal(adsquareAfter.next_recheck_at, "2026-08-11T10:00:00.000Z");
+  const fullenrichAfter = after.actions.find((row) => row.broker_id === "fullenrich_eu");
+  assert.equal(fullenrichAfter.state, "submitted");
+  assert.equal(fullenrichAfter.next_action, "wait_for_controller_response");
+  assert.equal(fullenrichAfter.next_recheck_at, "2026-08-11T10:00:00.000Z");
 });
 
 test("due returns only elapsed rechecks", async () => {

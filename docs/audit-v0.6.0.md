@@ -4,44 +4,49 @@ Audit date: 2026-07-12. Target branch: `feat/v0.6.0-ten-of-ten-audit`.
 
 ## Verdict
 
-**GO as a narrowly and honestly declared v0.6.0 software release candidate.**
-No open local P0, P1, or P2 finding was identified in the reviewed snapshot.
+**PASS for the local software closeout; NO-GO for publication until remote
+release evidence completes.**
 
-This verdict does not approve either the all-10 claim or executable-broker-
-breadth parity. Publication also remains gated on remote PR/main/tag CI,
-downloaded release-asset verification, and signed attestation.
+An independent read-only reviewer reproduced the final schema-v6 snapshot,
+official-source semantics, and material local gates. Publication remains gated
+on remote PR/main/tag CI, beta packaged runtime inspection, release assets,
+checksums, and signed attestation.
 
 ## Severity summary
 
-- P0: none;
-- P1: none;
-- P2: none within the declared software scope;
-- P3: no new local code gap;
-- `needs_evidence`: remote macOS/Node 24/OpenClaw beta CI, merged main, annotated
-  tag, release assets, signed attestation, and current external catalog truth.
+- P0: 0;
+- P1: 0;
+- P2: 0;
+- P3: 0;
+- `needs_evidence`: beta packaged runtime inspection, remote CI, merged main,
+  annotated tag, release assets, checksums, and signed attestation.
 
 ## Independently reproduced local evidence
 
 - TypeScript typecheck;
-- 96/96 Node tests;
-- 38/38 targeted non-installer Python tests;
-- schema-v5 catalog validator and provenance digest;
-- release checker across 111 files;
+- 125/125 Node tests;
+- 45/45 Python tests including installer mutation/rollback cases;
+- schema-v6 catalog validator with 56 entries and policy-matched channel
+  evidence for executable controller emails;
+- provenance digest with 61 primary-source fact records, catalog hash
+  `4a3b373c7420cb4060d3ed91cc22cbf1f16c1fd010aa98f6063c01a210a49185`,
+  and normalized source-fact hash
+  `2d51eface0d87ab268f9484929c0bc995361325228d4fdd891a6867e34de9f42`;
+- release checker across 114 files;
 - production dependency audit with zero vulnerabilities;
 - clean `git diff --check`.
 
-The independent reviewer was restricted to read-only checks. The root-agent
-closeout additionally completed the full 44/44 Python suite, including the
-mutable installer tests for fresh/forced install, rollback, concurrency,
-forged paths, symlinks, and isolated runtime validation.
+The independent review found no open local P0/P1/P2/P3. It verified the final
+Lead411 EU and Amplemarket US channels against their official policies. It did
+not execute the cached OpenClaw beta package, mutate GitHub state, or perform
+any live scan, email, form submission, broker write, or real-PII action.
 
 ## Product boundary
 
-The candidate has 21 Brave-index discovery lanes, 34 catalog targets, nine
-reviewed EU processes, and four automated provider-write lanes. Human-only
-CAPTCHA, identity, portal/device context, and legal-judgment steps remain
-explicit handoffs. The four automated lanes are sufficient for the declared
-narrow release scope but fail the scorecard's at-least-20 executable-lane gate.
+The candidate has 21 Brave-index discovery lanes, 56 catalog targets, 23
+reviewed EU processes, and 28 executable provider-write targets: 27 email and
+one browser-form initiation. Human-only CAPTCHA, identity documents, DROP,
+portal/device context, and legal-judgment steps remain explicit handoffs.
 
 The full 18-area rating and its evidence boundary are recorded in
 `docs/audit-v0.6.0-scorecard.md`.

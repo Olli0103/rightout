@@ -61,7 +61,7 @@ Official sources:
 
 - [EDPB data-subject-rights guide](https://www.edpb.europa.eu/sme/be-compliant/respect-individuals-rights_en);
 - [EDPB lawful-processing and consent guide](https://www.edpb.europa.eu/sme/be-compliant/process-personal-data-lawfully_en);
-- [Adsquare Privacy Center](https://adsquare.com/privacy) and [Platform Privacy Policy](https://adsquare.com/privacy/platform-privacy-policy);
+- the 18 controller-policy URLs recorded per executable entry in the schema-v6 catalog, including FullEnrich, Dealfront, Snov.io, Kaspr, Lead411, Surfe, 6sense, Cognism, and Lusha;
 - [emetriq privacy notice](https://www.emetriq.com/datenschutz/) and [browser opt-out](https://www.emetriq.com/opt-out/);
 - [EDAA YourOnlineChoices description](https://edaa.eu/);
 - [Criteo rights page](https://www.criteo.com/privacy/your-rights/);
@@ -72,7 +72,7 @@ Official sources:
 
 The EDPB says controllers should facilitate electronic requests, respond within one month, may extend by two months for complexity after notifying the subject within the first month, and may request additional identity information only where reasonable doubts exist. Erasure is conditional and has exceptions; direct-marketing objection does not require reasons. Consent withdrawal must be as easy as giving consent.
 
-Decision: two catalog-locked `gdpr_erasure_objection` email lanes are enabled. Adsquare discloses only contact email, Mobile Advertising ID, and country to its official privacy address. emetriq initially discloses only contact email and country to its official data-subject-rights address. Both require a consistent EU/EEA country, private-profile consent and digest, exact broker/request attestations, SMTP identity, and a fresh native `allow-once`. No prior listing is required to exercise the right. SMTP acceptance is only `submitted`; controller replies and any requested identity follow-up are human work.
+Decision: 18 catalog-locked `gdpr_erasure_objection` email lanes are enabled. Each source record must explicitly support the controller right and email-submission channel. Lead411, 6sense, Cognism, and Lusha disclose full name, subject-controlled email, and country; the others disclose only email and country. Every lane requires a consistent EU/EEA country, private-profile consent and digest, exact broker/request attestations, SMTP identity, and a fresh native `allow-once`. No prior listing is required to exercise the right. SMTP acceptance is only `submitted`; controller replies and any requested identity follow-up are human work.
 
 EDAA YourOnlineChoices and emetriq's own browser opt-out are cataloged as preference controls, not controller erasure. Criteo, Zeotap, Quantcast, Lotame/Epsilon, and ID5 remain human-only controller portals because their official flows require controller forms, verification, scope judgment, or device/browser identifiers not covered by a closed, deterministic RightOut form recipe. Lotame explicitly distinguishes deletion of a behavior profile from retention of identifiers used to honor restrictions, so total-erasure wording is prohibited. The reviewed primary sources did not evidence a universal pan-EU data-broker erasure registry; that negative remains a bounded research conclusion, not a legal certification.
 
