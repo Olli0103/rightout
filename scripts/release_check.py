@@ -24,6 +24,42 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def checkout_steps_are_hardened(text: str) -> bool:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(\s*)-\s+(.+)$", line)
+        if not match:
+            continue
+        step_indent = len(match.group(1))
+        block: list[tuple[int, str]] = [(step_indent + 2, match.group(2).strip())]
+        for nested in lines[index + 1:]:
+            if not nested.strip():
+                continue
+            nested_indent = len(nested) - len(nested.lstrip())
+            if nested_indent <= step_indent:
+                break
+            block.append((nested_indent, nested.strip()))
+
+        direct_keys = [(offset, value) for offset, value in block if offset == step_indent + 2]
+        uses = next((value.removeprefix("uses:").strip().strip("'\"") for _, value in direct_keys if value.startswith("uses:")), None)
+        if not uses or not uses.startswith("actions/checkout@"):
+            continue
+
+        with_index = next((position for position, (offset, value) in enumerate(block) if offset == step_indent + 2 and value == "with:"), None)
+        if with_index is None:
+            return False
+        with_indent = block[with_index][0]
+        persisted = False
+        for offset, value in block[with_index + 1:]:
+            if offset <= with_indent:
+                break
+            if offset == with_indent + 2 and value == "persist-credentials: false":
+                persisted = True
+        if not persisted:
+            return False
+    return True
+
+
 def release_files() -> list[Path]:
     files = []
     for path in ROOT.rglob("*"):
@@ -547,24 +583,6 @@ def main() -> None:
         path = ROOT / value.removeprefix("./")
         return path.is_file() or (path.is_dir() and any((path / name).is_file() for name in ("action.yml", "action.yaml")))
 
-    def checkout_steps_are_hardened(text: str) -> bool:
-        lines = text.splitlines()
-        for index, line in enumerate(lines):
-            if not re.match(r"^\s*- uses:\s*actions/checkout@", line):
-                continue
-            step_indent = len(line) - len(line.lstrip())
-            hardened = False
-            for nested in lines[index + 1:]:
-                if not nested.strip():
-                    continue
-                nested_indent = len(nested) - len(nested.lstrip())
-                if nested_indent <= step_indent:
-                    break
-                if nested.strip() == "persist-credentials: false":
-                    hardened = True
-            if not hardened:
-                return False
-        return True
     if (
         not external_uses
         or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in external_uses)

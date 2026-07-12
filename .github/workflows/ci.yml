@@ -48,6 +48,7 @@ jobs:
           tests.skills.test_data_broker_removal_skill.FilesystemSecurityTests
           tests.skills.test_data_broker_removal_skill.ReportingAndStateTests
           tests.skills.test_data_broker_removal_skill.CatalogValidationTests
+          tests.test_release_check.WorkflowCheckoutHardeningTests
       - run: python3 scripts/release_check.py
 
   installer:
