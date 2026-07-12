@@ -2,6 +2,10 @@
 
 ## Live scan
 
+Call `rightout_catalog_health({})` before a live campaign. Any stale catalog
+entry blocks all live provider I/O until official source facts are reviewed,
+the catalog is regenerated, and the updated package passes release validation.
+
 Call `rightout_live_scan(profileId, brokerIds)` only for an explicit user request. Every selected catalog entry must have `scan.supported: true`, appear in scan attestations, and receive a native allow-once approval.
 
 Interpretation:
@@ -36,6 +40,21 @@ After personally reviewing an official EU or US controller response, use `righto
 For recurring work, call `rightout_due_rechecks(profileId)` from OpenClaw Cron and then `rightout_next_actions(profileId)`. Opaque listing handles are durable. A first complete known-listing-set absence stays `awaiting_processing`; only a second time-separated direct absence after the scheduled time can confirm that narrow scope.
 
 Never fall back to browser, shell, Python, arbitrary email, forms, CAPTCHA work, or extra disclosure.
+
+## State lifecycle
+
+Encrypted subject cases expire after `stateRetentionDays` without an update;
+the allowed range is 30-730 days and the default is 365. Verification handles,
+listing handles, and submission dedupe keep their shorter fixed TTLs. An
+explicit subject purge remains available for earlier erasure.
+
+For state-key rotation, configure a new active `stateEncryptionKey` plus up to
+three temporary `previousStateEncryptionKeys`, all as SecretRefs. Invoke
+`rightout_rotate_state_key({})` under its own allow-once approval. The operation
+can safely resume after interruption because each store remains readable by the
+temporary key ring and is always rewritten under the active key. After success,
+remove the previous refs, reload secrets, and run the full OpenClaw readiness
+gate. Never remove old keys before the rotation report succeeds.
 
 ## Offline operations
 

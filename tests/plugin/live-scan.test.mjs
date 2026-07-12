@@ -380,11 +380,13 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
     "rightout_submit_form_removal",
     "rightout_poll_verification",
     "rightout_open_verification",
+    "rightout_rotate_state_key",
     "rightout_purge_subject_state",
     "rightout_record_controller_outcome",
     "rightout_reconcile_submission",
     "rightout_next_actions",
     "rightout_case_status",
+    "rightout_catalog_health",
     "rightout_due_rechecks",
   ]);
   assert.deepEqual(manifest.activation, { onStartup: false });
@@ -394,11 +396,11 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
   assert.equal(manifest.toolMetadata.rightout_submit_removal.replaySafe, false);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.optional, true);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.replaySafe, false);
-  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission"]) {
+  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission", "rightout_rotate_state_key"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, false);
   }
-  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_due_rechecks"]) {
+  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_catalog_health", "rightout_due_rechecks"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, true);
   }
@@ -413,6 +415,7 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
     "imapTransport.password",
     "imapTransport.address",
     "stateEncryptionKey",
+    "previousStateEncryptionKeys.*",
   ]);
   assert.ok(manifest.toolMetadata.rightout_live_scan.configSignals[0].required.includes("operatorAttestations"));
   assert.deepEqual(manifest.toolMetadata.rightout_submit_removal.configSignals[0].required, [
@@ -473,7 +476,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       return value;
     },
   });
-  assert.equal(tools.length, 12);
+  assert.equal(tools.length, 14);
   assert.equal(tools[0].tool.name, "rightout_live_scan");
   assert.equal(tools[1].tool.name, "rightout_direct_rescan");
   assert.equal(tools[2].tool.name, "rightout_submit_removal");
@@ -481,14 +484,22 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
     "rightout_submit_form_removal",
     "rightout_poll_verification",
     "rightout_open_verification",
+    "rightout_rotate_state_key",
     "rightout_purge_subject_state",
     "rightout_record_controller_outcome",
     "rightout_reconcile_submission",
     "rightout_next_actions",
     "rightout_case_status",
+    "rightout_catalog_health",
     "rightout_due_rechecks",
   ]);
   assert.deepEqual(tools[0].options, { optional: true });
+  const healthTool = tools.find(({ tool }) => tool.name === "rightout_catalog_health").tool;
+  const health = await healthTool.execute("catalog-health", {});
+  assert.equal(health.details.network_requests, 0);
+  assert.equal(health.details.catalog_entries, 56);
+  assert.equal(health.details.summary.stale, 0);
+  assert.equal(health.details.live_provider_io_allowed, true);
   const decision = await hooks.get("before_tool_call")({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-approved" });
   assert.deepEqual(decision.requireApproval.allowedDecisions, ["allow-once", "deny"]);
   assert.equal(decision.requireApproval.timeoutMs, 120_000);
@@ -524,6 +535,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       "rightout_purge_subject_state",
       "rightout_record_controller_outcome",
       "rightout_reconcile_submission",
+      "rightout_rotate_state_key",
     ] } } },
     sourceConfig: {
       plugins: { entries: { rightout: { config: {
@@ -580,6 +592,19 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
     /rightout_scan_profile_snapshot_changed/,
   );
   configuredPluginConfig.profiles[toolInput.profileId].payload = profilePayload;
+
+  const freshnessBound = await hooks.get("before_tool_call")({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-freshness-drift" });
+  freshnessBound.requireApproval.onResolution("allow-once");
+  const realDateNow = Date.now;
+  Date.now = () => Date.parse("2027-12-31T00:00:00.000Z");
+  try {
+    await assert.rejects(
+      tools[0].tool.execute("call-freshness-drift", toolInput),
+      /rightout_catalog_lane_stale/,
+    );
+  } finally {
+    Date.now = realDateNow;
+  }
 
   let unattestedHook;
   plugin.register({

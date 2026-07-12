@@ -73,6 +73,65 @@ test("TTL expiry, unsafe permissions, symlinks, and wrong keys fail closed", asy
   }
 });
 
+test("an untouched legacy entry receives and persists finite retention on first read", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-legacy-ttl-"));
+  let at = 1_000;
+  try {
+    const base = { stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => secret, now: () => at };
+    const legacy = createEncryptedFileKeyedStore(base);
+    await legacy.register("legacy-key", { value: "retained-until-deadline" });
+    const encryptedFile = join(stateDir, "rightout-plugin-state-v1", "rightout-test-state.json.enc");
+    const before = await readFile(encryptedFile);
+
+    at = 1_050;
+    const upgraded = createEncryptedFileKeyedStore({ ...base, defaultTtlMs: 100 });
+    assert.deepEqual(await upgraded.lookup("legacy-key"), { value: "retained-until-deadline" });
+    const migrated = await readFile(encryptedFile);
+    assert.notDeepEqual(migrated, before, "first read must persist the legacy TTL migration");
+    assert.deepEqual(await upgraded.entries(), [{
+      key: "legacy-key",
+      value: { value: "retained-until-deadline" },
+      createdAt: 1_000,
+      expiresAt: 1_100,
+    }]);
+
+    at = 1_101;
+    assert.equal(await upgraded.lookup("legacy-key"), undefined);
+    assert.deepEqual(await upgraded.entries(), []);
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
+test("a previous SecretRef key can decrypt once and reencrypt under the active key", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-rotation-"));
+  const previousSecret = "dummy-previous-state-key-with-more-than-32-characters";
+  const activeSecret = "dummy-active-state-key-with-more-than-32-characters";
+  try {
+    const original = createEncryptedFileKeyedStore({
+      stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => previousSecret,
+    });
+    await original.register("opaque-key", { value: "retained" });
+
+    const rotating = createEncryptedFileKeyedStore({
+      stateDir,
+      namespace: "rightout-test-state",
+      maxEntries: 5,
+      getSecret: () => activeSecret,
+      getPreviousSecrets: () => [previousSecret],
+    });
+    assert.deepEqual(await rotating.lookup("opaque-key"), { value: "retained" });
+    assert.equal(await rotating.reencrypt(), 1);
+
+    const activeOnly = createEncryptedFileKeyedStore({
+      stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => activeSecret,
+    });
+    assert.deepEqual(await activeOnly.lookup("opaque-key"), { value: "retained" });
+    const previousOnly = createEncryptedFileKeyedStore({
+      stateDir, namespace: "rightout-test-state", maxEntries: 5, getSecret: () => previousSecret,
+    });
+    await assert.rejects(previousOnly.lookup("opaque-key"), /decryption_failed/);
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
 test("an old live-process lock is never stolen by another store instance", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "rightout-file-store-live-lock-"));
   try {

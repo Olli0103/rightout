@@ -266,7 +266,8 @@ required = {
     "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
     "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
-    "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
+    "rightout_rotate_state_key", "rightout_next_actions", "rightout_case_status",
+    "rightout_catalog_health", "rightout_due_rechecks",
 }
 if plugin.get("status") != "loaded" or required - tools or "before_tool_call" not in typed_hooks:
     raise SystemExit("staged RightOut archive failed runtime contract validation")
@@ -296,7 +297,8 @@ required = {
     "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
     "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
-    "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
+    "rightout_rotate_state_key", "rightout_next_actions", "rightout_case_status",
+    "rightout_catalog_health", "rightout_due_rechecks",
 }
 if required - tools or "before_tool_call" not in typed_hooks:
     raise SystemExit("RightOut tools or native approval hook are missing")
@@ -308,7 +310,7 @@ cat <<EOF
 RightOut plugin installed and runtime-validated.
 
 Version: $(tr -d '\n' < "$REPO_ROOT/VERSION")
-Tools: scan, direct rescan, email/form removal, inbox/link verification, controller outcomes, ambiguous-write reconciliation, local purge, and durable campaign planning/status/due checks
+Tools: scan, direct rescan, email/form removal, inbox/link verification, controller outcomes, ambiguous-write reconciliation, purge/key rotation, catalog health, and durable campaign planning/status/due checks
 Approval: separate native OpenClaw allow-once/deny per live read, provider write, or critical local state change; fail closed
 PII input: operator-configured SecretRef profile only
 Live readiness: install complete; provider/profile SecretRefs and exact attestations still required

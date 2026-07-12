@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Separately approval-gated live data-broker scans and broker removal requests",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "skills": [
     "./skills"
   ],
@@ -17,11 +17,13 @@
       "rightout_submit_form_removal",
       "rightout_poll_verification",
       "rightout_open_verification",
+      "rightout_rotate_state_key",
       "rightout_purge_subject_state",
       "rightout_record_controller_outcome",
       "rightout_reconcile_submission",
       "rightout_next_actions",
       "rightout_case_status",
+      "rightout_catalog_health",
       "rightout_due_rechecks"
     ]
   },
@@ -140,6 +142,16 @@
         }
       ]
     },
+    "rightout_rotate_state_key": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey", "previousStateEncryptionKeys"]
+        }
+      ]
+    },
     "rightout_next_actions": {
       "optional": true,
       "replaySafe": true,
@@ -159,6 +171,10 @@
           "required": ["profiles", "stateEncryptionKey"]
         }
       ]
+    },
+    "rightout_catalog_health": {
+      "optional": true,
+      "replaySafe": true
     },
     "rightout_due_rechecks": {
       "optional": true,
@@ -209,6 +225,10 @@
         },
         {
           "path": "stateEncryptionKey",
+          "expected": "string"
+        },
+        {
+          "path": "previousStateEncryptionKeys.*",
           "expected": "string"
         }
       ]
@@ -288,6 +308,17 @@
       "help": "At least 32 random characters. Encrypts all durable plugin state at rest; configure only as an OpenClaw SecretRef.",
       "sensitive": true
     },
+    "previousStateEncryptionKeys.*": {
+      "label": "Previous RightOut state key",
+      "help": "Temporary SecretRef used only during an approved state-key rotation. Remove after rotation succeeds.",
+      "sensitive": true,
+      "advanced": true
+    },
+    "stateRetentionDays": {
+      "label": "Encrypted case retention",
+      "help": "Days since the last case update before encrypted subject cases expire automatically (30-730; default 365).",
+      "advanced": true
+    },
     "directScanAttestations": {
       "label": "Direct-rescan attestations",
       "help": "Separate exact scope for subject consent, publisher access, publisher terms review, and direct-rescan policy.",
@@ -309,6 +340,23 @@
         "type": ["string", "object"],
         "minLength": 32,
         "maxLength": 4096
+      },
+      "previousStateEncryptionKeys": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 3,
+        "uniqueItems": true,
+        "items": {
+          "type": ["string", "object"],
+          "minLength": 32,
+          "maxLength": 4096
+        }
+      },
+      "stateRetentionDays": {
+        "type": "integer",
+        "minimum": 30,
+        "maximum": 730,
+        "default": 365
       },
       "profiles": {
         "type": "object",

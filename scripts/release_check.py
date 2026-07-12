@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import tarfile
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +78,24 @@ def main() -> None:
         fail(errors, "versioned release notes are missing")
     if not (ROOT / f"docs/parity-matrix-v{version}.md").is_file():
         fail(errors, "versioned Unbroker parity matrix is missing")
+    audit_path = ROOT / f"docs/audit-v{version}.md"
+    checklist_path = ROOT / f"docs/release-checklist-v{version}.md"
+    parity_path = ROOT / f"docs/parity-matrix-v{version}.md"
+    if not audit_path.is_file():
+        fail(errors, "versioned independent closing audit is missing")
+    if not checklist_path.is_file():
+        fail(errors, "versioned release checklist is missing")
+    elif "- [ ]" in checklist_path.read_text(encoding="utf-8"):
+        fail(errors, "versioned release checklist has open items")
+    if parity_path.is_file() and re.search(
+        r"implementation in progress|pending final audit|\|\s*(?:missing|pending)\s*\|",
+        parity_path.read_text(encoding="utf-8"),
+        re.I,
+    ):
+        fail(errors, "versioned parity matrix contains a pending verdict")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    if f"## {version} - Unreleased" in changelog or not re.search(rf"^## {re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.M):
+        fail(errors, "changelog version is not release-dated")
 
     brokers = catalog.get("brokers", [])
     parity_counts = {
@@ -113,7 +133,7 @@ def main() -> None:
         "cases.test.mjs", "direct-rescan.test.mjs", "file-keyed-store.test.mjs", "form-runtime.test.mjs",
         "listing-tokens.test.mjs", "verification-runtime.test.mjs", "adversarial-input-property.test.mjs",
         "controller-outcome-runtime.test.mjs", "submission-reconciliation-runtime.test.mjs", "dedupe-recovery-runtime.test.mjs",
-        "removal-lane-matrix.test.mjs",
+        "removal-lane-matrix.test.mjs", "catalog-health.test.mjs", "retention-runtime.test.mjs", "state-rotation-runtime.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -129,6 +149,10 @@ def main() -> None:
 
     if package.get("openclaw", {}).get("extensions") != ["./dist/index.js"]:
         fail(errors, "package must load compiled dist/index.js")
+    coverage_script = package.get("scripts", {}).get("test:coverage", "")
+    for invariant in ["--test-coverage-lines=85", "--test-coverage-branches=70", "--test-coverage-functions=85"]:
+        if invariant not in coverage_script:
+            fail(errors, f"coverage gate missing: {invariant}")
     if manifest.get("activation") != {"onStartup": False}:
         fail(errors, "manifest must explicitly declare lazy onStartup activation")
     sbom_versions = {
@@ -174,7 +198,7 @@ def main() -> None:
             fail(errors, f"production dependency SBOM mismatch: {dependency}")
     for path in [
         ROOT / "dist/index.js", ROOT / "dist/lib/live-scan.mjs", ROOT / "dist/lib/direct-rescan.mjs",
-        ROOT / "dist/lib/file-keyed-store.mjs",
+        ROOT / "dist/lib/file-keyed-store.mjs", ROOT / "dist/lib/catalog-health.mjs",
         ROOT / "dist/lib/listing-tokens.mjs", ROOT / "dist/lib/removal.mjs", ROOT / "dist/lib/form-removal.mjs",
         ROOT / "dist/lib/browser-form.mjs", ROOT / "dist/lib/imap.mjs", ROOT / "dist/lib/verification.mjs",
         ROOT / "dist/lib/cases.mjs", ROOT / "dist/lib/smtp.mjs",
@@ -283,6 +307,7 @@ def main() -> None:
             else:
                 for relative in [
                     Path("index.js"), Path("lib/live-scan.mjs"), Path("lib/direct-rescan.mjs"), Path("lib/file-keyed-store.mjs"),
+                    Path("lib/catalog-health.mjs"),
                     Path("lib/listing-tokens.mjs"), Path("lib/removal.mjs"), Path("lib/form-removal.mjs"),
                     Path("lib/browser-form.mjs"), Path("lib/imap.mjs"), Path("lib/verification.mjs"),
                     Path("lib/cases.mjs"), Path("lib/smtp.mjs"),
@@ -297,11 +322,14 @@ def main() -> None:
     purge_tool = manifest.get("toolMetadata", {}).get("rightout_purge_subject_state", {})
     controller_outcome_tool = manifest.get("toolMetadata", {}).get("rightout_record_controller_outcome", {})
     reconciliation_tool = manifest.get("toolMetadata", {}).get("rightout_reconcile_submission", {})
+    rotation_tool = manifest.get("toolMetadata", {}).get("rightout_rotate_state_key", {})
+    health_tool = manifest.get("toolMetadata", {}).get("rightout_catalog_health", {})
     expected_tools = [
         "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
         "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
-        "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
-        "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
+        "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome",
+        "rightout_reconcile_submission", "rightout_next_actions", "rightout_case_status",
+        "rightout_catalog_health", "rightout_due_rechecks",
     ]
     if manifest.get("contracts", {}).get("tools") != expected_tools:
         fail(errors, "manifest tool contract mismatch")
@@ -315,15 +343,28 @@ def main() -> None:
         fail(errors, "controller outcome tool must be optional and non-replay-safe")
     if reconciliation_tool.get("optional") is not True or reconciliation_tool.get("replaySafe") is not False:
         fail(errors, "submission reconciliation tool must be optional and non-replay-safe")
+    if rotation_tool.get("optional") is not True or rotation_tool.get("replaySafe") is not False:
+        fail(errors, "state-key rotation tool must be optional and non-replay-safe")
+    if health_tool.get("optional") is not True or health_tool.get("replaySafe") is not True:
+        fail(errors, "catalog-health tool must be optional and replay-safe")
     if set((purge_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey"}:
         fail(errors, "subject purge config signals are incomplete")
+    if set((rotation_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey", "previousStateEncryptionKeys"}:
+        fail(errors, "state-key rotation config signals are incomplete")
     secret_paths = {item.get("path") for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])}
     if secret_paths != {
         "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
         "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
-        "imapTransport.address", "stateEncryptionKey",
+        "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*",
     }:
         fail(errors, "SecretInput contract mismatch")
+    config_properties = manifest.get("configSchema", {}).get("properties", {})
+    retention_schema = config_properties.get("stateRetentionDays", {})
+    previous_keys_schema = config_properties.get("previousStateEncryptionKeys", {})
+    if retention_schema != {"type": "integer", "minimum": 30, "maximum": 730, "default": 365}:
+        fail(errors, "state retention schema mismatch")
+    if previous_keys_schema.get("minItems") != 1 or previous_keys_schema.get("maxItems") != 3 or previous_keys_schema.get("uniqueItems") is not True:
+        fail(errors, "previous state-key schema mismatch")
     required_config = set(tool.get("configSignals", [{}])[0].get("required", []))
     if {"operatorAttestations", "stateEncryptionKey"} - required_config:
         fail(errors, "operator attestation config signal is missing")
@@ -570,9 +611,16 @@ def main() -> None:
     ]:
         if invariant not in workflow:
             fail(errors, f"tag release is not gated by the full CI matrix: {invariant}")
-    for invariant in ["workflow_call:", 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main', "actions/attest@"]:
+    for invariant in [
+        "workflow_call:", 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main', "actions/attest@",
+        "RELEASE-EVIDENCE.json", "rightout.release-evidence.v1", "npm run test:coverage",
+    ]:
         if invariant not in release_workflow:
             fail(errors, f"release workflow invariant missing: {invariant}")
+    if "npm run test:coverage" not in workflow:
+        fail(errors, "CI coverage threshold gate is missing")
+    if not (ROOT / ".github" / "dependabot.yml").is_file() or not (ROOT / ".github" / "workflows" / "codeql.yml").is_file():
+        fail(errors, "Dependabot or CodeQL configuration is missing")
 
     with tempfile.TemporaryDirectory(prefix="rightout-pack-content-check-") as tmp:
         proc = subprocess.run(
@@ -600,11 +648,15 @@ def main() -> None:
             packed = set(archive_files)
             for required in [
                 "dist/index.js", "dist/lib/live-scan.mjs", "dist/lib/direct-rescan.mjs", "dist/lib/file-keyed-store.mjs",
+                "dist/lib/catalog-health.mjs",
                 "dist/lib/listing-tokens.mjs", "dist/lib/removal.mjs", "dist/lib/form-removal.mjs",
                 "dist/lib/browser-form.mjs", "dist/lib/imap.mjs", "dist/lib/verification.mjs",
                 "dist/lib/cases.mjs", "dist/lib/smtp.mjs", "scripts/compute-removal-bindings.mjs",
                 "openclaw.plugin.json", "skills/data-broker-removal/SKILL.md", "LICENSE",
                 "THIRD_PARTY_NOTICES.md", "SBOM.spdx.json", "npm-shrinkwrap.json",
+                "CONTRIBUTING.md", "docs/README.md", "docs/authorized-canary.md",
+                "docs/broker-coverage.md", "docs/catalog-provenance.json",
+                "docs/deployment-compliance.md",
             ]:
                 if required not in packed:
                     fail(errors, f"release archive missing: {required}")
@@ -614,11 +666,32 @@ def main() -> None:
                     fail(errors, f"release archive content differs from current tree: {relative}")
             if any(
                 path.startswith(("tests/", "node_modules/"))
+                or re.fullmatch(r"docs/(?:audit|release-checklist|release-notes|parity-matrix).+", path) is not None
                 or "/__pycache__/" in f"/{path}"
                 or path.endswith((".pyc", ".pyo"))
                 for path in packed
             ):
                 fail(errors, "release archive contains tests, node_modules, or Python bytecode")
+            packaged_text = "\n".join(
+                data.decode("utf-8", errors="ignore")
+                for path, data in archive_files.items()
+                if path.endswith(".md")
+            )
+            for stale_claim in ["NO-GO for publication", "Current pre-publication score", "release evidence/audit pending"]:
+                if stale_claim in packaged_text:
+                    fail(errors, f"release archive contains stale verdict text: {stale_claim}")
+            for markdown_path, markdown_bytes in archive_files.items():
+                if not markdown_path.endswith(".md"):
+                    continue
+                markdown = markdown_bytes.decode("utf-8", errors="ignore")
+                for raw_target in re.findall(r"\[[^\]]*\]\(([^)]+)\)", markdown):
+                    target = raw_target.strip().split(" ", 1)[0].strip("<>")
+                    if not target or target.startswith(("#", "mailto:")) or re.match(r"^[a-z][a-z0-9+.-]*://", target, re.I):
+                        continue
+                    target = unquote(target.split("#", 1)[0].split("?", 1)[0])
+                    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(markdown_path), target))
+                    if resolved.startswith("../") or resolved not in packed:
+                        fail(errors, f"release archive has broken relative Markdown link: {markdown_path} -> {raw_target}")
 
     result = {"ok": not errors, "errors": errors, "version": version, "files_scanned": len(release_files()), "parity_counts": parity_counts}
     print(json.dumps(result, indent=2, sort_keys=True))

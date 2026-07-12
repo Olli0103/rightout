@@ -27,6 +27,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm audit --omit=dev --audit-level=high
       - run: make test
+      - run: npm run test:coverage
       - run: make installer-test
       - name: Build clean release archive
         id: pack
@@ -42,6 +43,36 @@ jobs:
           sha256sum "$archive" > RELEASE-SHA256SUMS
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build machine-readable release evidence
+        shell: bash
+        env:
+          ARCHIVE: ${{ steps.pack.outputs.archive }}
+          VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          set -euo pipefail
+          export ARCHIVE_SHA256="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
+          python3 - <<'PY'
+          import json
+          import os
+
+          evidence = {
+              "schema_version": "rightout.release-evidence.v1",
+              "version": os.environ["VERSION"],
+              "tag": os.environ["GITHUB_REF_NAME"],
+              "source_ref": os.environ["GITHUB_REF"],
+              "source_commit": os.environ["GITHUB_SHA"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+              "workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "archive": os.environ["ARCHIVE"],
+              "archive_sha256": os.environ["ARCHIVE_SHA256"],
+          }
+          with open("RELEASE-EVIDENCE.json", "w", encoding="utf-8") as handle:
+              json.dump(evidence, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
       - name: Attest release archive provenance
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
@@ -53,6 +84,7 @@ jobs:
           path: |
             ${{ steps.pack.outputs.archive }}
             RELEASE-SHA256SUMS
+            RELEASE-EVIDENCE.json
             SBOM.spdx.json
             docs/catalog-provenance.json
           if-no-files-found: error
@@ -65,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
-            "$ARCHIVE" RELEASE-SHA256SUMS SBOM.spdx.json docs/catalog-provenance.json \
+            "$ARCHIVE" RELEASE-SHA256SUMS RELEASE-EVIDENCE.json SBOM.spdx.json docs/catalog-provenance.json \
             --verify-tag \
             --title "RightOut v${VERSION}" \
             --notes-file "docs/release-notes-v${VERSION}.md"

@@ -21,6 +21,21 @@ SMTP/IMAP providers and brokers process data under their own policies. RightOut 
 
 The durable ledger stores opaque subject/broker IDs, state, timestamps, disclosure field names, sanitized reasons, due dates, and opaque proofs. It excludes profile values, queries, candidate URLs, messages, page bodies, credentials, Message-IDs, and raw receipts.
 
+Encrypted subject cases expire after the configured 30-730 day inactivity
+period (365 days by default). Short-lived verification, listing, and dedupe
+records keep narrower fixed TTLs. On first access, a legacy v1 case without an
+expiry is migrated under lock to `createdAt + stateRetentionDays`; an already
+expired legacy case is removed immediately. An explicitly approved subject
+purge deletes local state earlier. State-key rotation uses one active and
+temporary previous SecretRef keys; every store is rewritten under the active
+key without exposing key material or PII, and prior refs are removed after
+successful verification.
+
+Catalog `last_verified` plus `freshness_days` is an execute-time privacy and
+destination gate, not only a release-time lint. A stale official source disables
+live provider I/O and appears in the PII-free catalog-health report until the
+source fact is reviewed and released again.
+
 Evidence semantics are deliberately scoped: `indirect_exposure` is an index signal; `submission_uncertain` is a write that must not be retried; `submitted` is outbound SMTP acceptance; `verification_pending` is a form/mail step; `awaiting_processing` follows a broker link or first direct absence. People-search `confirmed_removed` requires prior removal plus two time-separated direct absences across the encrypted known listing set. EU and US controller emails never automatically enter it; a human-reviewed official response can confirm only `controller_response_only`. New/unindexed URLs, unidentified controller records, other identifiers, and California DROP coverage are always gaps.
 
 Consent and attestations are exact-scope, digest-bound, non-future technical gates. They are not proof of legal capacity, statutory applicability, or broker compliance. Operators remain responsible for SecretRef protection, subject authority, provider/publisher terms, least-privilege tool policy, Cron scope, and Gateway isolation.

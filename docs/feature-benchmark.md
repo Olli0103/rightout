@@ -12,7 +12,7 @@ Primary product references:
 
 Claims from commercial pages describe vendor offerings; RightOut does not independently verify their effectiveness or private-database coverage.
 
-| Capability | RightOut 0.6.0 | Hermes Unbroker | Managed services | Result |
+| Capability | RightOut 0.7.0 | Hermes Unbroker | Managed services | Result |
 |---|---|---|---|---|
 | Multiple subjects | Up to 20 opaque SecretRef profiles | consented dossiers | family/team tiers vary | minimum parity |
 | Discovery vectors | name/aliases, current/prior location/address, email, phone via Brave | dossier-driven search | broad scans claimed | minimum class parity; RightOut indirect |
@@ -29,6 +29,8 @@ Claims from commercial pages describe vendor offerings; RightOut does not indepe
 | Native per-action approval | every live read/write gets `allow-once` | standing authorization workflow | vendor consent | RightOut stricter |
 | Crash-safe submission intent | encrypted intent before SMTP/form; ambiguous outcome blocks retry until human reconciliation | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
 | Campaign resume | durable cases, due queue, opaque listing handles, deterministic resume mode, OpenClaw Cron handoff | queue and status loop | dashboards and managed operations | workflow parity, no hosted dashboard |
+| Catalog health | runtime freshness report plus approval/execute-time stale-lane kill switch | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
+| State lifecycle | finite inactive-case retention, subject purge, and restart-safe approved key rotation | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
 | EU/US controller outcomes | separately approved human-reviewed processing/partial/ID/rejection/controller-confirmed states | not evidenced in reviewed public skill | managed follow-up varies | RightOut explicit and scoped |
 | Dashboard/app | PII-safe reports and read tools only | CLI/agent workflow | usually yes | missing UI parity |
 | Custom removals/team service | human tasks only | human digest | offered by some vendors | not parity |

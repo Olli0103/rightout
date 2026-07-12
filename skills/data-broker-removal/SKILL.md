@@ -1,6 +1,6 @@
 ---
 name: data-broker-removal
-description: Discover people-search exposure, plan and submit supported US or EU removal requests, distinguish browser-scoped EU advertising preferences from controller erasure, verify broker mail, and recheck known listings through separately approved RightOut tools.
+description: "Operate consented RightOut data-broker campaigns: check catalog policy health, discover people-search exposure, plan and submit supported US or EU removal requests, distinguish browser-scoped preferences from controller erasure, verify broker mail, recheck known listings, resume due work, purge subjects, and rotate encrypted state keys through separately approved OpenClaw tools."
 ---
 
 # RightOut data-broker removal
@@ -18,21 +18,23 @@ Use only the installed RightOut plugin for live work. The deterministic Python r
 
 ## Workflow
 
-1. Call `rightout_next_actions(profileId)` to obtain the deterministic catalog/ledger campaign plan. Obey `campaign.resume_mode`: reconcile uncertain writes before any new external write.
-2. For discovery, call `rightout_live_scan(profileId, brokerIds)` with at most two supported brokers per call. Report `indirect_exposure` or `inconclusive` exactly.
-3. If discovery returns `listing_handle`, preserve only that opaque handle. Do not reconstruct or expose its encrypted URL.
-4. For a supported write lane, call exactly one of:
+1. Call `rightout_catalog_health({})`. If any entry is stale, perform no live provider I/O; refresh official source facts and release a validated catalog first.
+2. Call `rightout_next_actions(profileId)` to obtain the deterministic catalog/ledger campaign plan. Obey `campaign.resume_mode`: reconcile uncertain writes before any new external write.
+3. For discovery, call `rightout_live_scan(profileId, brokerIds)` with at most two supported brokers per call. Report `indirect_exposure` or `inconclusive` exactly.
+4. If discovery returns `listing_handle`, preserve only that opaque handle. Do not reconstruct or expose its encrypted URL.
+5. For a supported write lane, call exactly one of:
    - `rightout_submit_removal(profileId, brokerId, delete_and_opt_out)` for a catalog-locked US people-search or data-broker email lane;
    - `rightout_submit_removal(profileId, brokerId, gdpr_erasure_objection)` for a catalog-locked EU controller email lane;
    - `rightout_submit_form_removal(...)` for the catalog-locked sandbox-browser recipe.
-5. Report email as `submitted` and form initiation as `verification_pending`. Neither is removal proof.
+6. Report email as `submitted` and form initiation as `verification_pending`. Neither is removal proof.
    If a write becomes `submission_pending` or `submission_uncertain`, do not retry. After the operator personally checks provider-side evidence, call `rightout_reconcile_submission` under a separate approval. Only `provider_write_not_started` restores retry eligibility.
    For an EU or US controller email, wait for and human-review the controller response, then call `rightout_record_controller_outcome` under its own approval. Never convert SMTP acceptance or a browser/device advertising preference into erasure/deletion.
-6. Where supported, call `rightout_poll_verification` to look for a domain-bound broker message. If a handle is returned, call `rightout_open_verification` only after a new approval.
-7. When a known listing must be checked directly, call `rightout_direct_rescan` with its opaque listing handle. This separately approved read is limited to encrypted exact candidate URLs and requires operator publisher-terms review.
-8. Report people-search `confirmed_removed` only when the durable case ledger had a prior approved removal and two time-separated trusted direct rechecks found every known listing URL absent, with the second after the scheduled recheck time. Always state `known_listing_set_only` and `new_or_unindexed_listing_urls_not_checked`. For EU/US controller confirmation, state `controller_response_only` and `other_identifiers_or_controllers_not_checked`.
-9. Use `rightout_due_rechecks` for an official OpenClaw Cron turn. A third-party plugin cannot self-schedule a session turn. Use `rightout_case_status` for the current PII-safe ledger.
-10. Only when the operator explicitly requests local erasure, call `rightout_purge_subject_state(profileId)` under its own approval. State clearly that provider data and the configured OpenClaw profile SecretRef are not removed by this tool.
+7. Where supported, call `rightout_poll_verification` to look for a domain-bound broker message. If a handle is returned, call `rightout_open_verification` only after a new approval.
+8. When a known listing must be checked directly, call `rightout_direct_rescan` with its opaque listing handle. This separately approved read is limited to encrypted exact candidate URLs and requires operator publisher-terms review.
+9. Report people-search `confirmed_removed` only when the durable case ledger had a prior approved removal and two time-separated trusted direct rechecks found every known listing URL absent, with the second after the scheduled recheck time. Always state `known_listing_set_only` and `new_or_unindexed_listing_urls_not_checked`. For EU/US controller confirmation, state `controller_response_only` and `other_identifiers_or_controllers_not_checked`.
+10. Use `rightout_due_rechecks` for an official OpenClaw Cron turn. A third-party plugin cannot self-schedule a session turn. Use `rightout_case_status` for the current PII-safe ledger.
+11. Only when the operator explicitly requests local erasure, call `rightout_purge_subject_state(profileId)` under its own approval. State clearly that provider data and the configured OpenClaw profile SecretRef are not removed by this tool.
+12. Only when the operator explicitly requests key rotation and has configured the active plus temporary previous SecretRef keys, call `rightout_rotate_state_key({})`. After success, remove the previous-key refs, reload secrets, and run OpenClaw config/secrets/security/plugin checks. Never expose key values.
 
 For `queue_human_task`, use only the plan's validated `official_action_url` and prerequisites. Never substitute a third-party opt-out guide, copied recipe, guessed form field, browser workaround, or arbitrary email. The human completes CAPTCHA, identity, portal/device context, or legal judgment; RightOut keeps that limitation explicit.
 
@@ -51,6 +53,8 @@ Never omit these limits when relevant:
 - Commercial/private database coverage and legal outcomes are not guaranteed.
 - EU one-stop advertising preferences are browser/device scoped and are not a universal erasure registry.
 - California DROP is a separate human-only government-platform route; a controller email does not cover DROP or unidentified records.
+- Catalog-stale lanes are blocked at approval and execute time; refresh official facts rather than bypassing the gate.
+- Encrypted cases expire after the configured 30-730 day inactivity period (365 days by default); operator legal retention duties may require a shorter setting.
 
 ## Synthetic validation
 

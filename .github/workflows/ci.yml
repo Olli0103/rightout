@@ -40,6 +40,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run check
+      - run: npm run test:coverage
       - run: python3 skills/data-broker-removal/scripts/validate_data_broker_removal.py --skill-dir skills/data-broker-removal
       - name: Python tests excluding installer mutation suite
         run: >-

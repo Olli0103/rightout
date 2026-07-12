@@ -29,6 +29,7 @@ import { createBrowserFormSubmitter } from "./lib/browser-form.mjs";
 import { createImapPoller, newVerificationHandle } from "./lib/imap.mjs";
 import { createListingTokenVault } from "./lib/listing-tokens.mjs";
 import { createEncryptedFileKeyedStore } from "./lib/file-keyed-store.mjs";
+import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
 import {
   RIGHTOUT_DIRECT_SCAN_POLICY_VERSION,
   directScanApprovalDescription,
@@ -146,6 +147,8 @@ type RightOutConfig = {
   verificationAttestations?: VerificationAttestations;
   formAttestations?: FormAttestations;
   stateEncryptionKey?: string;
+  previousStateEncryptionKeys?: string[];
+  stateRetentionDays?: number;
   directScanAttestations?: DirectScanAttestations;
 };
 
@@ -189,6 +192,8 @@ const CaseParameters = Type.Object(
   },
   { additionalProperties: false },
 );
+
+const EmptyParameters = Type.Object({}, { additionalProperties: false });
 
 const ControllerOutcomeParameters = Type.Object(
   {
@@ -316,6 +321,10 @@ function validateCaseInput(value: unknown): PublicCaseInput {
 
 function purgeScopeBinding(input: PublicCaseInput): string {
   return JSON.stringify(["purge_subject_state", validateCaseInput(input).profileId]);
+}
+
+function rotationScopeBinding(): string {
+  return JSON.stringify(["rotate_state_key", "all_rightout_encrypted_state"]);
 }
 
 function assertSupportedBrokerScope(catalog: Record<string, unknown>, input: PublicScanInput): void {
@@ -450,16 +459,23 @@ export default definePluginEntry({
     const pollImapVerification = createImapPoller();
     const submitBrowserForm = createBrowserFormSubmitter();
     const stateDir = api.runtime.state.resolveStateDir(process.env);
+    const configuredRetentionDays = (api.pluginConfig as RightOutConfig | undefined)?.stateRetentionDays;
+    const stateRetentionDays = Number.isInteger(configuredRetentionDays) && configuredRetentionDays! >= 30 && configuredRetentionDays! <= 730
+      ? configuredRetentionDays!
+      : 365;
     const openRightOutStore = <T>(options: { namespace: string; maxEntries: number; defaultTtlMs?: number }) =>
       createEncryptedFileKeyedStore({
         stateDir,
         ...options,
         getSecret: () => (api.pluginConfig as RightOutConfig | undefined)?.stateEncryptionKey,
+        getPreviousSecrets: () => (api.pluginConfig as RightOutConfig | undefined)?.previousStateEncryptionKeys ?? [],
       }) as any;
-    const caseLedger = createCaseLedger(openRightOutStore({
+    const caseStore = openRightOutStore<Record<string, unknown>>({
       namespace: "rightout-cases-v1",
       maxEntries: 100,
-    }));
+      defaultTtlMs: stateRetentionDays * 24 * 60 * 60_000,
+    });
+    const caseLedger = createCaseLedger(caseStore);
     const verificationTokens = openRightOutStore<VerificationToken>({
       namespace: "rightout-verification-tokens-v1",
       maxEntries: 200,
@@ -533,6 +549,14 @@ export default definePluginEntry({
       return typeof config?.stateEncryptionKey === "string" && config.stateEncryptionKey.length >= 32;
     }
 
+    function stateRotationReady(config: RightOutConfig | undefined): config is RightOutConfig & { stateEncryptionKey: string; previousStateEncryptionKeys: string[] } {
+      return stateEncryptionReady(config)
+        && Array.isArray(config.previousStateEncryptionKeys)
+        && config.previousStateEncryptionKeys.length >= 1
+        && config.previousStateEncryptionKeys.length <= 3
+        && config.previousStateEncryptionKeys.every((key) => typeof key === "string" && key.length >= 32 && key.length <= 4_096 && key !== config.stateEncryptionKey);
+    }
+
     function verificationAttestationSnapshot(
       config: RightOutConfig | undefined,
       input: PublicVerificationPollInput,
@@ -581,6 +605,17 @@ export default definePluginEntry({
             title: "RightOut subject profile is stored as plaintext",
             detail: "A private subject profile is not an OpenClaw SecretRef.",
             remediation: "Migrate every profiles.*.payload value to a SecretRef, scrub plaintext residue, and run openclaw secrets audit --check.",
+          });
+        }
+      }
+      for (const [index, previousKey] of (rightout?.previousStateEncryptionKeys ?? []).entries()) {
+        if (!isSecretRef(previousKey)) {
+          findings.push({
+            checkId: `rightout.secretref.previous_state_key.${index}`,
+            severity: "critical" as const,
+            title: "RightOut previous state key is stored as plaintext",
+            detail: "A temporary previous key used for state rotation is not an OpenClaw SecretRef.",
+            remediation: "Migrate every previousStateEncryptionKeys item to a SecretRef, complete rotation, remove the old refs, and run openclaw secrets audit --check.",
           });
         }
       }
@@ -725,6 +760,7 @@ export default definePluginEntry({
         "rightout_purge_subject_state",
         "rightout_record_controller_outcome",
         "rightout_reconcile_submission",
+        "rightout_rotate_state_key",
       ].filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
       if (missingDeny.length) {
         findings.push({
@@ -749,6 +785,7 @@ export default definePluginEntry({
         "rightout_purge_subject_state",
         "rightout_record_controller_outcome",
         "rightout_reconcile_submission",
+        "rightout_rotate_state_key",
       ]);
       if (!approvalTools.has(event.toolName)) return;
       if (!event.toolCallId) return { block: true, blockReason: "RightOut requires a host-authoritative tool call ID" };
@@ -756,6 +793,32 @@ export default definePluginEntry({
       const catalog = await catalogPromise;
       pruneTransientState();
       approvalBindings.delete(event.toolCallId);
+      if (event.toolName === "rightout_rotate_state_key") {
+        try {
+          if (!event.params || typeof event.params !== "object" || Array.isArray(event.params) || Object.keys(event.params).length !== 0) {
+            throw new Error("invalid_state_rotation_scope");
+          }
+          const binding = rotationScopeBinding();
+          const toolCallId = event.toolCallId;
+          return {
+            params: {},
+            requireApproval: {
+              title: "Rotate RightOut state encryption key",
+              description: "Re-encrypt all local RightOut state with the active SecretRef key. No provider call or PII output. Keep previous keys configured until this operation succeeds.",
+              severity: "critical" as const,
+              allowedDecisions: ["allow-once", "deny"] as const,
+              timeoutMs: approvalTtlMs,
+              timeoutBehavior: "deny" as const,
+              onResolution(decision: string) {
+                if (decision === "allow-once") approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                else approvalBindings.delete(toolCallId);
+              },
+            },
+          };
+        } catch {
+          return { block: true, blockReason: "invalid or unconfigured RightOut state-key rotation" };
+        }
+      }
       if (event.toolName === "rightout_purge_subject_state") {
         try {
           const input = validateCaseInput(event.params);
@@ -837,6 +900,7 @@ export default definePluginEntry({
         try {
           const input = validatePublicToolInput(event.params) as PublicScanInput;
           assertSupportedBrokerScope(catalog, input);
+          assertFreshCatalogEntries(catalog, input.brokerIds);
           const attestations = scanAttestationSnapshot(config, input);
           const binding = scanScopeBinding(input, attestations);
           const toolCallId = event.toolCallId;
@@ -867,6 +931,7 @@ export default definePluginEntry({
         try {
           const input = validateRemovalPublicToolInput(event.params) as PublicRemovalInput;
           const broker = resolveRemovalCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           const attestations = removalAttestationSnapshot(config, input);
           const dedupeKey = removalDedupeKey(input);
           if (submittedScopes.has(dedupeKey)) return { block: true, blockReason: "duplicate RightOut removal request is cooling down" };
@@ -899,6 +964,7 @@ export default definePluginEntry({
         try {
           const input = validateFormRemovalInput(event.params) as PublicRemovalInput;
           const broker = resolveFormCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           const attestations = formAttestationSnapshot(config, input);
           const dedupeKey = removalDedupeKey(input);
           if (submittedScopes.has(dedupeKey)) return { block: true, blockReason: "duplicate RightOut form removal is cooling down" };
@@ -928,6 +994,7 @@ export default definePluginEntry({
         try {
           const input = validateVerificationPollInput(event.params) as PublicVerificationPollInput;
           const broker = resolveVerificationCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           const attestations = verificationAttestationSnapshot(config, input);
           const binding = verificationPollScopeBinding(input, attestations, broker);
           const toolCallId = event.toolCallId;
@@ -955,6 +1022,7 @@ export default definePluginEntry({
         try {
           const input = validateDirectScanInput(event.params) as PublicDirectScanInput;
           const broker = resolveDirectScanCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           const attestations = directScanAttestationSnapshot(config, input);
           const binding = directScanScopeBinding(input, attestations, broker);
           const toolCallId = event.toolCallId;
@@ -981,6 +1049,7 @@ export default definePluginEntry({
       try {
         const input = validateVerificationOpenInput(event.params) as PublicVerificationOpenInput;
         const broker = resolveVerificationCatalogEntry(catalog, input);
+        assertFreshCatalogEntries(catalog, [input.brokerId]);
         const attestations = verificationAttestationSnapshot(config, input);
         const binding = verificationOpenScopeBinding(input, attestations, broker);
         const toolCallId = event.toolCallId;
@@ -1020,6 +1089,7 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           assertSupportedBrokerScope(catalog, input);
+          assertFreshCatalogEntries(catalog, input.brokerIds);
           let attestations: ScanAttestationSnapshot | undefined;
           try {
             attestations = scanAttestationSnapshot(config, input);
@@ -1088,6 +1158,7 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           const broker = resolveDirectScanCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           let attestations: DirectScanAttestations | undefined;
           try { attestations = directScanAttestationSnapshot(config, input); } catch { /* fail below */ }
           pruneTransientState();
@@ -1160,6 +1231,7 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           const broker = resolveRemovalCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           let attestations: RemovalAttestationSnapshot | undefined;
           try {
             attestations = removalAttestationSnapshot(config, input);
@@ -1266,6 +1338,7 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           const broker = resolveFormCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           let attestations: FormAttestations | undefined;
           try { attestations = formAttestationSnapshot(config, input); } catch { /* fail below */ }
           pruneTransientState();
@@ -1387,6 +1460,7 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           const broker = resolveVerificationCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           let attestations: VerificationAttestations | undefined;
           try { attestations = verificationAttestationSnapshot(config, input); } catch { /* fail below */ }
           pruneTransientState();
@@ -1483,6 +1557,7 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           const broker = resolveVerificationCatalogEntry(catalog, input);
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
           let attestations: VerificationAttestations | undefined;
           try { attestations = verificationAttestationSnapshot(config, input); } catch { /* fail below */ }
           pruneTransientState();
@@ -1572,6 +1647,51 @@ export default definePluginEntry({
             removal_confirmed: false,
             tracking: { durable_case_recorded: durableCaseRecorded },
             invariants: { raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1 },
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_rotate_state_key",
+        label: "RightOut rotate state key",
+        description: "Re-encrypt all local RightOut state under the active SecretRef key while temporary previous SecretRef keys remain configured. Requires native allow-once approval and performs no provider call.",
+        parameters: EmptyParameters,
+        async execute(toolCallId, params) {
+          if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+            throw new Error("rightout_approval_binding_failed");
+          }
+          pruneTransientState();
+          const approval = approvalBindings.get(toolCallId);
+          approvalBindings.delete(toolCallId);
+          if (!approval || approval.toolName !== "rightout_rotate_state_key" || approval.binding !== rotationScopeBinding()) {
+            throw new Error("rightout_approval_binding_failed");
+          }
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          if (!stateRotationReady(config)) throw new Error("rightout_state_rotation_not_configured");
+          const [cases, verificationHandles, listingHandles, dedupeRecords] = await Promise.all([
+            caseStore.reencrypt(),
+            verificationTokens.reencrypt(),
+            listingTokens.reencrypt(),
+            submissionDedupe.reencrypt(),
+          ]);
+          const report = {
+            report_version: 1,
+            state: "local_state_key_rotated",
+            generated_at: new Date().toISOString(),
+            reencrypted_entries: {
+              cases,
+              verification_handles: verificationHandles,
+              listing_handles: listingHandles,
+              dedupe_records: dedupeRecords,
+            },
+            previous_key_count: config.previousStateEncryptionKeys.length,
+            provider_writes: 0,
+            raw_pii_in_report: false,
+            next_action: "remove_previousStateEncryptionKeys_from_config_reload_then_run_openclaw_security_audits",
           };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
@@ -1730,8 +1850,16 @@ export default definePluginEntry({
         async execute(_toolCallId, params) {
           const input = validateCaseInput(params);
           assertConfiguredProfile(input.profileId);
-          const report = await caseLedger.plan(input.profileId, await catalogPromise);
-          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+          const catalog = await catalogPromise;
+          const report = await caseLedger.plan(input.profileId, catalog);
+          const health = catalogPolicyHealth(catalog);
+          const enriched = {
+            ...report,
+            policy_health: health.summary,
+            live_provider_io_allowed: health.live_provider_io_allowed,
+            policy_next_action: health.next_action,
+          };
+          return { content: [{ type: "text", text: JSON.stringify(enriched) }], details: enriched };
         },
       },
       { optional: true },
@@ -1747,6 +1875,23 @@ export default definePluginEntry({
           const input = validateCaseInput(params);
           assertConfiguredProfile(input.profileId);
           const report = await caseLedger.status(input.profileId);
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_catalog_health",
+        label: "RightOut catalog health",
+        description: "Report fresh, expiring, and stale official-source catalog facts without network access or subject data. Stale entries block live provider I/O until refreshed.",
+        parameters: EmptyParameters,
+        async execute(_toolCallId, params) {
+          if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+            throw new Error("rightout_catalog_health_input_invalid");
+          }
+          const report = catalogPolicyHealth(await catalogPromise);
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
       },
