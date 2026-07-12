@@ -1,6 +1,6 @@
 # Native OpenClaw approval boundary
 
-RightOut has six provider-I/O tools plus three critical local-state tools: destructive purge, human-reviewed EU controller outcome, and ambiguous-write reconciliation. Each passes through `before_tool_call`, accepts only `allow-once` or `deny`, times out to deny after two minutes, and binds the decision to the host tool-call ID plus an exact normalized scope. Bindings are deleted on execution and cannot authorize another tool.
+RightOut has six provider-I/O tools plus three critical local-state tools: destructive purge, human-reviewed EU/US controller outcome, and ambiguous-write reconciliation. Each passes through `before_tool_call`, accepts only `allow-once` or `deny`, times out to deny after two minutes, and binds the decision to the host tool-call ID plus an exact normalized scope. Bindings are deleted on execution and cannot authorize another tool.
 
 | Tool | Approval covers | Explicitly does not cover |
 |---|---|---|

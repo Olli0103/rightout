@@ -543,19 +543,35 @@ def main() -> None:
     action_uses = [value for text in workflows.values() for value in re.findall(r"uses:\s*([^\s#]+)", text)]
     external_uses = [value for value in action_uses if not value.startswith("./")]
     local_uses = [value for value in action_uses if value.startswith("./")]
-    checkout_uses = [value for value in external_uses if value.startswith("actions/checkout@")]
-    persisted_credential_disables = sum(text.count("persist-credentials: false") for text in workflows.values())
-
     def valid_local_use(value: str) -> bool:
         path = ROOT / value.removeprefix("./")
         return path.is_file() or (path.is_dir() and any((path / name).is_file() for name in ("action.yml", "action.yaml")))
+
+    def checkout_steps_are_hardened(text: str) -> bool:
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if not re.match(r"^\s*- uses:\s*actions/checkout@", line):
+                continue
+            step_indent = len(line) - len(line.lstrip())
+            hardened = False
+            for nested in lines[index + 1:]:
+                if not nested.strip():
+                    continue
+                nested_indent = len(nested) - len(nested.lstrip())
+                if nested_indent <= step_indent:
+                    break
+                if nested.strip() == "persist-credentials: false":
+                    hardened = True
+            if not hardened:
+                return False
+        return True
     if (
         not external_uses
         or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in external_uses)
         or any(not valid_local_use(value) for value in local_uses)
     ):
         fail(errors, "CI actions must be pinned to full commit SHAs")
-    if persisted_credential_disables < len(checkout_uses):
+    if not all(checkout_steps_are_hardened(text) for text in workflows.values()):
         fail(errors, "every checkout action must disable persisted credentials")
     for invariant in [
         "needs: [test-matrix, installer, openclaw-compatibility]",

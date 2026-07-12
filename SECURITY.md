@@ -2,7 +2,7 @@
 
 RightOut `0.6.0` treats live broker work as a sequence of independent high-impact actions. Native OpenClaw approval is mandatory for Brave discovery, exact-URL publisher reads, IMAP reads, confirmation-link opens, SMTP sends, sandbox-browser form writes, destructive local purge, human-reviewed controller outcomes, and ambiguous-write reconciliation. Decisions are `allow-once` or `deny`, expire after two minutes, and are bound to the host tool-call ID, exact opaque scope, configuration attestations, and profile digest.
 
-EU controller lanes additionally bind the exact request kind, EU/EEA plus country consistency, official recipient, fixed GDPR template, and catalog-minimum disclosure. Adsquare requires the private profile's Mobile Advertising ID; emetriq initially discloses only contact email and country. Neither lane attaches identity documents, parses controller responses, or claims erasure from SMTP acceptance. A separately approved tool can record only an operator-personally-reviewed controller outcome. Browser/device preference controls remain human-only and are never treated as deletion proof.
+EU controller lanes additionally bind the exact request kind, EU/EEA plus country consistency, official recipient, fixed GDPR template, and catalog-minimum disclosure. The initial EU request uses contact email and country, plus full name only for Lead411, 6sense, Cognism, and Lusha. US-CA controller lanes bind `delete_and_opt_out`, California eligibility, the official recipient, and full name/contact email/region/country. No lane attaches identity documents, parses controller responses automatically, or claims erasure/deletion from SMTP acceptance. A separately approved tool can record only an operator-personally-reviewed controller outcome. Browser/device preference controls remain human-only and are never treated as deletion proof.
 
 ## Data boundaries
 
@@ -32,7 +32,7 @@ US people-search removal execution requires durable discovery evidence first. Ca
 - Direct presence: `found`, or `reappeared` after a prior confirmation.
 - First direct 404/410 across every known encrypted listing URL after a prior removal: `awaiting_processing`, never confirmation.
 - Second time-separated direct 404/410 across the same known set after the durable recheck time: `confirmed_removed`, scoped to `known_listing_set_only`.
-- Human-reviewed EU controller erasure confirmation: `confirmed_removed`, scoped to `controller_response_only`; other identifiers/controllers remain unchecked.
+- Human-reviewed EU/US controller erasure/deletion confirmation: `confirmed_removed`, scoped to `controller_response_only`; other identifiers/controllers remain unchecked.
 
 Operator attestations are deployment gates, not legal certification. RightOut does not provide legal advice, guarantee deletion, cover private databases, or verify that no other listing exists.
 

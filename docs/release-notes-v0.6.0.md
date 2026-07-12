@@ -1,6 +1,6 @@
 # RightOut v0.6.0
 
-RightOut 0.6.0 hardens the v0.5.0 live-scan/removal product loop for crash safety, restart-safe campaign operation, EU controller follow-up, current OpenClaw compatibility, and verifiable release provenance.
+RightOut 0.6.0 hardens the v0.5.0 live-scan/removal product loop for crash safety, restart-safe campaign operation, EU/US controller follow-up, current OpenClaw compatibility, and verifiable release provenance.
 
 ## Added
 

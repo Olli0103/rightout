@@ -98,4 +98,5 @@ A stable RightOut package can prove that its software boundaries are determinist
 8. search-index behavior may return `inconclusive` without being presented as proof of absence;
 9. direct absence is accepted only across the complete known encrypted URL set and is reported with its new/unindexed-listing coverage gap.
 10. EU/EEA controller requests use official destinations, a fixed Article 17/7(3)/21(2)/19 template, exact minimum fields, and human-reviewed controller outcomes;
-11. browser/device advertising preferences are never reported as universal or controller-wide erasure.
+11. US-CA controller requests use official destinations, a fixed deletion/opt-out template, exact minimum fields, and human-reviewed controller outcomes;
+12. browser/device advertising preferences are never reported as universal or controller-wide erasure.

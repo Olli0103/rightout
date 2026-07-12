@@ -29,7 +29,7 @@ Claims from commercial pages describe vendor offerings; RightOut does not indepe
 | Native per-action approval | every live read/write gets `allow-once` | standing authorization workflow | vendor consent | RightOut stricter |
 | Crash-safe submission intent | encrypted intent before SMTP/form; ambiguous outcome blocks retry until human reconciliation | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
 | Campaign resume | durable cases, due queue, opaque listing handles, deterministic resume mode, OpenClaw Cron handoff | queue and status loop | dashboards and managed operations | workflow parity, no hosted dashboard |
-| EU controller outcomes | separately approved human-reviewed processing/partial/ID/rejection/controller-confirmed states | not evidenced in reviewed public skill | managed follow-up varies | RightOut explicit and scoped |
+| EU/US controller outcomes | separately approved human-reviewed processing/partial/ID/rejection/controller-confirmed states | not evidenced in reviewed public skill | managed follow-up varies | RightOut explicit and scoped |
 | Dashboard/app | PII-safe reports and read tools only | CLI/agent workflow | usually yes | missing UI parity |
 | Custom removals/team service | human tasks only | human digest | offered by some vendors | not parity |
 | EU legal/process semantics | 18 fixed controller-email lanes, country consistency, 30-day reminder for the one-month response rule, controller-response review | no separate EU process taxonomy evidenced in reviewed skill | Incogni says it uses GDPR/CCPA requests and recurring follow-up | RightOut explicit and scoped |
