@@ -1,24 +1,24 @@
-# Synthetic case state machine
+# Removal state semantics
 
-The state machine validates report semantics only. It does not authorize or execute real actions.
+States: `new`, `searching`, `not_found`, `found`, `inconclusive`, `indirect_exposure`, `action_selected`, `approval_required`, `submitted`, `verification_pending`, `awaiting_processing`, `confirmed_removed`, `reappeared`, `human_task_queued`, and `blocked`.
 
-## States
+## Live semantics
 
-`new`, `searching`, `not_found`, `found`, `inconclusive`, `indirect_exposure`, `action_selected`, `approval_required`, `submitted`, `verification_pending`, `awaiting_processing`, `confirmed_removed`, `reappeared`, `human_task_queued`, and `blocked`.
+- Scan can return only `indirect_exposure` or `inconclusive`.
+- Removal can return only `submitted` after outbound SMTP acceptance.
+- Broker receipt, verification, and processing are not currently ingested.
+- `confirmed_removed` is unavailable live because index absence is not direct absence evidence.
+- A later `indirect_exposure` after submission can indicate possible continued/reappeared exposure but remains indirect.
 
-## Core semantics
+## Synthetic validation
 
-- `found` requires synthetic listing evidence.
-- `submitted` requires allowlisted field names, official-channel syntax, confirmation status, and an opaque proof reference.
-- `confirmed_removed` requires a later-scan marker.
-- `reappeared` can follow only a confirmed synthetic removal.
-- sensitive fields require a human-only case plus `human_only_explicit` evidence.
-- invalid jumps fail closed.
+The dummy runner exercises the complete matrix to validate reporting:
 
-## Community invariant
+- `found` requires synthetic listing evidence;
+- `submitted` requires official-channel syntax, allowlisted field names, confirmation status, and opaque proof;
+- `confirmed_removed` requires a later-scan marker;
+- `reappeared` follows only synthetic confirmed removal;
+- sensitive fields require a human-only explicit gate;
+- invalid transitions fail closed.
 
-Only cases with `fixture_only: true` may transition. Shipped catalog cases remain `new` and are reported as `not_checked`. The public CLI exposes no record or mutation command, so a scan-only run cannot enter any removal state.
-
-The live plugin returns a stateless scan report and does not use this persistence/state machine. A live `indirect_exposure` index signal therefore cannot advance to `submitted` or any other removal state.
-
-These states describe test coverage. They are not claims that a request was approved, sent, processed, or verified.
+Only `fixture_only: true` cases may transition in the Python runner. These states prove report logic, not real action.

@@ -23,5 +23,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm ci --ignore-scripts
+      - run: npm audit --omit=dev --audit-level=high
       - run: make test
       - run: make installer-test

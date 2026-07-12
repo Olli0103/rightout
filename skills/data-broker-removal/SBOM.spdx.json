@@ -2,10 +2,10 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
-  "name": "RightOut-data-broker-removal-0.2.0",
-  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/0.2.0",
+  "name": "RightOut-data-broker-removal-0.3.0",
+  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/0.3.0",
   "creationInfo": {
-    "created": "2026-07-11T00:00:00Z",
+    "created": "2026-07-12T00:00:00Z",
     "creators": [
       "Tool: RightOut release process"
     ]
@@ -14,7 +14,7 @@
     {
       "SPDXID": "SPDXRef-Package-RightOut",
       "name": "data-broker-removal",
-      "versionInfo": "0.2.0",
+      "versionInfo": "0.3.0",
       "downloadLocation": "https://github.com/Olli0103/rightout",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -24,7 +24,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:github/Olli0103/rightout@0.2.0"
+          "referenceLocator": "pkg:github/Olli0103/rightout@0.3.0"
         }
       ]
     }

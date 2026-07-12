@@ -1,43 +1,76 @@
-# OpenClaw approval boundary
+# Approval boundary
 
-Status: `implemented_for_read_only_live_scan_only`.
+Status: `implemented_separately_for_live_scan_and_live_removal`.
 
-## Implemented capability
+## OpenClaw contract
 
-RightOut integrates OpenClaw's native plugin permission request flow exactly at `before_tool_call`, after model selection and before execution:
+RightOut follows OpenClaw's documented split:
 
-- title: bounded live broker scan;
-- description: exact opaque profile ID and broker IDs, disclosed field categories, provider, verification scope, and no-write statement; no raw profile values;
-- severity: `critical`;
-- decisions: `allow-once`, `deny`;
-- timeout: 120 seconds;
-- timeout behavior: deny.
+- optional tool policy controls whether a tool is visible to the model;
+- `before_tool_call.requireApproval` pauses one selected call before execution;
+- only `allow-once` and `deny` are offered;
+- timeout behavior is explicitly `deny` for the pinned stable OpenClaw `2026.6.11` contract;
+- the plugin consumes the approval once and revalidates the exact scope immediately before action.
 
-OpenClaw blocks on denial, timeout, cancellation, missing operator attestations, hook failure, or missing approval route. Before offering approval, RightOut requires operator-owned subject authorization, Brave terms revision `2026-02-11`, Brave customer-responsibility acceptance, and exact broker search scope. The prompt displays the selected profile/brokers, terms revision, customer-duties attestation, disclosure, retention, and no-publisher/no-write action. On `allow-once`, RightOut stores a short-lived single-use binding to that call scope plus the complete normalized attestation snapshot; it does not display unrelated authorized profile/broker entries. Execution consumes the binding and rechecks attestations before accessing already materialized config values or making the one Brave request; replay, expiry, direct invocation, or parameter mutation fails closed.
+Primary references: [Plugin hooks](https://docs.openclaw.ai/plugins/hooks), [Plugin permission requests](https://docs.openclaw.ai/plugins/plugin-permission-requests), [Tool plugins](https://docs.openclaw.ai/plugins/tool-plugins), and [Plugin manifest](https://docs.openclaw.ai/plugins/manifest).
 
-Official references: [plugin permission requests](https://docs.openclaw.ai/plugins/plugin-permission-requests), [building plugins](https://docs.openclaw.ai/plugins/building-plugins), [tool plugins](https://docs.openclaw.ai/plugins/tool-plugins), and [plugin manifest](https://docs.openclaw.ai/plugins/manifest).
+## Two non-interchangeable capabilities
 
-## Bound data and action
+```text
+rightout_live_scan
+  input: profileId + brokerIds
+  destination: api.search.brave.com
+  effect: read-only index search
+  write authority: none
 
-The approved call contains only an opaque profile ID and one or two broker IDs, all displayed exactly in the approval. The plugin fixes the action class to read-only index discovery and fixes the only network destination to Brave Search. Publisher-domain requests and submission/email/provider-write implementations are absent. An agent cannot widen the approved call into direct broker access or a removal action.
+rightout_submit_removal
+  input: profileId + brokerId + fixed requestKind
+  destination: catalog recipient via pinned operator SMTP
+  effect: one external email write
+  scan authority: none required or inherited
+```
 
-OpenClaw materializes SecretRef-backed plugin config before registration, so raw PII may reside in Gateway/plugin-process memory from config load until reload or restart. RightOut accesses it only after a valid approval binding. It is not in model-visible tool parameters or approval text. RightOut registers critical security-audit findings when the source config uses plaintext instead of SecretRefs.
+Each hook result binds the host-authoritative tool-call ID to:
 
-## Direct invoke and operator trust
+- tool name/action class;
+- normalized opaque input;
+- current revision-bound attestation snapshot, including normalized profile and SMTP SHA-256 bindings;
+- for removal, the resolved broker name, recipient, fields, jurisdiction policy, and catalog revision facts.
 
-OpenClaw's `/tools/invoke` is a full-operator surface. It runs plugin hooks, but direct invocation is unnecessary for normal RightOut use. Production guidance adds `rightout_live_scan` to `gateway.tools.deny`; the plugin security audit warns when this hardening is absent. See OpenClaw's [Tools invoke API](https://docs.openclaw.ai/gateway/tools-invoke-http-api).
+Execution deletes the binding before network work. Missing, expired, replayed, cross-tool, mutated, or config-revoked bindings fail with `rightout_approval_binding_failed`.
 
-## Explicitly unauthorized capabilities
+## Scan approval
 
-No approval exists for removal request rendering, form submission, email, CAPTCHA, verification links, identity-document upload, recurring monitoring, scheduling, or provider writes. Those capabilities are absent, not hidden behind an approval flag.
+The prompt displays profile ID, broker IDs, Brave terms revision, disclosure categories, retention summary, and the no-publisher/no-write posture. Recorded `scan` consent and operator review are mandatory; the normalized disclosed profile snapshot is bound into the approval and rechecked before network access. It authorizes only a POST to Brave Search. A publisher fetch, email, form, or later tool call is outside scope.
 
-Adding any such capability requires a separate tool, independent destination/field policy, a new per-call native approval, replay/scope tests, retention design, provider terms review, and independent security review. A scan approval can never authorize a removal action.
+## Removal approval
 
-## Residual limits
+Before an approval prompt is offered, RightOut verifies only PII-free policy inputs:
 
-- SecretRefs are not process, OS, or call-lifetime isolation; the Gateway/plugin process may hold resolved config until reload or restart.
-- A compromised OpenClaw runtime, installed plugin, OS account, or secret provider is outside this plugin boundary.
-- The human approval confirms disclosure/action categories and selected broker count, not raw values; showing raw PII on approval surfaces would itself create leakage.
-- Commercial providers' downstream retention and legal roles are not controlled by RightOut.
+1. a catalog-supported email lane and fixed request kind;
+2. an official, catalog-locked recipient;
+3. exact opaque-profile/broker/request-kind operator attestations plus non-plaintext normalized profile/SMTP snapshot bindings.
 
-These limits must remain visible in deployment and privacy documentation.
+The hook deliberately does not open or parse the SecretRef profile or SMTP secrets before approval. After `allow-once`, but before any network connection, execution verifies that the resolved values still match both bound SHA-256 snapshots, then verifies recorded subject consent, eligible jurisdiction, SMTP sender equality with the subject contact email, and the allowed SMTP host/port/TLS combination. A failed post-approval preflight performs no provider write. The digests are operator configuration, not caller-provided approval receipts and never replace native approval.
+
+The prompt shows the opaque profile, broker, exact public recipient, disclosure field categories, action count, and that this is an external write. It never shows the profile values or credentials.
+
+Approval authorizes one SMTP send. It does not authorize retries, additional brokers, extra fields, identity documents, CAPTCHA handling, forms, browser activity, or claims that removal succeeded.
+
+## Direct Gateway invoke
+
+OpenClaw's `/tools/invoke` is a full-operator surface. Plugin hooks still run, but ordinary RightOut operation does not require direct invoke. Production guidance denies both `rightout_live_scan` and `rightout_submit_removal` on `gateway.tools.deny`; the plugin security audit warns if either is exposed.
+
+## Non-boundaries
+
+The following never authorize an action:
+
+- user or model prose saying “approved”;
+- caller-created JSON/HMAC receipts;
+- environment flags;
+- prior scan/removal approvals;
+- tool result contents;
+- broker/controller page content;
+- agent-accessible config or files.
+
+OpenClaw's plugin permission service and operator-owned config are the supported boundary. OpenClaw plugins remain trusted in-process code, so strong multi-user or hostile-agent isolation requires separate Gateways and OS identities.

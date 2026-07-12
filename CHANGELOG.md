@@ -2,6 +2,21 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.3.0 - 2026-07-12
+
+### Live removal
+
+- Added optional, non-replay-safe `rightout_submit_removal` as a separate provider-write tool; scan approval cannot authorize it.
+- Added catalog schema v3 and one clean-room BeenVerified email lane using the current official privacy policy, a catalog-locked recipient, minimum disclosure, and `US-CA` eligibility.
+- Added recorded action-specific subject consent, revision-bound scan/removal attestations, normalized profile/SMTP snapshot binding, consistent `US-CA` eligibility, SMTP sender/profile equality, and a fixed provider/port/TLS allowlist.
+- Added Nodemailer SMTP transport with TLS validation, timeouts, file/URL access denial, deterministic Message-ID, and process-local duplicate cooldown.
+- Exact-pinned Nodemailer and added lockfile/SBOM dependency consistency release gates; Microsoft 365 is excluded until an OAuth 2.0 SMTP contract exists.
+- Added report v4 live submission semantics: SMTP acceptance is only `submitted`, never broker receipt, processing, or `confirmed_removed`.
+- Expanded Brave-only live discovery to BeenVerified without adding publisher-page requests.
+- Reworked the bundled skill from scan-only to a separate scan/removal workflow based clean-room on Hermes Unbroker's product shape.
+- Added adversarial tests for approval crossover, profile/SMTP substitution, recipient injection, consent, contradictory jurisdiction, SMTP restrictions, raw transport-error leakage, rejection, abort-before-write, PII-safe reports, and catalog semantics.
+- Updated OpenClaw conformance, security, privacy, installer, architecture, provider, benchmark, and release documentation.
+
 ## 0.2.0 - 2026-07-11
 
 ### Stable release

@@ -1,76 +1,82 @@
 ---
-name: "data-broker-removal"
-description: "Run approval-gated, read-only people-search scans or validate synthetic privacy reporting."
-homepage: "https://github.com/Olli0103/rightout"
-metadata:
-  openclaw:
-    safety: approval-gated-read-only
+name: data-broker-removal
+description: Scan supported data brokers and submit catalog-locked removal requests through separate native OpenClaw approvals.
 ---
 
-# RightOut data-broker scan
+# RightOut data-broker removal
 
-Use this skill for a live, read-only scan through the installed RightOut plugin or for local synthetic report validation.
+Use the installed RightOut plugin for live discovery and removal. Keep the two authorization scopes separate.
 
-## Live boundary
+## Hard boundary
 
-- Use only the optional `rightout_live_scan` tool for live work.
-- Tool arguments may contain only an opaque `profileId` and explicit catalog `brokerIds`.
-- Never ask the user to paste a name, address, email, phone number, date of birth, listing URL, verification token, credential, or breach value into chat or tool arguments.
-- A private subject profile and the Brave Search key must already be configured by the operator as OpenClaw SecretRefs. If either is unavailable, stop with `needs_evidence`; do not collect PII as a workaround.
-- Never use browser, web search, shell, Python, files, email, forms, or provider tools as a live fallback.
-- Every call requires native OpenClaw plugin approval with only `allow-once` or `deny`. No approval route, denial, timeout, cancellation, or hook failure means no scan.
-- The operator must separately attest the exact authorized opaque profile IDs, Brave terms revision `2026-02-11`, Brave customer responsibilities, and every broker included in the Brave index-search scope. Missing or changed attestations mean no approval and no network.
-- Never submit a removal, send email, complete a form, solve a CAPTCHA, open a verification link, schedule monitoring, or write to a provider.
-- Treat `indirect_exposure` only as a transient same-domain Brave index signal, never proof of identity, ownership, page contents, or current listing. Index absence is `inconclusive`, never `not_found`.
-- Never request, open, verify, or reconstruct a publisher result URL. RightOut's live network boundary is Brave Search only.
-- Do not claim compliance certification, legal eligibility, removal, or provider action.
+- Pass only opaque `profileId`, `brokerId` or `brokerIds`, and the fixed request kind to RightOut tools.
+- Never ask the user to paste a name, address, email, phone number, date of birth, listing URL, verification token, credential, identity document, or breach value into chat or tool arguments.
+- Require private profiles, recorded subject consent, provider credentials, and operator attestations to exist as OpenClaw SecretRefs before live work. If they are missing, return `needs_evidence`.
+- Never replace native OpenClaw approval with prose, a local receipt, a model-generated token, or a previous approval.
+- Never use browser, web search, shell, Python, email, forms, or provider tools as a fallback around a blocked RightOut lane.
+- Never solve or bypass a CAPTCHA. Never upload an identity document. Route unsupported forms and sensitive verification to a human task.
+- Never claim legal advice, certification, broker receipt, processing, or completed removal without direct evidence.
 
-## Live workflow
+## Live scan
 
-1. Confirm the user asked for a live scan and supplied an existing opaque profile reference, not PII.
-2. Limit broker selection to catalog entries whose `scan.supported` is `true`.
-3. Treat `scan.supported: false` and published automation prohibitions as absolute tool exclusions; do not fall back to browser, shell, or direct HTTP access.
-4. Call `rightout_live_scan` once with the opaque profile reference and chosen broker IDs.
-5. Let OpenClaw present and resolve the native approval. Do not simulate, replace, or pre-approve it in prose.
-6. Report checked brokers, `indirect_exposure` or `inconclusive`, provider disclosure categories, and coverage gaps. Never reveal or reconstruct the private profile, Search Results, URLs, titles, snippets, bodies, queries, or API key.
+1. Confirm the user asked for live discovery and supplied an existing opaque profile reference.
+2. Select only catalog brokers with `scan.supported: true`.
+3. Call `rightout_live_scan` once with the exact opaque profile and broker IDs.
+4. Let OpenClaw request `allow-once` or `deny` for that scan only.
+5. Report `indirect_exposure` and `inconclusive` exactly. A Brave index candidate is not identity proof; index absence is not proof of absence.
+6. Do not fetch publisher pages or reconstruct result URLs, titles, snippets, bodies, queries, or profile values.
 
-## Synthetic validation
+## Broker removal
 
-The bundled Python runner is intentionally dummy-only and has no live command:
+1. Confirm the user explicitly asked to submit a removal and supplied an existing opaque profile reference.
+2. Select only a catalog broker with `removal.supported: true` and a request kind allowed by that broker.
+3. Call `rightout_submit_removal` once with `profileId`, `brokerId`, and `requestKind: delete_and_opt_out`.
+4. Let OpenClaw request a new `allow-once` or `deny`. A scan approval never authorizes this write.
+5. Treat a successful result only as `submitted`. SMTP acceptance is not broker receipt, broker processing, or removal confirmation.
+6. Explain any broker verification follow-up as a human task. Do not ask for extra PII unless a future catalog lane explicitly marks it human-only.
+7. Use a later, separately approved read-only scan to look for reappearance. Because the supported scan is index-only, absence remains `inconclusive`; do not upgrade it to `confirmed_removed`.
 
-```bash
-python3 {baseDir}/scripts/validate_data_broker_removal.py --skill-dir {baseDir}
-python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} \
-  scan-only-dummy --workdir .tmp/rightout-scan-only
-python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} \
-  e2e-dummy --workdir .tmp/rightout-e2e
-```
-
-Never present `fixture_only` results as user results.
+The current automated removal scope is intentionally narrow: one catalog-locked email to BeenVerified for an attested `US-CA` subject. Other broker lanes remain human-only or unsupported until their official channel, terms, minimum fields, and approval contract are independently verified.
 
 ## Output contract
 
-For a live result, lead with:
+For a scan, lead with:
 
 ```text
 Posture: approval-gated read-only live scan
-Approval: native OpenClaw allow-once
+Approval: native OpenClaw allow-once for scan
 Provider writes: 0
 Submissions: 0
-Emails: 0
+```
+
+For a removal submission, lead with:
+
+```text
+Posture: approval-gated broker removal submission
+Approval: separate native OpenClaw allow-once for removal
+State: submitted
+Removal confirmed: no
 Raw PII in report: no
 ```
 
-Then state what was checked, what was evidenced, what is inferred, and what remains `needs_evidence`. Preserve contradictions and coverage gaps.
+Then state what is evidenced, inferred, `needs_evidence`, or a human task. Preserve contradictions and coverage gaps.
 
-For catalog or security work, read only the relevant references:
+## Synthetic validation
+
+The Python runner is dummy-only and never performs a live scan or provider write:
+
+```bash
+python3 {baseDir}/scripts/validate_data_broker_removal.py --skill-dir {baseDir}
+python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} scan-only-dummy --workdir .tmp/rightout-scan-only
+python3 {baseDir}/scripts/data_broker_removal.py --skill-dir {baseDir} e2e-dummy --workdir .tmp/rightout-e2e
+```
+
+Never present `fixture_only` output as a real result.
+
+For catalog or security maintenance, read only the relevant reference:
 
 - `{baseDir}/references/security-model.md`
 - `{baseDir}/references/operations.md`
 - `{baseDir}/references/state-machine.md`
 - `{baseDir}/references/source-matrix.md`
 - `{baseDir}/references/brokers/core.json`
-
-## Non-goals
-
-Removal submissions, recurring monitoring, legal advice, compliance certification, identity protection, dark-web monitoring, account deletion, CAPTCHA handling, and autonomous provider writes.

@@ -1,38 +1,69 @@
-# Privacy and data-protection posture
+# Privacy posture
 
-Review date: 2026-07-11. This document describes product behavior, not legal advice or certification.
-
-## Data flow
-
-| Stage | Data | Recipient | RightOut retention |
-| --- | --- | --- | --- |
-| Tool selection | opaque profile ID, broker IDs | model/OpenClaw transcript | no RightOut storage |
-| Approval | action, broker count, field categories, provider, no-write scope | configured OpenClaw approval surface | no raw values |
-| Secret materialization | full name, city, region, US country | OpenClaw Gateway/plugin-process memory | from plugin config load until reload/restart; no RightOut disk persistence |
-| Search | full name and location in HTTPS POST body | Brave Search API | none by RightOut; Brave publishes up to 90-day standard query-log retention unless an applicable ZDR agreement exists |
-| Index classification | transient HTTPS result-domain check | inside RightOut process memory | URL/title/snippet/body discarded before report construction |
-| Result | state, reason code, disclosure categories, gaps | OpenClaw/tool transcript | no raw PII/Search Result/URL/title/snippet/body/query/key |
-
-RightOut sets guarded HTTP capture to false and sanitizes thrown network/provider errors. Brave's privacy notice, updated 2025-12-04, states that standard Search API query logs may be retained for up to 90 days and that Zero Data Retention is an enterprise option. RightOut makes no broker-server request, retains no Search Result, and cannot override Brave's terms, retention, or legal role.
+Review date: 2026-07-12. This is engineering documentation, not legal advice or certification.
 
 ## Data minimization
 
-The only supported live profile fields are `fullName`, `city`, `region`, and fixed country `US`. Email, phone, street address, date of birth, relatives, identity documents, credentials, verification tokens, and listing URLs are rejected or absent. The public tool does not carry profile values.
+The model sees only opaque profile/broker references and fixed request enums. Raw profile values and credentials are resolved from OpenClaw SecretRefs inside the plugin.
 
-## Authorization and purpose
+### Scan disclosure
 
-The operator must have a lawful basis and subject authorization before provisioning a profile. Live readiness requires explicit operator-owned attestations listing every authorized opaque profile ID, Brave terms revision `2026-02-11`, acceptance of Brave customer responsibilities, and every broker included in the Brave search scope. The normalized complete attestation snapshot is part of the single-use approval binding and is independently revalidated by the live library. These attestations are fail-closed gates, not legal proof supplied by RightOut. The native per-call approval covers only read-only search-index discovery for selected official domains.
+To Brave Search:
 
-## GDPR/DSGVO posture
+- full name;
+- city;
+- region;
+- country.
 
-The current live scanner is US-only and is not a GDPR erasure workflow. Where GDPR applies, the deployer remains responsible for controller/processor roles, lawful basis, transparency, data-processing terms, international transfers, retention, access/deletion rights, and records of processing. The generic Article 17 catalog reference is human-only and cannot be scanned or submitted by RightOut.
+RightOut sends the query in a POST body, but Brave still processes it. Brave's published standard-plan privacy notice permits query-log retention up to 90 days unless an applicable Zero Data Retention arrangement changes that posture.
 
-## CCPA/CPRA posture
+To broker pages: nothing. RightOut never requests them.
 
-RightOut does not determine California residency, consumer eligibility, authorized-agent status, verification requirements, or whether a broker is subject to a particular request. California DROP and Google Results About You entries are references only; the plugin cannot submit to them.
+### Removal disclosure
 
-## SecretRef limitation
+For the current BeenVerified email lane:
 
-OpenClaw SecretRefs protect supported config persistence and keep values out of the tool schema, but they are not a process-isolation or call-lifetime boundary. OpenClaw materializes the resolved plugin config before registration, so the Gateway/plugin process may hold the private profile and key from config load until reload or restart. RightOut accesses those values only after a valid single-use approval binding and does not write or return them. A deployment where an agent can inspect the Gateway process, secret-provider files, environment, or same-privilege memory requires additional OS/container/user separation.
+- full name;
+- contact email;
+- region;
+- country.
 
-Readiness requires clean `openclaw secrets audit --check` and resolution of RightOut's plaintext-profile/key security findings.
+Recipient: official catalog address `privacy@beenverified.com`.
+
+The message contains no address, phone, date of birth, age, relatives, listing URL, government ID, identity document, or authorization letter. If the broker requests additional identity proof, RightOut reports a human follow-up rather than disclosing more automatically.
+
+The SMTP provider necessarily processes sender, recipient, headers, and body according to the operator's provider agreement. RightOut does not claim zero retention at the SMTP provider or broker.
+
+## Consent and authority
+
+Live scan requires operator-owned exact-scope attestations. Live removal additionally requires:
+
+- `consent.authorized: true` inside the private profile;
+- `broker_removal` in consent scope;
+- a valid non-future consent timestamp;
+- operator review of consent, SMTP authority, minimum disclosure, exact profile/broker/request kind, and policy version `2026-07-12`;
+- a catalog-supported jurisdiction (`US-CA` for the current lane).
+
+These are fail-closed technical gates. They are not independent proof that a person has legal capacity, that a law applies, or that a broker must comply.
+
+## Retention
+
+RightOut itself does not persist raw live PII, queries, Search Results, email bodies, SMTP credentials, Message-IDs, or raw receipts. The returned report contains opaque IDs, field categories, broker/channel facts, sanitized status, and an opaque hash-based proof reference.
+
+OpenClaw sessions may retain tool inputs/results according to operator configuration; those results are designed to be PII-safe. Secret providers, Brave, SMTP providers, and brokers have their own retention policies outside RightOut's control.
+
+## Accuracy and status
+
+- `indirect_exposure` is an index signal, not proof of identity or current page content.
+- `inconclusive` is not `not_found`.
+- `submitted` means outbound SMTP accepted the message, not that the broker received or acted on it.
+- `confirmed_removed` is not emitted by the current live path.
+- a later missing index result remains `inconclusive`; a later index candidate can indicate possible reappearance but still requires review.
+
+## Legal posture
+
+The catalog records jurisdictions, official channels, minimum fields, prerequisites, and primary-source provenance. GDPR/DSGVO, CCPA/CPRA, and California DROP references explain possible rights and eligibility constraints but do not decide them for a user. Unsupported or sensitive lanes remain human-only.
+
+## Deployment responsibilities
+
+The operator must protect SecretRefs and approval routes, use an authorized SMTP account/app password, review provider terms, validate subject authority, configure least-privilege tool policy, and isolate the Gateway when an agent has broad local access.

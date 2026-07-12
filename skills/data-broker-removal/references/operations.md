@@ -1,38 +1,47 @@
 # Operations
 
-## Live operation
+## Live scan
 
-Use only `rightout_live_scan(profileId, brokerIds)`. The profile ID must already exist in operator-configured SecretRef-backed plugin config. Supported broker IDs come from catalog entries with `category: people_search` and `scan.supported: true`, and every selected ID must appear in operator-owned Brave search-scope attestations. The runtime contacts only Brave Search and never a publisher domain.
-
-Every call invokes native allow-once/deny approval. No approval route, denial, timeout, cancellation, provider error, or absent index candidate fails closed or returns `inconclusive`.
+Call `rightout_live_scan(profileId, brokerIds)` only for an explicit user request. Every selected catalog entry must have `scan.supported: true`, appear in scan attestations, and receive a native allow-once approval.
 
 Interpretation:
 
-- `indirect_exposure`: transient Brave same-domain index signal, not identity or current-listing proof;
-- `inconclusive`: no sufficient index signal or provider failure;
-- no live proof reference, URL, title, snippet, body, or other Search Result is retained;
-- zero submissions/emails/provider writes/local PII storage: enforced live invariant.
+- `indirect_exposure`: transient Brave official-domain index signal only;
+- `inconclusive`: no sufficient signal or provider failure;
+- zero publisher requests, writes, raw-result storage, or live proof URLs.
 
-Never fall back to browser, shell, Python, email, forms, or web-search tools for a real subject.
+## Live removal
+
+Call `rightout_submit_removal(profileId, brokerId, delete_and_opt_out)` only for an explicit user request. Before OpenClaw offers approval, the hook validates the public scope, catalog lane, recipient/field policy, exact removal attestations, and pseudonymous profile/SMTP digests without opening raw PII or credentials. After `allow-once` but before any network connection, execution resolves the SecretRefs and validates the bound snapshots, subject consent, jurisdiction, and SMTP identity.
+
+Current lane: BeenVerified, `US-CA`, official privacy email, full name/contact email/region/country.
+
+Interpretation:
+
+- `submitted`: outbound SMTP accepted one message;
+- broker receipt, processing, and removal: `needs_evidence`;
+- extra identity verification: human task;
+- later missing Brave result: still `inconclusive`;
+- later candidate: possible reappearance/continued exposure, not direct proof.
+
+Never fall back to browser, shell, Python, arbitrary email, forms, CAPTCHA work, or extra disclosure.
 
 ## Offline operations
 
-1. `doctor`: package and split live-plugin/dummy-runner posture.
-2. `validate`: catalog and plugin manifest contracts.
+1. `doctor`: prove package and split live-tool/dummy-runner posture.
+2. `validate`: validate catalog and manifest contracts.
 3. `plan-dummy`: print a synthetic plan.
-4. `scan-only-dummy`: synthetic found/not-found/inconclusive reporting.
-5. `e2e-dummy`: synthetic removal-state reporting.
-6. `verify-link`: local HTTPS/domain syntax check.
-
-Offline `fixture_only` results are never user evidence. `not_checked_by_offline_dummy_runner` means catalog metadata was loaded without a live query.
+4. `scan-only-dummy`: synthetic discovery report.
+5. `e2e-dummy`: synthetic full state matrix.
+6. `verify-link`: local HTTPS/domain syntax check only.
 
 ## Failure handling
 
-- validation, package, runtime-inspect, secret-audit, or security-audit failure: no-go;
-- stale/missing catalog provenance: block the catalog entry;
-- approval failure: no network call;
-- missing profile/key: `needs_evidence`, never ask for PII in chat;
-- missing subject, pinned Brave revision/customer-responsibility, or broker search-scope attestation: block before approval and network;
-- raw PII or URL in a report/error/log: P0;
-- any publisher request, unexpected network destination, or provider write: P0;
-- missing primary audit evidence: preserve `needs_evidence`.
+- missing SecretRef, profile, consent, attestation, approval route, or policy: block with `needs_evidence`;
+- stale/missing provenance: disable the lane;
+- scan approval failure: no Brave request;
+- removal approval/preflight failure: no SMTP connection;
+- SMTP error after send begins: `rightout_removal_transport_failed`; do not auto-retry because delivery may be uncertain;
+- raw PII/body/credential in report/error/log: P0;
+- cross-tool approval, arbitrary recipient, TLS downgrade, form/CAPTCHA action, or unapproved field: P0;
+- missing primary evidence: preserve `needs_evidence`.
