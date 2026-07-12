@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Separately approval-gated live data-broker scans and broker removal requests",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "skills": [
     "./skills"
   ],
@@ -481,7 +481,7 @@
             "const": true
           },
           "rightoutRemovalPolicyVersion": {
-            "const": "2026-07-12"
+            "const": "2026-07-12-eu1"
           },
           "subjectConsentReviewed": {
             "const": true
@@ -527,10 +527,13 @@
           "authorizedRequestKinds": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 1,
+            "maxItems": 2,
             "uniqueItems": true,
             "items": {
-              "const": "delete_and_opt_out"
+              "enum": [
+                "delete_and_opt_out",
+                "gdpr_erasure_objection"
+              ]
             }
           },
           "smtpTransportDigest": {

@@ -1,6 +1,8 @@
 # Security and privacy posture
 
-RightOut `0.4.0` treats live broker work as a sequence of independent high-impact actions. Native OpenClaw approval is mandatory for Brave discovery, exact-URL publisher reads, IMAP reads, confirmation-link opens, SMTP sends, and sandbox-browser form writes. Decisions are `allow-once` or `deny`, expire after two minutes, and are bound to the host tool-call ID, exact opaque scope, configuration attestations, and profile digest.
+RightOut `0.5.0` treats live broker work as a sequence of independent high-impact actions. Native OpenClaw approval is mandatory for Brave discovery, exact-URL publisher reads, IMAP reads, confirmation-link opens, SMTP sends, and sandbox-browser form writes. Decisions are `allow-once` or `deny`, expire after two minutes, and are bound to the host tool-call ID, exact opaque scope, configuration attestations, and profile digest.
+
+EU controller lanes additionally bind the exact request kind, EU/EEA plus country consistency, official recipient, fixed GDPR template, and catalog-minimum disclosure. Adsquare requires the private profile's Mobile Advertising ID; emetriq initially discloses only contact email and country. Neither lane attaches identity documents, parses controller responses, or claims erasure from SMTP acceptance. Browser/device preference controls remain human-only and are never treated as deletion proof.
 
 ## Data boundaries
 

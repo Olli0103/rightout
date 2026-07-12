@@ -222,6 +222,82 @@ test("plan is deterministic and surfaces human work instead of dropping it", asy
   assert.equal(JSON.stringify(plan).includes("Alice"), false);
 });
 
+test("EU plan distinguishes controller erasure from browser-scoped preference control", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
+  const euCatalog = {
+    brokers: [
+      {
+        id: "adsquare_eu",
+        official_url: "https://adsquare.com/privacy",
+        official_domains: ["adsquare.com"],
+        lane: "email",
+        human_only: false,
+        process_class: "eu_controller_email_erasure",
+        prerequisites: ["subject_authorization"],
+        removal: {
+          supported: true,
+          channel: "email",
+          discovery_requirement: "not_required_for_data_subject_request",
+          confirmation_policy: "submitted_until_controller_response",
+        },
+        eu_process: {
+          effect_scope: "controller_wide_for_identified_mobile_advertising_id",
+          erasure_semantics: "controller_erasure_request_not_yet_confirmed",
+          one_click_level: "not_one_click_controller_email",
+          official_action_url: "https://adsquare.com/privacy",
+        },
+      },
+      {
+        id: "edaa_yoc",
+        official_url: "https://www.youronlinechoices.eu/",
+        official_domains: ["youronlinechoices.eu"],
+        lane: "guided_flow",
+        human_only: true,
+        process_class: "eu_advertising_preference",
+        prerequisites: ["human_browser_action"],
+        eu_process: {
+          effect_scope: "participating_companies_current_browser",
+          erasure_semantics: "preference_only_not_controller_erasure",
+          one_click_level: "multi_company_one_stop_preference",
+          official_action_url: "https://www.youronlinechoices.eu/",
+        },
+      },
+    ],
+  };
+  const plan = await ledger.plan(PROFILE, euCatalog);
+  assert.equal(plan.actions[0].broker_id, "adsquare_eu");
+  assert.equal(plan.actions[0].next_action, "submit_email_removal");
+  assert.equal(plan.actions[0].erasure_semantics, "controller_erasure_request_not_yet_confirmed");
+  assert.equal(plan.actions[1].next_action, "queue_human_task");
+  assert.equal(plan.actions[1].erasure_semantics, "preference_only_not_controller_erasure");
+  assert.equal(plan.summary.eu_processes, 2);
+
+  for (const unsafeUrl of ["https://adsquare.com/privacy?next=evil", "https://adsquare.com:444/privacy"]) {
+    const unsafeCatalog = structuredClone(euCatalog);
+    unsafeCatalog.brokers[0].eu_process.official_action_url = unsafeUrl;
+    const unsafePlan = await ledger.plan(PROFILE, unsafeCatalog);
+    const unsafeAdsquare = unsafePlan.actions.find((row) => row.broker_id === "adsquare_eu");
+    assert.equal(Object.hasOwn(unsafeAdsquare, "official_action_url"), false);
+    assert.equal(Object.hasOwn(unsafeAdsquare, "erasure_semantics"), false);
+  }
+
+  await ledger.recordRemoval({
+    state: "submitted",
+    subject_ref: PROFILE,
+    broker_id: "adsquare_eu",
+    discovery_requirement: "not_required_for_data_subject_request",
+    generated_at: "2026-07-12T10:00:00Z",
+    delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_0123456789abcdef01234567"],
+    disclosures: { to_broker: ["contact_email", "mobile_advertising_id", "country"] },
+  }, 30);
+  const after = await ledger.plan(PROFILE, euCatalog);
+  const adsquareAfter = after.actions.find((row) => row.broker_id === "adsquare_eu");
+  assert.equal(adsquareAfter.state, "submitted");
+  assert.equal(adsquareAfter.next_action, "wait_for_controller_response");
+  assert.equal(adsquareAfter.next_recheck_at, "2026-08-11T10:00:00.000Z");
+});
+
 test("due returns only elapsed rechecks", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await recordDiscovery(ledger);

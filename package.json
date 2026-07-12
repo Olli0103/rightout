@@ -1,7 +1,7 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.4.0",
-  "description": "Separately approval-gated data-broker scanning and removal requests for OpenClaw",
+  "version": "0.5.0",
+  "description": "Separately approval-gated US and EU data-broker scanning and removal requests for OpenClaw",
   "type": "module",
   "license": "MIT",
   "files": [

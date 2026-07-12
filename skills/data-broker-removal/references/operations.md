@@ -12,9 +12,13 @@ Interpretation:
 
 ## Live removal
 
-Call `rightout_submit_removal(profileId, brokerId, delete_and_opt_out)` only for an explicit user request. Before OpenClaw offers approval, the hook validates the public scope, catalog lane, recipient/field policy, exact removal attestations, and pseudonymous profile/SMTP digests without opening raw PII or credentials. After `allow-once` but before any network connection, execution resolves the SecretRefs and validates the bound snapshots, subject consent, jurisdiction, and SMTP identity.
+Call `rightout_submit_removal` only for an explicit user request, using the catalog-fixed `delete_and_opt_out` or `gdpr_erasure_objection` kind. Before OpenClaw offers approval, the hook validates the public scope, catalog lane, recipient/field policy, exact removal attestations, and pseudonymous profile/SMTP digests without opening raw PII or credentials. After `allow-once` but before any network connection, execution resolves the SecretRefs and validates the bound snapshots, subject consent, jurisdiction, required identifier, and SMTP identity.
 
-Current lane: BeenVerified, `US-CA`, official privacy email, full name/contact email/region/country.
+Current email lanes:
+
+- BeenVerified, `US-CA`, full name/contact email/region/country, prior discovery required;
+- Adsquare, EU/EEA, contact email/Mobile Advertising ID/country, no prior listing discovery required;
+- emetriq, EU/EEA, contact email/country, no prior listing discovery required.
 
 Interpretation:
 
@@ -23,6 +27,7 @@ Interpretation:
 - extra identity verification: human task;
 - later missing Brave result: still `inconclusive`;
 - later candidate: possible reappearance/continued exposure, not direct proof.
+- EU controller response: human-review evidence; browser/device opt-out remains a separate preference state.
 
 Never fall back to browser, shell, Python, arbitrary email, forms, CAPTCHA work, or extra disclosure.
 

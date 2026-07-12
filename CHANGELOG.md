@@ -2,6 +2,15 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.5.0 - 2026-07-12
+
+- Added two separately approved EU/EEA controller-email lanes: Adsquare with contact email/Mobile Advertising ID/country, and emetriq with contact email/country.
+- Added a fixed `gdpr_erasure_objection` template covering conditional Article 17 erasure, Article 7(3) consent withdrawal, Article 21(2) direct-marketing objection, and Article 19 recipient follow-up.
+- Added consistent EU/EEA country validation, required-identifier checks, controller-response-only confirmation semantics, 30-day follow-up scheduling, and no-discovery data-subject-request lifecycle support.
+- Added EDAA, emetriq opt-out, Criteo, and Zeotap process metadata that separates browser/device advertising preferences from controller erasure.
+- Upgraded the clean-room catalog to schema v4 with 31 entries and added adversarial EU minimum-disclosure, classification, lifecycle, and fail-closed tests.
+- Revalidated the OpenClaw plugin manifest, optional/non-replay-safe tools, SecretRef boundary, and per-call `allow-once` approval contract against current official documentation.
+
 ## 0.4.0 - 2026-07-12
 
 - Added 22 clean-room people-search entries, 21 multi-vector Brave discovery lanes, ownership clusters, and deterministic parent-first planning.

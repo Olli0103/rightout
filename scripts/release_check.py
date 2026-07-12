@@ -63,8 +63,16 @@ def main() -> None:
         "browser_form": sum(item.get("removal", {}).get("channel") == "browser_form" for item in brokers),
         "direct_rescan": sum(item.get("direct_rescan", {}).get("supported") is True for item in brokers),
         "inbound_verification": sum(item.get("verification", {}).get("supported") is True for item in brokers),
+        "eu_processes": sum(str(item.get("process_class", "")).startswith("eu_") for item in brokers),
+        "eu_email": sum(
+            item.get("category") == "data_broker" and item.get("removal", {}).get("channel") == "email"
+            for item in brokers
+        ),
     }
-    minimums = {"people_search": 22, "scan": 21, "email": 1, "browser_form": 1, "direct_rescan": 1, "inbound_verification": 1}
+    minimums = {
+        "people_search": 22, "scan": 21, "email": 3, "browser_form": 1,
+        "direct_rescan": 1, "inbound_verification": 1, "eu_processes": 6, "eu_email": 2,
+    }
     for capability, minimum in minimums.items():
         if parity_counts[capability] < minimum:
             fail(errors, f"minimum Unbroker parity capability missing: {capability}")
@@ -315,7 +323,7 @@ def main() -> None:
         fail(errors, "removal attestation schema is not revision-complete")
     removal_properties = removal_schema.get("properties", {})
     if (
-        removal_properties.get("rightoutRemovalPolicyVersion", {}).get("const") != "2026-07-12"
+        removal_properties.get("rightoutRemovalPolicyVersion", {}).get("const") != "2026-07-12-eu1"
         or removal_properties.get("rightoutRemovalPolicyAccepted", {}).get("const") is not True
         or removal_properties.get("subjectConsentReviewed", {}).get("const") is not True
         or removal_properties.get("smtpAccountAuthorized", {}).get("const") is not True
@@ -328,8 +336,8 @@ def main() -> None:
     if any(item.get("scan", {}).get("automated_access_policy") != "search_index_only_no_publisher_access" for item in live_brokers):
         fail(errors, "every live broker must use search-index-only discovery")
     removal_brokers = [item for item in catalog.get("brokers", []) if item.get("removal", {}).get("supported") is True]
-    if [item.get("id") for item in removal_brokers] != ["beenverified", "intelius"]:
-        fail(errors, "removal catalog must contain the reviewed email and browser-form lanes")
+    if [item.get("id") for item in removal_brokers] != ["adsquare_eu", "emetriq_eu", "beenverified", "intelius"]:
+        fail(errors, "removal catalog must contain the reviewed US and EU lanes")
     removal_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "beenverified"), {})
     if (
         removal_lane.get("recipient") != "privacy@beenverified.com"
@@ -344,6 +352,17 @@ def main() -> None:
         or form_lane.get("captcha_policy", form_lane.get("form_recipe", {}).get("captcha_policy")) != "fail_closed_human_task"
     ):
         fail(errors, "browser-form broker must use the catalog-locked minimum-disclosure lane")
+    adsquare_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "adsquare_eu"), {})
+    emetriq_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "emetriq_eu"), {})
+    if (
+        adsquare_lane.get("recipient") != "privacy@adsquare.com"
+        or adsquare_lane.get("disclosure_fields") != ["contact_email", "mobile_advertising_id", "country"]
+        or emetriq_lane.get("recipient") != "datenschutz@emetriq.com"
+        or emetriq_lane.get("disclosure_fields") != ["contact_email", "country"]
+        or any(lane.get("request_kinds") != ["gdpr_erasure_objection"] for lane in [adsquare_lane, emetriq_lane])
+        or any(lane.get("confirmation_policy") != "submitted_until_controller_response" for lane in [adsquare_lane, emetriq_lane])
+    ):
+        fail(errors, "EU removal lanes must keep official destinations, minimum disclosure, and controller-response semantics")
     spokeo = next((item for item in catalog.get("brokers", []) if item.get("id") == "spokeo"), {})
     if spokeo.get("scan", {}).get("supported") is not False or spokeo.get("scan", {}).get("automated_access_policy") != "prohibited_by_published_terms":
         fail(errors, "Spokeo automation prohibition is not fail-closed")
@@ -434,14 +453,14 @@ def main() -> None:
             fail(errors, f"community file-state invariant missing: {required}")
     removal = (ROOT / "lib/removal.mjs").read_text(encoding="utf-8")
     for required in [
-        'const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-12"',
-        'new Set(["delete_and_opt_out"])',
+        'const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-12-eu1"',
+        'new Set(["delete_and_opt_out", "gdpr_erasure_objection"])',
         'state: "submitted"',
         'removal_confirmed: false',
         'forms_submitted: 0',
         'captcha_bypasses: 0',
         'local_pii_storage: 0',
-        'confirmation_policy !== "submitted_until_later_rescan"',
+        '"submitted_until_later_rescan", "submitted_until_controller_response"',
         "validateRemovalOperatorAttestations",
         "subject_consent_required",
         "ALLOWED_SMTP_ENDPOINTS",

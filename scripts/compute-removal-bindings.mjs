@@ -52,6 +52,12 @@ async function main() {
   const profilePayload = await readPrivateJson(profilePath, "profile");
   const smtpPayload = await readPrivateJson(smtpPath, "smtp");
   const profile = parseRemovalProfile(profilePayload);
+  let scanDigest;
+  try {
+    scanDigest = scanProfileDigest(profilePayload);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== "unsupported_country") throw error;
+  }
   const smtp = validateSmtpConfig(JSON.parse(smtpPayload), profile);
   let imapDigest;
   if (imapPath) {
@@ -59,7 +65,7 @@ async function main() {
     imapDigest = imapTransportDigest(validateImapConfig(JSON.parse(imapPayload), profile.contactEmail));
   }
   process.stdout.write(`${JSON.stringify({
-    scanProfileDigests: { [profileId]: scanProfileDigest(profilePayload) },
+    scanProfileDigests: scanDigest ? { [profileId]: scanDigest } : {},
     authorizedProfileDigests: { [profileId]: removalProfileDigest(profilePayload) },
     smtpTransportDigest: removalSmtpDigest(smtp),
     ...(imapDigest ? { imapTransportDigest: imapDigest } : {}),

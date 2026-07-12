@@ -288,9 +288,9 @@ class ReportingAndStateTests(unittest.TestCase):
 
 
 class CatalogValidationTests(unittest.TestCase):
-    def test_catalog_is_schema_v3_and_valid(self) -> None:
+    def test_catalog_is_schema_v4_and_valid(self) -> None:
         catalog = load_catalog()
-        self.assertEqual(catalog["schema_version"], 3)
+        self.assertEqual(catalog["schema_version"], 4)
         self.assertEqual(rightout.validate_catalog_data(catalog), [])
 
     def test_email_removal_lane_is_catalog_locked_and_minimum_disclosure(self) -> None:
@@ -302,6 +302,17 @@ class CatalogValidationTests(unittest.TestCase):
         unsafe = load_catalog()
         next(item for item in unsafe["brokers"] if item["id"] == "beenverified")["removal"]["recipient"] = "attacker@example.invalid"
         self.assertTrue(rightout.validate_catalog_data(unsafe))
+
+    def test_eu_processes_separate_erasure_from_browser_preference(self) -> None:
+        catalog = load_catalog()
+        adsquare = next(item for item in catalog["brokers"] if item["id"] == "adsquare_eu")
+        edaa = next(item for item in catalog["brokers"] if item["id"] == "edaa_yoc")
+        self.assertEqual(adsquare["removal"]["request_kinds"], ["gdpr_erasure_objection"])
+        self.assertEqual(adsquare["removal"]["confirmation_policy"], "submitted_until_controller_response")
+        self.assertEqual(edaa["eu_process"]["erasure_semantics"], "preference_only_not_controller_erasure")
+        unsafe = load_catalog()
+        next(item for item in unsafe["brokers"] if item["id"] == "edaa_yoc")["eu_process"]["erasure_semantics"] = "controller_erasure_request_not_yet_confirmed"
+        self.assertTrue(any("process tuple" in error for error in rightout.validate_catalog_data(unsafe)))
 
     def test_catalog_rejects_unsafe_ids(self) -> None:
         catalog = load_catalog()

@@ -39,6 +39,14 @@ Never ask an agent to create or display a real subject profile. A full logical p
 }
 ```
 
+For an EU/EEA controller lane, use the real ISO country in both `country` and `jurisdictions`, include `EU` or `EEA`, and keep the same recorded `broker_removal` consent. Adsquare additionally requires the subject's Mobile Advertising ID in the private profile:
+
+```json
+{"fullName":"Avery Example","city":"Berlin","region":"BE","country":"DE","contactEmail":"avery@example.invalid","mobileAdvertisingId":"12345678-1234-4234-9234-123456789abc","jurisdictions":["DE","EU","EEA"],"consent":{"authorized":true,"recordedAt":"2026-07-12T08:00:00.000Z","scope":["broker_removal"]}}
+```
+
+Do not add an advertising identifier for emetriq unless a later human follow-up is proportionate and independently authorized. Never put either profile into chat or tool parameters.
+
 Configure the profile, Brave key, and a random durable-state encryption key of at least 32 characters as SecretRefs:
 
 ```bash
@@ -62,9 +70,9 @@ node scripts/compute-removal-bindings.mjs \
   profile_a1b2c3d4e5f60718 /secure/profile.json /secure/smtp.json /secure/imap.json
 ```
 
-The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. Treat them as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
+The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. For a non-US profile, `scanProfileDigests` is intentionally empty because Brave people-search discovery is US-only. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. Changing or losing it intentionally makes existing cases, dedupe entries, and opaque handles unreadable; v0.4.0 has no key-rotation migration tool.
+Back up the state encryption key through the secret provider. Changing or losing it intentionally makes existing cases, dedupe entries, and opaque handles unreadable; v0.5.0 has no key-rotation migration tool.
 
 ## 4. Configure exact attestations
 
@@ -82,10 +90,10 @@ Direct recheck scope, only after independently reviewing publisher terms and est
 {"rightoutDirectScanPolicyAccepted":true,"rightoutDirectScanPolicyVersion":"2026-07-12","subjectConsentReviewed":true,"publisherAccessAuthorized":true,"publisherTermsReviewed":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["truepeoplesearch","beenverified"]}
 ```
 
-Email removal scope (currently BeenVerified `US-CA`):
+Email removal scope (example authorizing BeenVerified plus the two EU controller lanes):
 
 ```json
-{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["beenverified"],"authorizedRequestKinds":["delete_and_opt_out"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
+{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12-eu1","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["adsquare_eu","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
 ```
 
 Browser-form scope (currently Intelius/PeopleConnect initiation):

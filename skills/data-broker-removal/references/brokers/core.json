@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "catalog_id": "rightout-clean-room-core",
   "catalog_license": "MIT",
   "catalog_policy": "Official-source facts and URLs with original RightOut notes only. No third-party broker-list records or prose.",
@@ -158,6 +158,252 @@
       "notes": "Legal reference only, not a sendable recipient. Controller identity and domain must come from a future platform-owned verifier that the agent and controller content cannot alter."
     },
     {
+      "id": "adsquare_eu",
+      "name": "Adsquare",
+      "category": "data_broker",
+      "process_class": "eu_controller_email_erasure",
+      "jurisdictions": ["EU", "EEA", "DE"],
+      "official_url": "https://adsquare.com/privacy",
+      "official_domains": ["adsquare.com"],
+      "lane": "email",
+      "required_fields": ["contact_email", "mobile_advertising_id", "country"],
+      "prerequisites": ["subject_authorization", "native_openclaw_plugin_approval", "eu_or_eea_residency", "mobile_advertising_id_available"],
+      "approval_gate": "send_request",
+      "human_only": false,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://adsquare.com/privacy",
+          "title": "Adsquare Privacy Center",
+          "publisher": "adsquare GmbH",
+          "license_scope": "official_rights_channel_and_minimum_fields_facts_only",
+          "last_verified": "2026-07-12"
+        },
+        {
+          "url": "https://adsquare.com/privacy/platform-privacy-policy",
+          "title": "Adsquare Platform Privacy Policy",
+          "publisher": "adsquare GmbH",
+          "license_scope": "official_controller_and_gdpr_rights_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_wide_for_identified_mobile_advertising_id",
+        "erasure_semantics": "controller_erasure_request_not_yet_confirmed",
+        "one_click_level": "not_one_click_controller_email",
+        "official_action_url": "https://adsquare.com/privacy"
+      },
+      "removal": {
+        "supported": true,
+        "channel": "email",
+        "request_kinds": ["gdpr_erasure_objection"],
+        "template_id": "gdpr_erasure_objection_v1",
+        "recipient": "privacy@adsquare.com",
+        "smtp_recipient_domain": "adsquare.com",
+        "disclosure_fields": ["contact_email", "mobile_advertising_id", "country"],
+        "eligible_jurisdictions": ["EU", "EEA"],
+        "identity_verification": "broker_may_request_follow_up",
+        "confirmation_policy": "submitted_until_controller_response",
+        "discovery_requirement": "not_required_for_data_subject_request",
+        "processing_days": 30,
+        "policy_url": "https://adsquare.com/privacy",
+        "policy_revision": "reviewed-2026-07-12",
+        "last_verified": "2026-07-12"
+      },
+      "notes": "The official privacy center says deletion or opt-out requests require only the Mobile Advertising ID and an email address. RightOut adds country solely to validate EU or EEA eligibility. SMTP acceptance remains submitted; a controller response requires human review."
+    },
+    {
+      "id": "emetriq_eu",
+      "name": "emetriq",
+      "category": "data_broker",
+      "process_class": "eu_controller_email_erasure",
+      "jurisdictions": ["EU", "EEA", "DE"],
+      "official_url": "https://www.emetriq.com/datenschutz/",
+      "official_domains": ["emetriq.com"],
+      "lane": "email",
+      "required_fields": ["contact_email", "country"],
+      "prerequisites": ["subject_authorization", "native_openclaw_plugin_approval", "eu_or_eea_residency"],
+      "approval_gate": "send_request",
+      "human_only": false,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.emetriq.com/datenschutz/",
+          "title": "emetriq Datenschutz",
+          "publisher": "emetriq GmbH",
+          "license_scope": "official_gdpr_rights_and_contact_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_wide_request_subject_to_identification",
+        "erasure_semantics": "controller_erasure_request_not_yet_confirmed",
+        "one_click_level": "not_one_click_controller_email",
+        "official_action_url": "https://www.emetriq.com/datenschutz/"
+      },
+      "removal": {
+        "supported": true,
+        "channel": "email",
+        "request_kinds": ["gdpr_erasure_objection"],
+        "template_id": "gdpr_erasure_objection_v1",
+        "recipient": "datenschutz@emetriq.com",
+        "smtp_recipient_domain": "emetriq.com",
+        "disclosure_fields": ["contact_email", "country"],
+        "eligible_jurisdictions": ["EU", "EEA"],
+        "identity_verification": "broker_may_request_follow_up",
+        "confirmation_policy": "submitted_until_controller_response",
+        "discovery_requirement": "not_required_for_data_subject_request",
+        "processing_days": 30,
+        "policy_url": "https://www.emetriq.com/datenschutz/",
+        "policy_revision": "reviewed-2025-04",
+        "last_verified": "2026-07-12"
+      },
+      "notes": "The official privacy notice directs data-subject rights to datenschutz@emetriq.com. RightOut initially discloses only the subject-controlled contact email and country. Because advertising data may be pseudonymous, the controller may need proportionate follow-up context; RightOut never invents or pre-emptively discloses extra identifiers."
+    },
+    {
+      "id": "edaa_yoc",
+      "name": "EDAA YourOnlineChoices",
+      "category": "preference_service",
+      "process_class": "eu_advertising_preference",
+      "jurisdictions": ["EU", "EEA"],
+      "official_url": "https://www.youronlinechoices.eu/",
+      "official_domains": ["youronlinechoices.eu", "edaa.eu"],
+      "lane": "guided_flow",
+      "required_fields": ["browser_storage"],
+      "prerequisites": ["human_browser_action", "repeat_per_browser_or_device", "retain_preference_cookie"],
+      "approval_gate": "provider_write",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://edaa.eu/",
+          "title": "European Interactive Digital Advertising Alliance",
+          "publisher": "EDAA",
+          "license_scope": "official_consumer_choice_scope_facts_only",
+          "last_verified": "2026-07-12"
+        },
+        {
+          "url": "https://www.youronlinechoices.eu/uk/protecting-your-privacy",
+          "title": "Protecting Your Privacy",
+          "publisher": "YourOnlineChoices",
+          "license_scope": "official_cookie_and_participant_scope_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "participating_companies_current_browser",
+        "erasure_semantics": "preference_only_not_controller_erasure",
+        "one_click_level": "multi_company_one_stop_preference",
+        "official_action_url": "https://www.youronlinechoices.eu/"
+      },
+      "notes": "Pan-European one-stop preference control for participating online-advertising companies. It turns tailored advertising on or off through browser storage. It is not a universal data-broker registry and is not evidence of controller-wide erasure."
+    },
+    {
+      "id": "emetriq_optout",
+      "name": "emetriq browser opt-out",
+      "category": "preference_service",
+      "process_class": "eu_advertising_preference",
+      "jurisdictions": ["EU", "EEA", "DE"],
+      "official_url": "https://www.emetriq.com/opt-out/",
+      "official_domains": ["emetriq.com"],
+      "lane": "guided_flow",
+      "required_fields": ["browser_storage"],
+      "prerequisites": ["human_browser_action", "repeat_per_browser_or_device", "retain_preference_cookie"],
+      "approval_gate": "provider_write",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.emetriq.com/opt-out/",
+          "title": "emetriq Opt-Out",
+          "publisher": "emetriq GmbH",
+          "license_scope": "official_browser_scope_and_effect_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "emetriq_current_browser",
+        "erasure_semantics": "browser_opt_out_then_short_term_unlinked_data_deletion",
+        "one_click_level": "single_controller_browser_button",
+        "official_action_url": "https://www.emetriq.com/opt-out/"
+      },
+      "notes": "The official control stops further emetriq interest-profile collection in the current browser and relies on a retained opt-out cookie. Previously linked data can no longer be assigned to that browser ID and is described as automatically deleted after a short period; this is not controller-wide person-level proof."
+    },
+    {
+      "id": "criteo_eu",
+      "name": "Criteo EU rights portal",
+      "category": "data_broker",
+      "process_class": "eu_controller_portal_erasure",
+      "jurisdictions": ["EU", "EEA", "FR"],
+      "official_url": "https://www.criteo.com/privacy/your-rights/",
+      "official_domains": ["criteo.com"],
+      "lane": "operator_browser",
+      "required_fields": ["contact_email"],
+      "prerequisites": ["subject_authorization", "human_form_review", "controller_form_submission"],
+      "approval_gate": "send_request",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.criteo.com/privacy/your-rights/",
+          "title": "Your rights",
+          "publisher": "Criteo",
+          "license_scope": "official_gdpr_portal_and_rights_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_portal_selected_right",
+        "erasure_semantics": "controller_erasure_request_not_yet_confirmed",
+        "one_click_level": "single_controller_form_not_one_click",
+        "official_action_url": "https://www.criteo.com/privacy/your-rights/"
+      },
+      "notes": "Criteo distinguishes consent withdrawal, Article 17 erasure, Article 21 objection, and access. The official page routes erasure to a controller form, so RightOut keeps this human-only until a deterministic form contract is independently evidenced."
+    },
+    {
+      "id": "zeotap_eu",
+      "name": "Zeotap EU rights portal",
+      "category": "data_broker",
+      "process_class": "eu_controller_portal_erasure",
+      "jurisdictions": ["EU", "EEA", "DE"],
+      "official_url": "https://zeotap.com/privacy-policy/",
+      "official_domains": ["zeotap.com", "privacy.zeotap.com"],
+      "lane": "operator_browser",
+      "required_fields": ["cookie_id_or_mobile_advertising_id"],
+      "prerequisites": ["subject_authorization", "human_portal_or_app_action", "relevant_cookie_id_or_mobile_advertising_id"],
+      "approval_gate": "send_request",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://zeotap.com/privacy-policy/",
+          "title": "Zeotap Privacy Policy",
+          "publisher": "Zeotap",
+          "license_scope": "official_identifier_and_erasure_channel_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_data_linked_to_supplied_cookie_or_ad_id",
+        "erasure_semantics": "controller_portal_erasure_request_not_yet_confirmed",
+        "one_click_level": "single_controller_portal_or_app_not_one_click",
+        "official_action_url": "https://privacy.zeotap.com/"
+      },
+      "notes": "Zeotap provides a website portal for Cookie-ID data and a mobile rights app for Ad-ID data. Because the relevant identifier must be obtained in the subject's browser or device, this remains human-only and no cross-identifier completeness is claimed."
+    },
+    {
       "id": "truepeoplesearch",
       "name": "TruePeopleSearch",
       "category": "people_search",
@@ -233,6 +479,7 @@
       "id": "beenverified",
       "name": "BeenVerified",
       "category": "people_search",
+      "process_class": "us_people_search_removal",
       "jurisdictions": [
         "US",
         "US-CA"
@@ -291,6 +538,7 @@
         "request_kinds": [
           "delete_and_opt_out"
         ],
+        "template_id": "us_delete_opt_out_v1",
         "recipient": "privacy@beenverified.com",
         "smtp_recipient_domain": "beenverified.com",
         "disclosure_fields": [
@@ -304,6 +552,8 @@
         ],
         "identity_verification": "broker_may_request_follow_up",
         "confirmation_policy": "submitted_until_later_rescan",
+        "discovery_requirement": "prior_discovery_required",
+        "processing_days": 14,
         "policy_url": "https://www.beenverified.com/faq/privacy/",
         "policy_revision": "2025-10-21",
         "last_verified": "2026-07-12"
@@ -337,6 +587,7 @@
       "id": "intelius",
       "name": "Intelius",
       "category": "people_search",
+      "process_class": "us_people_search_removal",
       "jurisdictions": ["US"],
       "official_url": "https://www.intelius.com/",
       "official_domains": ["intelius.com"],
@@ -359,14 +610,16 @@
         "supported": true,
         "channel": "browser_form",
         "request_kinds": ["delete_and_opt_out"],
+        "template_id": "us_delete_opt_out_v1",
         "form_url": "https://suppression.peopleconnect.us/",
         "allowed_form_domains": ["peopleconnect.us"],
         "disclosure_fields": ["contact_email"],
         "eligible_jurisdictions": ["US"],
         "identity_verification": "email_control_then_subject_selection",
         "confirmation_policy": "verification_pending_until_email_confirmed",
+        "discovery_requirement": "prior_discovery_required",
         "policy_url": "https://suppression.peopleconnect.us/privacy-center",
-        "policy_revision": "2026-07-12",
+        "policy_revision": "reviewed-2026-07-12",
         "last_verified": "2026-07-12",
         "form_recipe": {
           "recipe_version": 1,

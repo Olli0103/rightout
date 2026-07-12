@@ -12,13 +12,13 @@ Primary product references:
 
 Claims from commercial pages describe vendor offerings; RightOut does not independently verify their effectiveness or private-database coverage.
 
-| Capability | RightOut 0.4.0 | Hermes Unbroker | Managed services | Result |
+| Capability | RightOut 0.5.0 | Hermes Unbroker | Managed services | Result |
 |---|---|---|---|---|
 | Multiple subjects | Up to 20 opaque SecretRef profiles | consented dossiers | family/team tiers vary | minimum parity |
 | Discovery vectors | name/aliases, current/prior location/address, email, phone via Brave | dossier-driven search | broad scans claimed | minimum class parity; RightOut indirect |
-| Broker breadth | 22 people-search catalog entries; 21 Brave lanes | 22 current broker entries | hundreds claimed by some vendors | not breadth parity |
+| Broker breadth | 31 catalog entries: 22 people-search plus 9 legal/EU/preference/monitoring entries; 21 Brave lanes | 22 current broker entries | hundreds claimed by some vendors | not breadth parity |
 | Deterministic ledger/queue | durable encrypted state-directory cases, due dates, clusters, proof refs | ledger and queue | dashboard/status tracking | minimum parity |
-| Email removal | one catalog-locked lane | one email lane | broad | capability parity, not breadth |
+| Email removal | three catalog-locked lanes: one US, two EU | one email lane | broad | capability parity, not breadth |
 | Browser form | one closed sandbox-browser recipe | 20 web-form lanes | broad/manual automation | capability parity, much narrower |
 | Phone lane | human task only | one phone lane | specialist handling varies | safe human parity only |
 | CAPTCHA/ID | fail closed to human task | human digest/manual work | human specialists | minimum parity |
@@ -29,12 +29,14 @@ Claims from commercial pages describe vendor offerings; RightOut does not indepe
 | Native per-action approval | every live read/write gets `allow-once` | standing authorization workflow | vendor consent | RightOut stricter |
 | Dashboard/app | PII-safe reports and read tools only | CLI/agent workflow | usually yes | missing UI parity |
 | Custom removals/team service | human tasks only | human digest | offered by some vendors | not parity |
+| EU legal/process semantics | fixed GDPR request kind, country consistency, 30-day reminder for the one-month response rule, controller-response review | no separate EU process taxonomy evidenced in reviewed skill | Incogni says it uses GDPR/CCPA requests and recurring follow-up | RightOut explicit and narrow |
+| EU “one click” distinction | EDAA/emetriq preference controls separated from erasure; Criteo/Zeotap portals human-only | not evidenced in reviewed skill | managed services abstract per-broker processes | RightOut prevents false deletion claims |
 
 ## Clean-room boundary
 
 RightOut adopts product capability classes, not Unbroker implementation or broker data. It does not copy Hermes code, templates, prose, broker records, BADBOOL material, privacy-guide lists, or commercial inventories. RightOut catalog provenance is limited to official broker/government facts with original notes and semantic validation.
 
-The official Unbroker reference currently has broader immediately executable operations: 20 web-form, one email, and one phone lane. RightOut has one email and one form lane; other brokers are still scan or human work. Therefore the accurate claim is **minimum workflow feature parity**, not broker-lane, effectiveness, managed-operations, or commercial-service parity.
+The official Unbroker reference at the reviewed commit has broader immediately executable people-search operations: 20 web-form, one email, and one phone lane. RightOut has one US email, one US form, and two EU controller-email lanes; other brokers are still scan, portal, preference, or human work. Managed services additionally claim much broader inventories, dashboards, recurring submissions, screenshot/proof workflows, compliance scoring, custom removals, and human escalation. Therefore the accurate claim is **minimum workflow feature parity**, not broker-lane, effectiveness, managed-operations, or commercial-service parity.
 
 ## Approval difference
 
