@@ -24,42 +24,6 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def checkout_steps_are_hardened(text: str) -> bool:
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
-        match = re.match(r"^(\s*)-\s+(.+)$", line)
-        if not match:
-            continue
-        step_indent = len(match.group(1))
-        block: list[tuple[int, str]] = [(step_indent + 2, match.group(2).strip())]
-        for nested in lines[index + 1:]:
-            if not nested.strip():
-                continue
-            nested_indent = len(nested) - len(nested.lstrip())
-            if nested_indent <= step_indent:
-                break
-            block.append((nested_indent, nested.strip()))
-
-        direct_keys = [(offset, value) for offset, value in block if offset == step_indent + 2]
-        uses = next((value.removeprefix("uses:").strip().strip("'\"") for _, value in direct_keys if value.startswith("uses:")), None)
-        if not uses or not uses.startswith("actions/checkout@"):
-            continue
-
-        with_index = next((position for position, (offset, value) in enumerate(block) if offset == step_indent + 2 and value == "with:"), None)
-        if with_index is None:
-            return False
-        with_indent = block[with_index][0]
-        persisted = False
-        for offset, value in block[with_index + 1:]:
-            if offset <= with_indent:
-                break
-            if offset == with_indent + 2 and value == "persist-credentials: false":
-                persisted = True
-        if not persisted:
-            return False
-    return True
-
-
 def release_files() -> list[Path]:
     files = []
     for path in ROOT.rglob("*"):
@@ -572,6 +536,17 @@ def main() -> None:
 
     workflow_paths = [ROOT / ".github/workflows/ci.yml", ROOT / ".github/workflows/release.yml"]
     workflows = {path: path.read_text(encoding="utf-8") for path in workflow_paths}
+    workflow_validation = subprocess.run(
+        ["node", "scripts/validate-workflows.mjs", *[str(path) for path in workflow_paths]],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if workflow_validation.returncode != 0:
+        detail = workflow_validation.stderr.strip() or workflow_validation.stdout.strip()
+        fail(errors, f"workflow structural validation failed: {detail}")
     workflow = workflows[workflow_paths[0]]
     release_workflow = workflows[workflow_paths[1]]
     if "npm audit --omit=dev --audit-level=high" not in workflow:
@@ -589,8 +564,6 @@ def main() -> None:
         or any(not valid_local_use(value) for value in local_uses)
     ):
         fail(errors, "CI actions must be pinned to full commit SHAs")
-    if not all(checkout_steps_are_hardened(text) for text in workflows.values()):
-        fail(errors, "every checkout action must disable persisted credentials")
     for invariant in [
         "needs: [test-matrix, installer, openclaw-compatibility]",
         "uses: ./.github/workflows/release.yml",

@@ -44,7 +44,7 @@ v0.6.0 ten-of-ten claim.
 
 ## Current v0.6.0 candidate
 
-Current evidence: 49/49 local Python tests, 125/125 local Node tests, TypeScript
+Current evidence: 50/50 local Python tests, 125/125 local Node tests, TypeScript
 typecheck and build, skill validator, schema-v6 catalog/provenance checks,
 release checker, and dependency audit. PR CI additionally passes Ubuntu/macOS,
 Node 22/24, Python 3.11/3.12, installer mutation tests, and packaged runtime

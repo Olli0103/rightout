@@ -25,14 +25,14 @@ gated on merged-main/tag CI, release assets, checksums, and signed attestation.
 
 - TypeScript typecheck;
 - 125/125 Node tests;
-- 49/49 Python tests including installer mutation/rollback and workflow-parser adversarial cases;
+- 50/50 Python tests including installer mutation/rollback and workflow-parser adversarial cases;
 - schema-v6 catalog validator with 56 entries and policy-matched channel
   evidence for executable controller emails;
 - provenance digest with 61 primary-source fact records, catalog hash
   `4a3b373c7420cb4060d3ed91cc22cbf1f16c1fd010aa98f6063c01a210a49185`,
   and normalized source-fact hash
   `2d51eface0d87ab268f9484929c0bc995361325228d4fdd891a6867e34de9f42`;
-- release checker across 115 files;
+- release checker across 116 files;
 - production dependency audit with zero vulnerabilities;
 - clean `git diff --check`.
 

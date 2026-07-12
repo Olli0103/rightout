@@ -38,7 +38,8 @@
     "@types/node": "24.10.1",
     "@types/nodemailer": "^8.0.1",
     "openclaw": "2026.6.11",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "yaml": "2.9.0"
   },
   "openclaw": {
     "extensions": [
