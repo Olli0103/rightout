@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import { imapTransportDigest } from "../../lib/imap.mjs";
 import { removalProfileDigest } from "../../lib/removal.mjs";
@@ -23,7 +24,7 @@ const profile = {
   country: "US",
   contactEmail: "avery@example.invalid",
   jurisdictions: ["US", "US-CA"],
-  consent: { authorized: true, recordedAt: "2026-07-12T08:00:00Z", scope: ["broker_removal", "scan"] },
+  consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["broker_removal", "scan"] },
 };
 const profilePayload = JSON.stringify(profile);
 const imap = { host: "imap.gmail.com", port: 993, secure: true, username: profile.contactEmail, password: "app-password", address: profile.contactEmail };

@@ -10,6 +10,7 @@ const SAFE_EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-
 const SAFE_PHONE = /^\+?[0-9][0-9 .()-]{5,30}$/;
 const SAFE_JURISDICTION = /^(?:EU|EEA|[A-Z]{2}(?:-[A-Z0-9]{2,3})?)$/;
 const MAX_SEARCH_VECTORS = 12;
+const MAX_CONSENT_DURATION_MS = 365 * 24 * 60 * 60_000;
 function cleanInput(value, label, min, max) {
     if (typeof value !== "string") {
         throw new Error(`invalid_${label}`);
@@ -23,7 +24,7 @@ function cleanInput(value, label, min, max) {
 function cleanScanConsent(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("subject_consent_required");
-    const allowed = new Set(["authorized", "recordedAt", "scope"]);
+    const allowed = new Set(["authorized", "recordedAt", "validUntil", "scope"]);
     if (Object.keys(value).some((key) => !allowed.has(key)) || value.authorized !== true) {
         throw new Error("subject_consent_required");
     }
@@ -31,6 +32,11 @@ function cleanScanConsent(value) {
     const timestamp = Date.parse(recordedAt);
     if (!Number.isFinite(timestamp) || timestamp > Date.now() + 300_000)
         throw new Error("subject_consent_required");
+    const validUntil = cleanInput(value.validUntil, "consent", 20, 35);
+    const expiry = Date.parse(validUntil);
+    if (!Number.isFinite(expiry) || expiry <= Date.now() || expiry <= timestamp || expiry - timestamp > MAX_CONSENT_DURATION_MS) {
+        throw new Error("subject_consent_required");
+    }
     if (!Array.isArray(value.scope) || value.scope.length < 1 || value.scope.length > 8) {
         throw new Error("subject_consent_required");
     }
@@ -40,7 +46,7 @@ function cleanScanConsent(value) {
         || !scope.includes("scan")) {
         throw new Error("subject_consent_required");
     }
-    return { authorized: true, recordedAt: new Date(timestamp).toISOString(), scope: scope.sort() };
+    return { authorized: true, recordedAt: new Date(timestamp).toISOString(), validUntil: new Date(expiry).toISOString(), scope: scope.sort() };
 }
 function cleanBrokerIds(values) {
     if (!Array.isArray(values) || values.length < 1 || values.length > 2) {
@@ -424,6 +430,9 @@ async function guardedJsonPost(guardedFetch, url, body, apiKey, signal) {
     }
 }
 export function validatePublicToolInput(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["profileId", "brokerIds"].includes(key))) {
+        throw new Error("invalid_scan_input");
+    }
     return {
         profileId: cleanProfileId(input?.profileId),
         brokerIds: cleanBrokerIds(input?.brokerIds),
@@ -431,12 +440,12 @@ export function validatePublicToolInput(input) {
 }
 export function validateLiveScanInput(input) {
     return {
-        ...validatePublicToolInput(input),
+        ...validatePublicToolInput({ profileId: input?.profileId, brokerIds: input?.brokerIds }),
         subject: parseSubjectProfile(input?.subject),
     };
 }
 export function validateOperatorAttestations(input, value) {
-    const publicInput = validatePublicToolInput(input);
+    const publicInput = validatePublicToolInput({ profileId: input?.profileId, brokerIds: input?.brokerIds });
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("rightout_operator_attestation_required");
     }

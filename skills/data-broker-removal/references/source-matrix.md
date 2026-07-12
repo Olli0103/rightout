@@ -27,11 +27,16 @@ Review date: 2026-07-12.
 
 - `https://www.beenverified.com/faq/privacy/`: current official deletion/opt-out email channel, identity-verification caveat, and policy revision facts.
 - `https://oag.ca.gov/data-broker/registration/186586`: historical California registration used only to corroborate the email lane; not a current-policy substitute and not copied into the catalog.
-- `https://adsquare.com/privacy` and `/privacy/platform-privacy-policy`: official EU controller, rights channel, email, and minimum identifier facts.
+- `https://fullenrich.com/privacy-policy`, `https://marketing.dealfront.com/privacy-information-for-data-subjects-en.pdf`, `https://www.surfe.com/privacy-policy/`, and `https://6sense.com/privacy-policy/`: official business-contact-data scope, erasure rights, and email-submission facts.
 - `https://www.emetriq.com/datenschutz/` and `/opt-out/`: official rights email plus browser-scoped preference effect.
 - `https://edaa.eu/` and `https://www.youronlinechoices.eu/`: participating-company browser advertising-preference scope.
 - `https://www.criteo.com/privacy/your-rights/`: official controller form routing by GDPR right.
 - `https://zeotap.com/privacy-policy/` and `https://privacy.zeotap.com/`: official Cookie-ID portal and Ad-ID app routing.
+- `https://www.quantcast.com/privacy-choices` and `/privacy/data-subject-rights/`: current EU rights and controller-portal routing.
+- `https://www.lotame.com/privacy/services-privacy-notice/` and `https://legal.epsilon.com/dsr/`: current controller/process scope, identifier retention, verification, and rights-form routing.
+- `https://id5.io/trust/privacy-policy` and `https://id5-sync.com/privacy/`: current EEA/UK rights and official DSAR/privacy-portal routing.
+- Official EU controller policies for FullEnrich, emetriq, Dealfront, Snov.io, Kaspr, StackAdapt, Bombora, Seedtag, Audiencerate, Lead411, Surfe, GumGum, Smaato, Teads, MiQ, 6sense, Cognism, and Lusha: current rights-channel, recipient-domain, and minimum-identification facts recorded individually in catalog schema v6.
+- Official US privacy policies for Amplemarket, SalesIntel, LeadIQ, Wiza, SignalHire, Hunter, Seamless.AI, and ContactOut: current California deletion/opt-out channel and controller-contact facts recorded individually in catalog schema v6.
 
 No real subject query or broker request was run during research/testing.
 
@@ -43,7 +48,7 @@ No real subject query or broker request was run during research/testing.
 - `https://www.edpb.europa.eu/sme/be-compliant/respect-individuals-rights_en`: electronic request, one-month response, extension, identity-doubt, erasure, recipient, and objection guidance.
 - `https://www.edpb.europa.eu/sme/be-compliant/process-personal-data-lawfully_en`: consent-withdrawal guidance.
 
-The generic legal reference remains human-only. Catalog-locked controller channels may be automated only through the separately approved plugin path described in `eu-removal.md`.
+The generic legal reference remains human-only. Catalog-locked controller channels may be automated only through the separately approved plugin paths described in `eu-removal.md` and `us-removal.md`.
 
 ## Product architecture and UX benchmark
 

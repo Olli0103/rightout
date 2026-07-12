@@ -43,6 +43,27 @@ const CaseParameters = Type.Object({
         description: "Opaque operator-configured profile reference. Contains no personal data.",
     }),
 }, { additionalProperties: false });
+const ControllerOutcomeParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU or US controller whose response was reviewed by the operator." }),
+    outcome: Type.Union([
+        Type.Literal("processing_acknowledged"),
+        Type.Literal("erasure_confirmed"),
+        Type.Literal("partial_erasure"),
+        Type.Literal("deletion_confirmed"),
+        Type.Literal("partial_deletion"),
+        Type.Literal("identity_required"),
+        Type.Literal("request_rejected"),
+    ], { description: "Human-reviewed controller response outcome; never inferred from SMTP acceptance." }),
+}, { additionalProperties: false });
+const SubmissionReconciliationParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog broker with a durable ambiguous submission intent." }),
+    outcome: Type.Union([
+        Type.Literal("provider_write_not_started"),
+        Type.Literal("provider_write_confirmed"),
+    ], { description: "Operator-reviewed reconciliation result; never inferred by the agent." }),
+}, { additionalProperties: false });
 const VerificationPollParameters = Type.Object({
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
     brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog broker with a verified IMAP lane." }),
@@ -112,6 +133,79 @@ function isSecretRef(value) {
         && typeof ref.provider === "string"
         && typeof ref.id === "string";
 }
+function validateControllerOutcomeInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("invalid_controller_outcome");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome"].includes(key)))
+        throw new Error("invalid_controller_outcome");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("invalid_controller_outcome");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId))
+        throw new Error("invalid_controller_outcome");
+    if (!["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"].includes(String(input.outcome))) {
+        throw new Error("invalid_controller_outcome");
+    }
+    return input;
+}
+function controllerOutcomeScopeBinding(input, broker) {
+    return JSON.stringify(["controller-outcome", input, broker]);
+}
+function validateSubmissionReconciliationInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("invalid_submission_reconciliation");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome"].includes(key)))
+        throw new Error("invalid_submission_reconciliation");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("invalid_submission_reconciliation");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId))
+        throw new Error("invalid_submission_reconciliation");
+    if (!["provider_write_not_started", "provider_write_confirmed"].includes(String(input.outcome)))
+        throw new Error("invalid_submission_reconciliation");
+    return input;
+}
+function resolveSubmissionReconciliationBroker(catalog, input) {
+    const rows = Array.isArray(catalog.brokers) ? catalog.brokers : [];
+    const raw = rows.find((value) => value && typeof value === "object" && !Array.isArray(value) && value.id === input.brokerId);
+    if (!raw || raw.removal?.supported !== true || !["email", "browser_form"].includes(raw.removal.channel)) {
+        throw new Error("unsupported_submission_reconciliation_lane");
+    }
+    return {
+        id: raw.id,
+        name: String(raw.name),
+        channel: raw.removal.channel,
+        requestKind: String(raw.removal.request_kinds?.[0]),
+        processingDays: Number(raw.removal.processing_days ?? 14),
+    };
+}
+function resolveControllerOutcomeBroker(catalog, input) {
+    const rows = Array.isArray(catalog.brokers) ? catalog.brokers : [];
+    const raw = rows.find((value) => value && typeof value === "object" && !Array.isArray(value) && value.id === input.brokerId);
+    if (!raw || raw.removal?.confirmation_policy !== "submitted_until_controller_response") {
+        throw new Error("unsupported_controller_outcome_lane");
+    }
+    const requestKind = raw.process_class === "eu_controller_email_erasure"
+        ? "gdpr_erasure_objection"
+        : raw.process_class === "us_data_broker_email_deletion"
+            ? "delete_and_opt_out"
+            : null;
+    if (!requestKind)
+        throw new Error("unsupported_controller_outcome_lane");
+    const euOnly = new Set(["erasure_confirmed", "partial_erasure"]);
+    const usOnly = new Set(["deletion_confirmed", "partial_deletion"]);
+    if ((raw.process_class === "eu_controller_email_erasure" && usOnly.has(input.outcome))
+        || (raw.process_class === "us_data_broker_email_deletion" && euOnly.has(input.outcome)))
+        throw new Error("unsupported_controller_outcome_lane");
+    return resolveRemovalCatalogEntry(catalog, {
+        profileId: input.profileId,
+        brokerId: input.brokerId,
+        requestKind,
+    });
+}
+function submissionReconciliationScopeBinding(input, broker) {
+    return JSON.stringify(["submission-reconciliation", input, broker]);
+}
 function secretFinding(rightout, path, title) {
     const parts = path.split(".");
     let value = rightout;
@@ -173,6 +267,35 @@ export default definePluginEntry({
                     deleted += 1;
             }
             return deleted;
+        }
+        async function acquireSubmissionDedupe(dedupeKey, input, channel) {
+            const record = {
+                createdAt: new Date().toISOString(), channel, profileId: input.profileId, brokerId: input.brokerId,
+                phase: "dedupe_reserved_before_case_intent",
+            };
+            if (await submissionDedupe.registerIfAbsent(dedupeKey, record))
+                return;
+            const existing = await submissionDedupe.lookup(dedupeKey);
+            const profile = await caseLedger.load(input.profileId);
+            const brokerCase = profile.brokers?.[input.brokerId];
+            const state = brokerCase?.state;
+            const preIntentOrphan = existing?.phase === "dedupe_reserved_before_case_intent"
+                && !["submission_pending", "submission_uncertain", "submitted", "verification_pending", "awaiting_processing", "confirmed_removed"].includes(state);
+            const reconciledNotStarted = existing?.phase === "durable_case_intent_reserved"
+                && state === "action_selected"
+                && brokerCase?.submission_outcome === "human_reviewed_not_started";
+            if (preIntentOrphan || reconciledNotStarted) {
+                await submissionDedupe.delete(dedupeKey);
+                if (await submissionDedupe.registerIfAbsent(dedupeKey, record))
+                    return;
+            }
+            throw new Error("rightout_duplicate_removal_request");
+        }
+        async function markSubmissionDedupeIntentReserved(dedupeKey, input, channel) {
+            await submissionDedupe.register(dedupeKey, {
+                createdAt: new Date().toISOString(), channel, profileId: input.profileId, brokerId: input.brokerId,
+                phase: "durable_case_intent_reserved",
+            });
         }
         function assertConfiguredProfile(profileId) {
             if (!/^profile_[a-f0-9]{16,32}$/.test(profileId))
@@ -361,6 +484,8 @@ export default definePluginEntry({
                 "rightout_open_verification",
                 "rightout_direct_rescan",
                 "rightout_purge_subject_state",
+                "rightout_record_controller_outcome",
+                "rightout_reconcile_submission",
             ].filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
             if (missingDeny.length) {
                 findings.push({
@@ -382,6 +507,8 @@ export default definePluginEntry({
                 "rightout_open_verification",
                 "rightout_direct_rescan",
                 "rightout_purge_subject_state",
+                "rightout_record_controller_outcome",
+                "rightout_reconcile_submission",
             ]);
             if (!approvalTools.has(event.toolName))
                 return;
@@ -416,6 +543,65 @@ export default definePluginEntry({
                 }
                 catch {
                     return { block: true, blockReason: "invalid RightOut subject-state purge scope" };
+                }
+            }
+            if (event.toolName === "rightout_record_controller_outcome") {
+                try {
+                    const input = validateControllerOutcomeInput(event.params);
+                    const broker = resolveControllerOutcomeBroker(catalog, input);
+                    if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.processClass) || broker.confirmationPolicy !== "submitted_until_controller_response") {
+                        throw new Error("unsupported_controller_outcome_lane");
+                    }
+                    const binding = controllerOutcomeScopeBinding(input, broker);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Record reviewed controller outcome",
+                            description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed the official controller response and record '${input.outcome}'. This can change removal status; no provider write.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            timeoutBehavior: "deny",
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "invalid, unsupported, or unreviewed RightOut controller outcome" };
+                }
+            }
+            if (event.toolName === "rightout_reconcile_submission") {
+                try {
+                    const input = validateSubmissionReconciliationInput(event.params);
+                    const broker = resolveSubmissionReconciliationBroker(catalog, input);
+                    const binding = submissionReconciliationScopeBinding(input, broker);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Reconcile uncertain provider write",
+                            description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed provider-side evidence and record '${input.outcome}'. This changes retry safety; no provider write.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            timeoutBehavior: "deny",
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "invalid, unsupported, or unreviewed RightOut submission reconciliation" };
                 }
             }
             if (event.toolName === "rightout_live_scan") {
@@ -772,10 +958,17 @@ export default definePluginEntry({
                 const dedupeKey = removalDedupeKey(input);
                 if (submittedScopes.has(dedupeKey))
                     throw new Error("rightout_duplicate_removal_request");
-                if (!await submissionDedupe.registerIfAbsent(dedupeKey, {
-                    createdAt: new Date().toISOString(), channel: "smtp_email", profileId: input.profileId, brokerId: input.brokerId,
-                })) {
-                    throw new Error("rightout_duplicate_removal_request");
+                await acquireSubmissionDedupe(dedupeKey, input, "smtp_email");
+                try {
+                    await caseLedger.reserveSubmission(input.profileId, input.brokerId, {
+                        channel: "smtp_email",
+                        discoveryRequirement: broker.discoveryRequirement,
+                    });
+                    await markSubmissionDedupeIntentReserved(dedupeKey, input, "smtp_email");
+                }
+                catch (error) {
+                    await submissionDedupe.delete(dedupeKey);
+                    throw error;
                 }
                 submittedScopes.set(dedupeKey, Number.POSITIVE_INFINITY);
                 try {
@@ -790,24 +983,45 @@ export default definePluginEntry({
                     });
                     submittedScopes.set(dedupeKey, Date.now() + duplicateCooldownMs);
                     let durableCaseRecorded = true;
+                    let durableSubmissionFinalized = true;
                     try {
                         const processingDays = Number(broker.processingDays ?? 14);
                         await caseLedger.recordRemoval(report, processingDays);
                     }
                     catch {
-                        durableCaseRecorded = false;
+                        durableSubmissionFinalized = false;
+                        try {
+                            await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, {
+                                channel: "smtp_email",
+                                reason: "accepted_write_ledger_finalize_failed",
+                            });
+                        }
+                        catch {
+                            durableCaseRecorded = false;
+                        }
                         api.logger.error("RightOut removal was submitted but its PII-safe case update failed");
                     }
-                    const trackedReport = { ...report, tracking: { durable_case_recorded: durableCaseRecorded } };
+                    const trackedReport = {
+                        ...report,
+                        state: durableSubmissionFinalized ? report.state : "submission_uncertain",
+                        tracking: { durable_case_recorded: durableCaseRecorded, submission_finalized: durableSubmissionFinalized },
+                    };
                     return { content: [{ type: "text", text: JSON.stringify(trackedReport) }], details: trackedReport };
                 }
                 catch (error) {
                     const code = error instanceof Error ? error.message : "";
-                    if (code === "rightout_removal_transport_failed" || code === "rightout_removal_not_accepted") {
+                    const possibleWrite = code === "rightout_removal_transport_failed" || code === "rightout_removal_not_accepted";
+                    if (possibleWrite) {
                         submittedScopes.set(dedupeKey, Date.now() + duplicateCooldownMs);
+                        await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, {
+                            channel: "smtp_email",
+                            reason: code,
+                        }).catch(() => api.logger.error("RightOut ambiguous email write could not be persisted"));
                     }
                     else {
                         submittedScopes.delete(dedupeKey);
+                        await caseLedger.releaseSubmission(input.profileId, input.brokerId, code || "provider_write_not_started")
+                            .catch(() => api.logger.error("RightOut unused email write intent could not be released"));
                         await submissionDedupe.delete(dedupeKey);
                     }
                     throw error;
@@ -848,10 +1062,17 @@ export default definePluginEntry({
                 const dedupeKey = removalDedupeKey(input);
                 if (submittedScopes.has(dedupeKey))
                     throw new Error("rightout_duplicate_removal_request");
-                if (!await submissionDedupe.registerIfAbsent(dedupeKey, {
-                    createdAt: new Date().toISOString(), channel: "browser_form", profileId: input.profileId, brokerId: input.brokerId,
-                })) {
-                    throw new Error("rightout_duplicate_removal_request");
+                await acquireSubmissionDedupe(dedupeKey, input, "browser_form");
+                try {
+                    await caseLedger.reserveSubmission(input.profileId, input.brokerId, {
+                        channel: "browser_form",
+                        discoveryRequirement: broker.discoveryRequirement,
+                    });
+                    await markSubmissionDedupeIntentReserved(dedupeKey, input, "browser_form");
+                }
+                catch (error) {
+                    await submissionDedupe.delete(dedupeKey);
+                    throw error;
                 }
                 submittedScopes.set(dedupeKey, Number.POSITIVE_INFINITY);
                 try {
@@ -866,14 +1087,28 @@ export default definePluginEntry({
                     });
                     submittedScopes.set(dedupeKey, Date.now() + duplicateCooldownMs);
                     let durableCaseRecorded = true;
+                    let durableSubmissionFinalized = true;
                     try {
                         await caseLedger.recordFormSubmission(report);
                     }
                     catch {
-                        durableCaseRecorded = false;
+                        durableSubmissionFinalized = false;
+                        try {
+                            await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, {
+                                channel: "browser_form",
+                                reason: "accepted_write_ledger_finalize_failed",
+                            });
+                        }
+                        catch {
+                            durableCaseRecorded = false;
+                        }
                         api.logger.error("RightOut submitted a browser form but its PII-safe case update failed");
                     }
-                    const trackedReport = { ...report, tracking: { durable_case_recorded: durableCaseRecorded } };
+                    const trackedReport = {
+                        ...report,
+                        state: durableSubmissionFinalized ? report.state : "submission_uncertain",
+                        tracking: { durable_case_recorded: durableCaseRecorded, submission_finalized: durableSubmissionFinalized },
+                    };
                     return { content: [{ type: "text", text: JSON.stringify(trackedReport) }], details: trackedReport };
                 }
                 catch (error) {
@@ -886,27 +1121,36 @@ export default definePluginEntry({
                     ]);
                     const reason = safeCodes.has(code) ? code : "rightout_form_failed";
                     const possibleWrite = ["rightout_browser_bridge_failed", "rightout_form_submission_unconfirmed"].includes(reason);
-                    if (possibleWrite)
+                    if (possibleWrite) {
                         submittedScopes.set(dedupeKey, Date.now() + duplicateCooldownMs);
+                        await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, {
+                            channel: "browser_form",
+                            reason,
+                        }).catch(() => api.logger.error("RightOut ambiguous form write could not be persisted"));
+                    }
                     else {
                         submittedScopes.delete(dedupeKey);
+                        await caseLedger.releaseSubmission(input.profileId, input.brokerId, reason)
+                            .catch(() => api.logger.error("RightOut unused form write intent could not be released"));
                         await submissionDedupe.delete(dedupeKey);
                     }
                     let durableCaseRecorded = true;
-                    try {
-                        await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
-                            evidenceKind: "human_task",
-                            reason,
-                        });
-                    }
-                    catch {
-                        durableCaseRecorded = false;
+                    if (!possibleWrite) {
+                        try {
+                            await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                                evidenceKind: "human_task",
+                                reason,
+                            });
+                        }
+                        catch {
+                            durableCaseRecorded = false;
+                        }
                     }
                     const report = {
                         report_version: 1,
                         subject_ref: input.profileId,
                         broker_id: input.brokerId,
-                        state: "human_task_queued",
+                        state: possibleWrite ? "submission_uncertain" : "human_task_queued",
                         reason,
                         possible_form_write: possibleWrite,
                         generated_at: new Date().toISOString(),
@@ -1175,6 +1419,100 @@ export default definePluginEntry({
                     config_profile_deleted: false,
                     provider_writes: 0,
                     next_action: "remove_the_subject_profile_secretref_from_openclaw_config_if_full_erasure_is_required",
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_record_controller_outcome",
+            label: "RightOut record controller outcome",
+            description: "Record one operator-reviewed EU or US controller response in the encrypted case ledger. Requires native allow-once approval and performs no provider write. SMTP acceptance alone is never sufficient.",
+            parameters: ControllerOutcomeParameters,
+            async execute(toolCallId, params) {
+                let input;
+                try {
+                    input = validateControllerOutcomeInput(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                const catalog = await catalogPromise;
+                const broker = resolveControllerOutcomeBroker(catalog, input);
+                pruneTransientState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_record_controller_outcome"
+                    || approval.binding !== controllerOutcomeScopeBinding(input, broker))
+                    throw new Error("rightout_approval_binding_failed");
+                assertConfiguredProfile(input.profileId);
+                const outcome = await caseLedger.recordControllerOutcome(input.profileId, input.brokerId, input.outcome, {
+                    id: broker.id,
+                    process_class: broker.processClass,
+                    removal: { confirmation_policy: broker.confirmationPolicy, processing_days: broker.processingDays },
+                });
+                const report = {
+                    report_version: 1,
+                    subject_ref: input.profileId,
+                    broker_id: input.brokerId,
+                    state: outcome.state,
+                    controller_outcome: input.outcome,
+                    generated_at: new Date().toISOString(),
+                    proof_references: [outcome.proof_reference],
+                    removal_confirmation_scope: outcome.confirmation_scope ?? null,
+                    operator_attestation: "native_openclaw_allow_once_human_review",
+                    provider_writes: 0,
+                    invariants: { raw_controller_response_in_report: false, raw_pii_in_report: false, smtp_acceptance_used_as_outcome: false },
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_reconcile_submission",
+            label: "RightOut reconcile submission",
+            description: "Record an operator-reviewed outcome for a durable pending or uncertain provider write. Requires native allow-once approval, performs no provider write, and is the only safe path back to retry eligibility.",
+            parameters: SubmissionReconciliationParameters,
+            async execute(toolCallId, params) {
+                let input;
+                try {
+                    input = validateSubmissionReconciliationInput(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                const catalog = await catalogPromise;
+                const broker = resolveSubmissionReconciliationBroker(catalog, input);
+                pruneTransientState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_reconcile_submission"
+                    || approval.binding !== submissionReconciliationScopeBinding(input, broker))
+                    throw new Error("rightout_approval_binding_failed");
+                assertConfiguredProfile(input.profileId);
+                const outcome = await caseLedger.reconcileSubmission(input.profileId, input.brokerId, input.outcome, {
+                    processingDays: broker.processingDays,
+                });
+                if (input.outcome === "provider_write_not_started") {
+                    const dedupeKey = removalDedupeKey({
+                        profileId: input.profileId,
+                        brokerId: input.brokerId,
+                        requestKind: broker.requestKind,
+                    });
+                    submittedScopes.delete(dedupeKey);
+                    await submissionDedupe.delete(dedupeKey);
+                }
+                const report = {
+                    report_version: 1,
+                    subject_ref: input.profileId,
+                    broker_id: input.brokerId,
+                    state: outcome.state,
+                    submission_channel: outcome.channel,
+                    reconciliation_outcome: input.outcome,
+                    generated_at: new Date().toISOString(),
+                    proof_references: [outcome.proof_reference],
+                    operator_attestation: "native_openclaw_allow_once_human_review",
+                    retry_allowed: input.outcome === "provider_write_not_started",
+                    provider_writes: 0,
+                    invariants: { raw_provider_evidence_in_report: false, raw_pii_in_report: false, agent_inference_used: false },
                 };
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },

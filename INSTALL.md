@@ -13,7 +13,7 @@ openclaw plugins inspect rightout --runtime --json
 openclaw plugins doctor
 ```
 
-`--force` updates an existing registration; `--link` is development-only. The installer packages and validates before installation, serializes concurrent changes, snapshots prior config/managed extension state, and rolls back if runtime inspection or plugin doctor fails.
+`--force` updates an existing registration; `--link` is development-only. The installer typechecks/builds (or syntax-checks a production-only package), packs the exact archive, installs it into an isolated OpenClaw home/state, verifies all twelve tools plus the approval hook and plugin doctor, and only then mutates the target installation. It serializes concurrent changes, snapshots prior config/managed extension state, and rolls back if real runtime inspection or plugin doctor fails.
 
 ## 2. Create SecretRefs out of band
 
@@ -34,18 +34,21 @@ Never ask an agent to create or display a real subject profile. A full logical p
   "consent": {
     "authorized": true,
     "recordedAt": "2026-07-12T08:00:00.000Z",
+    "validUntil": "2026-10-10T08:00:00.000Z",
     "scope": ["scan", "broker_removal"]
   }
 }
 ```
 
-For an EU/EEA controller lane, use the real ISO country in both `country` and `jurisdictions`, include `EU` or `EEA`, and keep the same recorded `broker_removal` consent. Adsquare additionally requires the subject's Mobile Advertising ID in the private profile:
+For an EU/EEA controller lane, use the applicable ISO country in both `country` and `jurisdictions`, include `EU` or `EEA`, and keep the same recorded `broker_removal` consent. The currently supported lanes require contact email and country; Lead411, 6sense, Cognism, and Lusha additionally require full name:
 
 ```json
-{"fullName":"Avery Example","city":"Berlin","region":"BE","country":"DE","contactEmail":"avery@example.invalid","mobileAdvertisingId":"12345678-1234-4234-9234-123456789abc","jurisdictions":["DE","EU","EEA"],"consent":{"authorized":true,"recordedAt":"2026-07-12T08:00:00.000Z","scope":["broker_removal"]}}
+{"fullName":"Avery Example","city":"Berlin","region":"BE","country":"DE","contactEmail":"avery@example.invalid","jurisdictions":["DE","EU","EEA"],"consent":{"authorized":true,"recordedAt":"2026-07-12T08:00:00.000Z","validUntil":"2026-10-10T08:00:00.000Z","scope":["broker_removal"]}}
 ```
 
-Do not add an advertising identifier for emetriq unless a later human follow-up is proportionate and independently authorized. Never put either profile into chat or tool parameters.
+Do not add extra identifiers unless a later human follow-up is proportionate and independently authorized. Never put either profile into chat or tool parameters.
+
+`validUntil` is mandatory, must be later than `recordedAt`, must still be in the future when the action executes, and may be at most 365 days after `recordedAt`. Shorter purpose-specific periods are preferable. Revocation is performed out of band by disabling/removing the SecretRef profile or replacing its consent payload; a cached approval never overrides the execute-time check.
 
 Configure the profile, Brave key, and a random durable-state encryption key of at least 32 characters as SecretRefs:
 
@@ -72,7 +75,7 @@ node scripts/compute-removal-bindings.mjs \
 
 The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. For a non-US profile, `scanProfileDigests` is intentionally empty because Brave people-search discovery is US-only. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. Changing or losing it intentionally makes existing cases, dedupe entries, and opaque handles unreadable; v0.5.0 has no key-rotation migration tool.
+Back up the state encryption key through the secret provider. RightOut 0.6.0 keeps the v1 encrypted-store schema and forced upgrades preserve it. Changing or losing the key intentionally fails closed and makes existing cases, dedupe entries, and opaque handles unreadable; there is no unsafe best-effort recovery or in-place key rotation. Purge old subject state before an intentional key replacement, or retain the old deployment/key until its cases are closed.
 
 ## 4. Configure exact attestations
 
@@ -90,10 +93,10 @@ Direct recheck scope, only after independently reviewing publisher terms and est
 {"rightoutDirectScanPolicyAccepted":true,"rightoutDirectScanPolicyVersion":"2026-07-12","subjectConsentReviewed":true,"publisherAccessAuthorized":true,"publisherTermsReviewed":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["truepeoplesearch","beenverified"]}
 ```
 
-Email removal scope (example authorizing BeenVerified plus the two EU controller lanes):
+Email removal scope (example authorizing BeenVerified plus selected EU controller lanes):
 
 ```json
-{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12-eu1","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["adsquare_eu","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
+{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12-eu1","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
 ```
 
 Browser-form scope (currently Intelius/PeopleConnect initiation):
@@ -119,12 +122,13 @@ Allow only needed RightOut tools in the applicable agent policy. Unless full-ope
   gateway: { tools: { deny: [
     "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
-    "rightout_purge_subject_state"
+    "rightout_purge_subject_state", "rightout_record_controller_outcome",
+    "rightout_reconcile_submission"
   ] } }
 }
 ```
 
-Configure an interactive plugin approval route; without one, calls fail closed. For recurring work, create an official OpenClaw Cron job that invokes `rightout_due_rechecks` for an exact opaque profile and lets later live actions request their own approvals. The plugin cannot and does not self-schedule.
+Configure an interactive plugin approval route; without one, calls fail closed. For recurring work, create an official OpenClaw Cron job that invokes `rightout_due_rechecks` for an exact opaque profile, then `rightout_next_actions` to resume the catalog-bound campaign. Every later live action requests its own approval. If `campaign.resume_mode` is `reconcile_before_external_writes`, the operator must first inspect provider-side evidence and approve `rightout_reconcile_submission`; the agent must not infer the result. The plugin cannot and does not self-schedule.
 
 ## 6. Readiness gate
 

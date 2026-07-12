@@ -3,6 +3,7 @@ const SAFE_ID = /^[a-z0-9_]{2,24}$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
 const SAFE_JURISDICTION = /^(?:EU|EEA|[A-Z]{2}(?:-[A-Z0-9]{2,3})?)$/;
+const MAX_CONSENT_DURATION_MS = 365 * 24 * 60 * 60_000;
 const SAFE_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SAFE_SHA256 = /^[a-f0-9]{64}$/;
 const SAFE_PHONE = /^\+?[0-9][0-9 .()-]{5,30}$/;
@@ -68,7 +69,7 @@ function cleanJurisdictions(values) {
 function cleanConsent(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("subject_consent_required");
-    const allowed = new Set(["authorized", "recordedAt", "scope"]);
+    const allowed = new Set(["authorized", "recordedAt", "validUntil", "scope"]);
     if (Object.keys(value).some((key) => !allowed.has(key)) || value.authorized !== true) {
         throw new Error("subject_consent_required");
     }
@@ -76,6 +77,11 @@ function cleanConsent(value) {
     const timestamp = Date.parse(recordedAt);
     if (!Number.isFinite(timestamp) || timestamp > Date.now() + 300_000)
         throw new Error("subject_consent_required");
+    const validUntil = cleanString(value.validUntil, "consent", 20, 35);
+    const expiry = Date.parse(validUntil);
+    if (!Number.isFinite(expiry) || expiry <= Date.now() || expiry <= timestamp || expiry - timestamp > MAX_CONSENT_DURATION_MS) {
+        throw new Error("subject_consent_required");
+    }
     if (!Array.isArray(value.scope) || value.scope.length < 1 || value.scope.length > 8) {
         throw new Error("subject_consent_required");
     }
@@ -85,9 +91,12 @@ function cleanConsent(value) {
     }
     if (!scope.includes("broker_removal"))
         throw new Error("subject_consent_required");
-    return { authorized: true, recordedAt: new Date(timestamp).toISOString(), scope: scope.sort() };
+    return { authorized: true, recordedAt: new Date(timestamp).toISOString(), validUntil: new Date(expiry).toISOString(), scope: scope.sort() };
 }
 export function validateRemovalPublicToolInput(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["profileId", "brokerId", "requestKind"].includes(key))) {
+        throw new Error("invalid_removal_input");
+    }
     return {
         profileId: cleanProfileId(input?.profileId),
         brokerId: cleanBrokerId(input?.brokerId),
@@ -351,21 +360,28 @@ function cleanRemovalEntry(catalog, input) {
     if ((broker.category === "people_search" && discoveryRequirement !== "prior_discovery_required")
         || (broker.category === "data_broker" && discoveryRequirement !== "not_required_for_data_subject_request"))
         throw new Error("unsupported_removal_lane");
-    if ((broker.category === "people_search" && (input.requestKind !== "delete_and_opt_out"
+    const isPeopleSearch = broker.category === "people_search";
+    const isEuController = broker.category === "data_broker" && broker.process_class === "eu_controller_email_erasure";
+    const isUsDataBroker = broker.category === "data_broker" && broker.process_class === "us_data_broker_email_deletion";
+    if ((isPeopleSearch && (input.requestKind !== "delete_and_opt_out"
         || removal.confirmation_policy !== "submitted_until_later_rescan"
         || broker.process_class !== "us_people_search_removal"))
-        || (broker.category === "data_broker" && (input.requestKind !== "gdpr_erasure_objection"
-            || removal.confirmation_policy !== "submitted_until_controller_response"
-            || broker.process_class !== "eu_controller_email_erasure")))
+        || (isEuController && (input.requestKind !== "gdpr_erasure_objection"
+            || removal.confirmation_policy !== "submitted_until_controller_response"))
+        || (isUsDataBroker && (input.requestKind !== "delete_and_opt_out"
+            || removal.confirmation_policy !== "submitted_until_controller_response"))
+        || (!isPeopleSearch && !isEuController && !isUsDataBroker))
         throw new Error("unsupported_removal_lane");
     const processingDays = removal.processing_days;
     if (!Number.isInteger(processingDays)
-        || (broker.category === "people_search" && processingDays !== 14)
-        || (broker.category === "data_broker" && processingDays !== 30))
+        || (isPeopleSearch && processingDays !== 14)
+        || (isEuController && processingDays !== 30)
+        || (isUsDataBroker && processingDays !== 45))
         throw new Error("unsupported_removal_lane");
     const eligibleJurisdictions = cleanStringArray(removal.eligible_jurisdictions, "jurisdiction", SAFE_JURISDICTION, 12);
-    if ((broker.category === "people_search" && eligibleJurisdictions.join(",") !== "US-CA")
-        || (broker.category === "data_broker" && eligibleJurisdictions.join(",") !== "EEA,EU"))
+    if ((isPeopleSearch && eligibleJurisdictions.join(",") !== "US-CA")
+        || (isEuController && eligibleJurisdictions.join(",") !== "EEA,EU")
+        || (isUsDataBroker && eligibleJurisdictions.join(",") !== "US-CA"))
         throw new Error("unsupported_removal_lane");
     return {
         id: broker.id,
@@ -502,7 +518,7 @@ function throwIfAborted(signal) {
 }
 function deterministicMessageId(input, profile, broker) {
     const digest = createHash("sha256")
-        .update(JSON.stringify([input.profileId, broker.id, input.requestKind, profile.consent.recordedAt]))
+        .update(JSON.stringify([input.profileId, broker.id, input.requestKind, profile.consent.recordedAt, profile.consent.validUntil]))
         .digest("hex")
         .slice(0, 32);
     return `<rightout.${digest}@local.invalid>`;
@@ -597,7 +613,7 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
             identity_documents: 0,
         },
         proof_references: [proofReference],
-        coverage_gaps: broker.confirmationPolicy === "submitted_until_controller_response"
+        coverage_gaps: broker.processClass === "eu_controller_email_erasure"
             ? [
                 "smtp_acceptance_is_not_controller_receipt",
                 "submission_is_not_erasure_confirmation",
@@ -605,12 +621,20 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
                 "controller_response_requires_human_review",
                 "no_universal_eu_broker_erasure_registry",
             ]
-            : [
-                "smtp_acceptance_is_not_broker_receipt",
-                "submission_is_not_removal_confirmation",
-                "broker_may_request_additional_identity_verification",
-                "later_read_only_rescan_required_before_confirmed_removed",
-            ],
+            : broker.processClass === "us_data_broker_email_deletion"
+                ? [
+                    "smtp_acceptance_is_not_controller_receipt",
+                    "submission_is_not_deletion_confirmation",
+                    "controller_may_request_proportionate_identity_verification",
+                    "controller_response_requires_human_review",
+                    "california_drop_and_other_identifiers_not_checked",
+                ]
+                : [
+                    "smtp_acceptance_is_not_broker_receipt",
+                    "submission_is_not_removal_confirmation",
+                    "broker_may_request_additional_identity_verification",
+                    "later_read_only_rescan_required_before_confirmed_removed",
+                ],
         invariants: {
             operator_attestations_checked: true,
             subject_consent_checked: true,

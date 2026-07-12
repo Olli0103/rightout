@@ -384,12 +384,36 @@ def validate_eu_process(broker: dict[str, Any], official_domains: list[str], lab
     validate_catalog_url(process.get("official_action_url"), official_domains, label, "eu_process.official_action_url", errors)
 
 
+def validate_removal_recipient(
+    removal: dict[str, Any], official_domains: list[str], label: str,
+    region: str, errors: list[str],
+) -> None:
+    recipient = removal.get("recipient")
+    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
+        errors.append(f"{label} {region} removal recipient is invalid")
+        return
+    recipient_domain = recipient.rsplit("@", 1)[1].lower()
+    if recipient_domain != removal.get("smtp_recipient_domain"):
+        errors.append(f"{label} {region} removal recipient domain is not locked")
+    if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
+        errors.append(f"{label} {region} removal recipient is outside official domains")
+
+
+def policy_matched_sources(broker: dict[str, Any], removal: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        source for source in broker.get("sources", [])
+        if isinstance(source, dict) and source.get("url") == removal.get("policy_url")
+    ]
+
+
 def validate_eu_data_broker(
     broker: dict[str, Any], official_domains: list[str], label: str,
     freshness: int, today: dt.date, errors: list[str],
 ) -> None:
     if broker.get("process_class") not in {"eu_controller_email_erasure", "eu_controller_portal_erasure"}:
         errors.append(f"{label} EU data-broker process class is invalid")
+    if broker.get("us_process") is not None:
+        errors.append(f"{label} EU data-broker lane must not claim US process metadata")
     validate_eu_process(broker, official_domains, label, errors)
     removal = broker.get("removal")
     if broker.get("human_only") is True:
@@ -412,19 +436,10 @@ def validate_eu_data_broker(
     ):
         errors.append(f"{label} automated EU data-broker lane is incomplete")
         return
-    recipient = removal.get("recipient")
-    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
-        errors.append(f"{label} EU removal recipient is invalid")
-    else:
-        recipient_domain = recipient.rsplit("@", 1)[1].lower()
-        if recipient_domain != removal.get("smtp_recipient_domain"):
-            errors.append(f"{label} EU removal recipient domain is not locked")
-        if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
-            errors.append(f"{label} EU removal recipient is outside official domains")
+    validate_removal_recipient(removal, official_domains, label, "EU", errors)
     allowed_disclosures = {
         ("contact_email", "country"),
         ("full_name", "contact_email", "country"),
-        ("contact_email", "mobile_advertising_id", "country"),
     }
     disclosures = removal.get("disclosure_fields")
     if not isinstance(disclosures, list) or tuple(disclosures) not in allowed_disclosures:
@@ -432,9 +447,77 @@ def validate_eu_data_broker(
     if broker.get("required_fields") != disclosures:
         errors.append(f"{label} EU disclosure fields disagree with required_fields")
     validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
+    policy_sources = policy_matched_sources(broker, removal)
+    if not any(
+        isinstance(source.get("fact_scope"), str)
+        and "email" in source["fact_scope"]
+        and any(term in source["fact_scope"] for term in ("erasure", "delete", "deletion"))
+        for source in policy_sources
+    ):
+        errors.append(f"{label} EU email lane lacks policy-matched erasure and email-submission evidence")
     removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
     if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
         errors.append(f"{label} EU removal policy provenance is stale or future-dated")
+    validate_policy_revision(removal.get("policy_revision"), label, errors)
+
+
+def validate_us_data_broker(
+    broker: dict[str, Any], official_domains: list[str], label: str,
+    freshness: int, today: dt.date, errors: list[str],
+) -> None:
+    if broker.get("process_class") != "us_data_broker_email_deletion":
+        errors.append(f"{label} US data-broker process class is invalid")
+    process = broker.get("us_process")
+    if not isinstance(process, dict):
+        errors.append(f"{label} missing US process metadata")
+    else:
+        expected = {
+            "effect_scope": "controller_wide_request_subject_to_identification",
+            "deletion_semantics": "controller_deletion_request_not_yet_confirmed",
+            "legal_scope": "us_ca_consumer_request",
+            "one_click_level": "not_one_click_controller_email",
+        }
+        for key, value in expected.items():
+            if process.get(key) != value:
+                errors.append(f"{label} US process {key} is invalid")
+        validate_catalog_url(process.get("official_action_url"), official_domains, label, "us_process.official_action_url", errors)
+    if broker.get("eu_process") is not None:
+        errors.append(f"{label} US data-broker lane must not claim EU process metadata")
+    removal = broker.get("removal")
+    expected_fields = ["full_name", "contact_email", "region", "country"]
+    if not (
+        broker.get("lane") == "email"
+        and broker.get("approval_gate") == "send_request"
+        and broker.get("human_only") is False
+        and isinstance(removal, dict)
+        and removal.get("supported") is True
+        and removal.get("channel") == "email"
+        and removal.get("request_kinds") == ["delete_and_opt_out"]
+        and removal.get("template_id") == "us_delete_opt_out_v1"
+        and removal.get("identity_verification") == "broker_may_request_follow_up"
+        and removal.get("confirmation_policy") == "submitted_until_controller_response"
+        and removal.get("discovery_requirement") == "not_required_for_data_subject_request"
+        and removal.get("processing_days") == 45
+        and removal.get("eligible_jurisdictions") == ["US-CA"]
+        and removal.get("disclosure_fields") == expected_fields
+        and broker.get("required_fields") == expected_fields
+    ):
+        errors.append(f"{label} automated US data-broker lane is incomplete")
+        return
+    validate_removal_recipient(removal, official_domains, label, "US", errors)
+    validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
+    policy_sources = policy_matched_sources(broker, removal)
+    if not any(
+        isinstance(source.get("fact_scope"), str)
+        and "email" in source["fact_scope"]
+        and any(term in source["fact_scope"] for term in ("deletion", "delete", "removal", "suppression"))
+        and any(term in source["fact_scope"] for term in ("california", "ccpa", "state", "us_"))
+        for source in policy_sources
+    ):
+        errors.append(f"{label} US email lane lacks policy-matched deletion and email-submission evidence")
+    removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
+    if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
+        errors.append(f"{label} US removal policy provenance is stale or future-dated")
     validate_policy_revision(removal.get("policy_revision"), label, errors)
 
 
@@ -443,20 +526,20 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
     errors: list[str] = []
     if not isinstance(catalog, dict):
         return ["catalog must be an object"]
-    if catalog.get("schema_version") != 4:
-        errors.append("catalog schema_version must be 4")
+    if catalog.get("schema_version") != 6:
+        errors.append("catalog schema_version must be 6")
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
-        return errors + ["catalog brokers must be a non-empty list"]
+        return [*errors, "catalog brokers must be a non-empty list"]
     catalog_ids = {item.get("id") for item in brokers if isinstance(item, dict) and isinstance(item.get("id"), str)}
     seen: set[str] = set()
     reserved_ids = {"con", "prn", "aux", "nul", "clock$", ".", ".."}
     forbidden_source_domains = {"privacyguides.org", "inteltechniques.com", "badbool.com"}
-    allowed_source_licenses = {"official-facts-only-no-content-copy", "MIT", "CC0-1.0", "Apache-2.0"}
+    allowed_source_use_policies = {"official-facts-only-no-content-copy", "MIT", "CC0-1.0", "Apache-2.0"}
     required = {
         "id", "name", "category", "jurisdictions", "official_url", "official_domains", "lane",
         "required_fields", "prerequisites", "approval_gate", "last_verified", "freshness_days",
-        "source_license", "sources", "notes",
+        "source_use_policy", "sources", "notes",
     }
     for index, broker in enumerate(brokers):
         label = f"broker[{index}]"
@@ -488,6 +571,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             errors.append(f"{label} official_domains must be a non-empty string list")
             official_domains = []
         validate_catalog_url(broker.get("official_url"), official_domains, label, "official_url", errors)
+        if broker.get("human_action_url") is not None:
+            validate_catalog_url(broker.get("human_action_url"), official_domains, label, "human_action_url", errors)
         registry = broker.get("registry_provenance")
         if registry is not None:
             if not isinstance(registry, dict) or not {"url", "publisher", "entity", "last_verified"}.issubset(registry):
@@ -537,8 +622,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
         verified = parse_catalog_date(broker.get("last_verified"), label, "last_verified", errors)
         if verified and (verified > today or (today - verified).days > freshness):
             errors.append(f"{label} provenance is stale or future-dated")
-        if broker.get("source_license") not in allowed_source_licenses:
-            errors.append(f"{label} has unsupported source_license")
+        if broker.get("source_use_policy") not in allowed_source_use_policies:
+            errors.append(f"{label} has unsupported source_use_policy")
         sources = broker.get("sources")
         removal_domains = (broker.get("removal") or {}).get("allowed_form_domains", []) if isinstance(broker.get("removal"), dict) else []
         source_allowed_domains = [*official_domains, *(removal_domains if isinstance(removal_domains, list) else [])]
@@ -550,7 +635,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 if not isinstance(source, dict):
                     errors.append(f"{source_label} must be an object")
                     continue
-                if not {"url", "title", "publisher", "license_scope", "last_verified"}.issubset(source):
+                if not {"url", "title", "publisher", "fact_scope", "last_verified"}.issubset(source):
                     errors.append(f"{source_label} missing provenance fields")
                 validate_catalog_url(source.get("url"), source_allowed_domains, source_label, "url", errors)
                 source_host = urlparse(str(source.get("url", ""))).hostname or ""
@@ -559,7 +644,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 source_date = parse_catalog_date(source.get("last_verified"), source_label, "last_verified", errors)
                 if source_date and (source_date > today or (today - source_date).days > freshness):
                     errors.append(f"{source_label} is stale or future-dated")
-                for text_key in ["title", "publisher", "license_scope"]:
+                for text_key in ["title", "publisher", "fact_scope"]:
                     if not isinstance(source.get(text_key), str) or not source[text_key].strip():
                         errors.append(f"{source_label} missing {text_key}")
         sensitive = set(fields) & SENSITIVE_FIELDS
@@ -591,8 +676,11 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             validate_eu_process(broker, official_domains, label, errors)
         if category == "data_broker":
             if not isinstance(broker.get("id"), str) or not re.fullmatch(r"[a-z0-9_]{2,24}", broker["id"]):
-                errors.append(f"{label} EU broker id exceeds the public tool contract")
-            validate_eu_data_broker(broker, official_domains, label, freshness, today, errors)
+                errors.append(f"{label} data-broker id exceeds the public tool contract")
+            if broker.get("process_class") == "us_data_broker_email_deletion":
+                validate_us_data_broker(broker, official_domains, label, freshness, today, errors)
+            else:
+                validate_eu_data_broker(broker, official_domains, label, freshness, today, errors)
         if category == "people_search":
             if not isinstance(broker.get("id"), str) or not re.fullmatch(r"[a-z0-9_]{2,24}", broker["id"]):
                 errors.append(f"{label} live broker id exceeds the public tool contract")
@@ -1533,6 +1621,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "verification_poll_tool": "rightout_poll_verification",
         "verification_open_tool": "rightout_open_verification",
         "subject_purge_tool": "rightout_purge_subject_state",
+        "controller_outcome_tool": "rightout_record_controller_outcome",
+        "submission_reconciliation_tool": "rightout_reconcile_submission",
         "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_due_rechecks"],
         "live_approval_adapter": "native_openclaw_plugin_permission_allow_once",
         "live_pii_input": "secretref_profile_not_tool_params",
@@ -1605,6 +1695,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
         open_tool = manifest.get("toolMetadata", {}).get("rightout_open_verification", {})
         direct_tool = manifest.get("toolMetadata", {}).get("rightout_direct_rescan", {})
         purge_tool = manifest.get("toolMetadata", {}).get("rightout_purge_subject_state", {})
+        controller_outcome_tool = manifest.get("toolMetadata", {}).get("rightout_record_controller_outcome", {})
+        reconciliation_tool = manifest.get("toolMetadata", {}).get("rightout_reconcile_submission", {})
         secret_paths = {
             item.get("path")
             for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])
@@ -1612,7 +1704,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         }
         expected_tools = [
             "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal", "rightout_submit_form_removal", "rightout_poll_verification",
-            "rightout_open_verification", "rightout_purge_subject_state", "rightout_next_actions", "rightout_case_status",
+            "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission", "rightout_next_actions", "rightout_case_status",
             "rightout_due_rechecks",
         ]
         if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != expected_tools:
@@ -1629,6 +1721,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
             errors.append("verification open tool must be optional and non-replay-safe")
         if direct_tool.get("optional") is not True or direct_tool.get("replaySafe") is not False:
             errors.append("direct rescan tool must be optional and non-replay-safe")
+        if controller_outcome_tool.get("optional") is not True or controller_outcome_tool.get("replaySafe") is not False:
+            errors.append("controller outcome tool must be optional and non-replay-safe")
+        if reconciliation_tool.get("optional") is not True or reconciliation_tool.get("replaySafe") is not False:
+            errors.append("submission reconciliation tool must be optional and non-replay-safe")
         if purge_tool.get("optional") is not True or purge_tool.get("replaySafe") is not False:
             errors.append("subject purge tool must be optional and non-replay-safe")
         required_config = set((tool.get("configSignals") or [{}])[0].get("required", []))

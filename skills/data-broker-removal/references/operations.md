@@ -17,8 +17,8 @@ Call `rightout_submit_removal` only for an explicit user request, using the cata
 Current email lanes:
 
 - BeenVerified, `US-CA`, full name/contact email/region/country, prior discovery required;
-- Adsquare, EU/EEA, contact email/Mobile Advertising ID/country, no prior listing discovery required;
-- emetriq, EU/EEA, contact email/country, no prior listing discovery required.
+- eight California controller lanes (Amplemarket, SalesIntel, LeadIQ, Wiza, SignalHire, Hunter, Seamless.AI, ContactOut), full name/contact email/region/country, no prior public-listing discovery required;
+- 18 EU/EEA controller lanes, using only each catalog entry's fixed email/country or name/email/country set.
 
 Interpretation:
 
@@ -27,7 +27,13 @@ Interpretation:
 - extra identity verification: human task;
 - later missing Brave result: still `inconclusive`;
 - later candidate: possible reappearance/continued exposure, not direct proof.
-- EU controller response: human-review evidence; browser/device opt-out remains a separate preference state.
+- EU or US controller response: human-review evidence; browser/device opt-out remains a separate preference state.
+
+Every email/form path commits `submission_pending` before the provider call. If the effect may have happened but cannot be proven, it becomes `submission_uncertain`; never retry it automatically. The operator must personally review the sent folder, provider confirmation, or other provider-side evidence and separately approve `rightout_reconcile_submission`. `provider_write_not_started` returns to `action_selected`; `provider_write_confirmed` resumes at `submitted` or `verification_pending`.
+
+After personally reviewing an official EU or US controller response, use `rightout_record_controller_outcome` to record processing, controller-scoped erasure/deletion confirmation, partial outcome, identity follow-up, or rejection. Do not paste the response into tool input and do not use SMTP acceptance as controller evidence. Never attach identity documents automatically; California DROP remains a separate human-only route.
+
+For recurring work, call `rightout_due_rechecks(profileId)` from OpenClaw Cron and then `rightout_next_actions(profileId)`. Opaque listing handles are durable. A first complete known-listing-set absence stays `awaiting_processing`; only a second time-separated direct absence after the scheduled time can confirm that narrow scope.
 
 Never fall back to browser, shell, Python, arbitrary email, forms, CAPTCHA work, or extra disclosure.
 
@@ -46,7 +52,7 @@ Never fall back to browser, shell, Python, arbitrary email, forms, CAPTCHA work,
 - stale/missing provenance: disable the lane;
 - scan approval failure: no Brave request;
 - removal approval/preflight failure: no SMTP connection;
-- SMTP error after send begins: `rightout_removal_transport_failed`; do not auto-retry because delivery may be uncertain;
+- SMTP/form error after a possible write: durable `submission_uncertain`; do not auto-retry because delivery may be uncertain;
 - raw PII/body/credential in report/error/log: P0;
 - cross-tool approval, arbitrary recipient, TLS downgrade, form/CAPTCHA action, or unapproved field: P0;
 - missing primary evidence: preserve `needs_evidence`.

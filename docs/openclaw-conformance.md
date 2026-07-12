@@ -1,11 +1,11 @@
 # OpenClaw conformance
 
-Review date: 2026-07-12. Target: stable OpenClaw `2026.6.11` / Plugin API `>=2026.6.11`, verified against the pinned package documentation, types, runtime, and isolated installer tests.
+Review date: 2026-07-12. Target: stable OpenClaw `2026.6.11` / Plugin API `>=2026.6.11`, additionally compatibility-tested against `2026.7.1-beta.5`, using pinned package documentation, types, runtime, and isolated packaged-installer tests.
 
-- `openclaw.plugin.json` declares all ten registered tools, exact optional/replay metadata, lazy config signals, SecretInput paths, the two fixed removal request kinds, closed config schema, skill directory, and `onStartup: false`.
+- `openclaw.plugin.json` declares all twelve registered tools, exact optional/replay metadata, lazy config signals, SecretInput paths, the two fixed removal request kinds, closed config schema, skill directory, and `onStartup: false`.
 - `definePluginEntry`, `api.registerTool`, typed `before_tool_call`, `api.registerSecurityAuditCollector`, `api.resolvePath`, and `api.runtime.state.resolveStateDir` are public plugin APIs used by the community plugin.
 - HTTP uses the public SSRF runtime. The sandbox browser form uses only the official tool-factory `browser.sandboxBridgeUrl`; no internal browser runtime import is used.
-- Six provider-I/O tools and one local destructive purge tool use critical `requireApproval`, `allow-once`/`deny`, 120-second timeout, explicit deny on timeout, and `onResolution` bindings. Three state/report tools are replay-safe and make no network request.
+- Six provider-I/O tools plus local destructive purge, human-reviewed controller outcome, and ambiguous-write reconciliation use critical `requireApproval`, `allow-once`/`deny`, 120-second timeout, explicit deny on timeout, and `onResolution` bindings. Three state/report tools are replay-safe and make no network request.
 - OpenClaw SecretRefs keep raw values out of public schemas. Source-config audits detect plaintext while runtime code validates resolved values after approval.
 - OpenClaw `2026.6.11` documents `openKeyedStore` as bundled-plugin-only and rejects it for an ordinary community install. RightOut therefore uses the public state-directory resolver plus its own private, contained, AES-256-GCM encrypted, atomic file stores. They provide bounded entry counts/TTLs, owner-token cross-process locks, persisted TTL pruning, and serialized updates without importing an internal OpenClaw state module.
 
@@ -13,7 +13,7 @@ The plugin cannot call the bundled-only session-turn scheduler. Recurring work i
 
 OpenClaw's `plugins build` generator applies to entries that expose `defineToolPlugin` static metadata. RightOut needs `definePluginEntry` because it combines tools, approval hooks, and a security-audit collector, as the official tool-plugin and hook documentation directs. Its manifest is therefore explicit and is checked against runtime registration, config schema, tool contracts, optional/replay metadata, and isolated `plugins inspect` output instead of misusing the simple-tool generator.
 
-Release verification installs an actual npm archive, uses `openclaw plugins inspect rightout --runtime --json`, runs `openclaw plugins doctor`, validates configuration, audits SecretRefs/security, and restarts/reloads after updates.
+The installer validates the source, builds or syntax-checks it, packs the actual npm archive, installs that archive into an isolated OpenClaw home/state, checks all twelve tools plus `before_tool_call`, and runs `plugins doctor` before target mutation. Release verification repeats runtime inspection, config/SecretRef/security audits, stable/beta compatibility, and transactional rollback tests. Tag publication requires an annotated version-matching tag and produces a signed GitHub/Sigstore build-provenance attestation.
 
 Official references: [plugin manifest](https://docs.openclaw.ai/plugins/manifest), [tool plugins](https://docs.openclaw.ai/plugins/tool-plugins), [plugin hooks](https://docs.openclaw.ai/plugins/hooks), [plugin permission requests](https://docs.openclaw.ai/plugins/plugin-permission-requests), [SDK runtime](https://docs.openclaw.ai/plugins/sdk-runtime), [secrets](https://docs.openclaw.ai/gateway/secrets), and [Cron](https://docs.openclaw.ai/automation/cron-jobs).
 

@@ -288,9 +288,9 @@ class ReportingAndStateTests(unittest.TestCase):
 
 
 class CatalogValidationTests(unittest.TestCase):
-    def test_catalog_is_schema_v4_and_valid(self) -> None:
+    def test_catalog_is_schema_v6_and_valid(self) -> None:
         catalog = load_catalog()
-        self.assertEqual(catalog["schema_version"], 4)
+        self.assertEqual(catalog["schema_version"], 6)
         self.assertEqual(rightout.validate_catalog_data(catalog), [])
 
     def test_email_removal_lane_is_catalog_locked_and_minimum_disclosure(self) -> None:
@@ -305,14 +305,40 @@ class CatalogValidationTests(unittest.TestCase):
 
     def test_eu_processes_separate_erasure_from_browser_preference(self) -> None:
         catalog = load_catalog()
-        adsquare = next(item for item in catalog["brokers"] if item["id"] == "adsquare_eu")
+        fullenrich = next(item for item in catalog["brokers"] if item["id"] == "fullenrich_eu")
         edaa = next(item for item in catalog["brokers"] if item["id"] == "edaa_yoc")
-        self.assertEqual(adsquare["removal"]["request_kinds"], ["gdpr_erasure_objection"])
-        self.assertEqual(adsquare["removal"]["confirmation_policy"], "submitted_until_controller_response")
+        self.assertEqual(fullenrich["removal"]["request_kinds"], ["gdpr_erasure_objection"])
+        self.assertEqual(fullenrich["removal"]["confirmation_policy"], "submitted_until_controller_response")
         self.assertEqual(edaa["eu_process"]["erasure_semantics"], "preference_only_not_controller_erasure")
         unsafe = load_catalog()
         next(item for item in unsafe["brokers"] if item["id"] == "edaa_yoc")["eu_process"]["erasure_semantics"] = "controller_erasure_request_not_yet_confirmed"
         self.assertTrue(any("process tuple" in error for error in rightout.validate_catalog_data(unsafe)))
+        metadata_unsafe = load_catalog()
+        next(item for item in metadata_unsafe["brokers"] if item["id"] == "fullenrich_eu")["us_process"] = {}
+        self.assertTrue(any("must not claim US process metadata" in error for error in rightout.validate_catalog_data(metadata_unsafe)))
+
+    def test_us_data_broker_email_lane_has_distinct_legal_semantics(self) -> None:
+        catalog = load_catalog()
+        amplemarket = next(item for item in catalog["brokers"] if item["id"] == "amplemarket_us")
+        self.assertEqual(amplemarket["process_class"], "us_data_broker_email_deletion")
+        self.assertEqual(amplemarket["removal"]["request_kinds"], ["delete_and_opt_out"])
+        self.assertEqual(amplemarket["removal"]["eligible_jurisdictions"], ["US-CA"])
+        self.assertEqual(amplemarket["us_process"]["legal_scope"], "us_ca_consumer_request")
+        self.assertNotIn("eu_process", amplemarket)
+        unsafe = load_catalog()
+        next(item for item in unsafe["brokers"] if item["id"] == "amplemarket_us")["removal"]["processing_days"] = 30
+        self.assertTrue(any("US data-broker lane" in error for error in rightout.validate_catalog_data(unsafe)))
+
+    def test_executable_controller_email_requires_policy_matched_channel_evidence(self) -> None:
+        eu_unsafe = load_catalog()
+        eu = next(item for item in eu_unsafe["brokers"] if item["id"] == "fullenrich_eu")
+        eu["sources"][0]["fact_scope"] = "official_general_contact_facts_only"
+        self.assertTrue(any("erasure and email-submission evidence" in error for error in rightout.validate_catalog_data(eu_unsafe)))
+
+        us_unsafe = load_catalog()
+        us = next(item for item in us_unsafe["brokers"] if item["id"] == "amplemarket_us")
+        us["sources"][0]["fact_scope"] = "official_general_contact_facts_only"
+        self.assertTrue(any("deletion and email-submission evidence" in error for error in rightout.validate_catalog_data(us_unsafe)))
 
     def test_catalog_rejects_unsafe_ids(self) -> None:
         catalog = load_catalog()
@@ -447,7 +473,7 @@ class InstallerTests(unittest.TestCase):
                 env_extra=env,
             )
             run(
-                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification","rightout_purge_subject_state"]', "--strict-json"],
+                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification","rightout_purge_subject_state","rightout_record_controller_outcome","rightout_reconcile_submission"]', "--strict-json"],
                 env_extra=env,
             )
             validation = run([env["OPENCLAW_BIN"], "config", "validate"], env_extra=env)
@@ -498,7 +524,7 @@ class InstallerTests(unittest.TestCase):
             wrapper = tmp / "openclaw-fail-runtime-inspect"
             wrapper.write_text(
                 "#!/usr/bin/env bash\n"
-                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" ]]; then\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" && \"$OPENCLAW_STATE_DIR\" == \"$REAL_OPENCLAW_STATE_DIR\" ]]; then\n"
                 "  echo injected-runtime-inspection-failure >&2\n"
                 "  exit 70\n"
                 "fi\n"
@@ -510,6 +536,7 @@ class InstallerTests(unittest.TestCase):
                 **env,
                 "OPENCLAW_BIN": str(wrapper),
                 "REAL_OPENCLAW": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+                "REAL_OPENCLAW_STATE_DIR": env["OPENCLAW_STATE_DIR"],
             }
             failed = run([str(INSTALLER), "--force"], expect=70, env_extra=failed_env)
             self.assertIn("restoring the previous OpenClaw state", failed["stderr"])
@@ -539,7 +566,7 @@ class InstallerTests(unittest.TestCase):
                 "  printf '%s\\n' \"$FORGED_INSPECTION\"\n"
                 "  exit 0\n"
                 "fi\n"
-                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" ]]; then\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" && \"$OPENCLAW_STATE_DIR\" == \"$REAL_OPENCLAW_STATE_DIR\" ]]; then\n"
                 "  exit 70\n"
                 "fi\n"
                 "exec \"$REAL_OPENCLAW\" \"$@\"\n",
@@ -550,6 +577,7 @@ class InstallerTests(unittest.TestCase):
                 **env,
                 "OPENCLAW_BIN": str(wrapper),
                 "REAL_OPENCLAW": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+                "REAL_OPENCLAW_STATE_DIR": env["OPENCLAW_STATE_DIR"],
                 "FORGED_INSPECTION": json.dumps({"install": {"installPath": str(forged_extension)}}),
             }
             run([str(INSTALLER)], expect=70, env_extra=failed_env)

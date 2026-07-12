@@ -3,6 +3,7 @@ import test from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import { ImapFlow } from "imapflow";
 
@@ -19,7 +20,7 @@ const profile = {
   country: "US",
   contactEmail: "avery@example.invalid",
   jurisdictions: ["US", "US-CA"],
-  consent: { authorized: true, recordedAt: "2026-07-12T08:00:00Z", scope: ["scan", "broker_removal"] },
+  consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["scan", "broker_removal"] },
 };
 const payload = JSON.stringify(profile);
 const imap = {
@@ -109,6 +110,7 @@ test("runtime binds inbox read and confirmation-link open to two separate approv
       generated_at: "2026-07-12T08:00:00Z",
       results: [{ broker_id: "beenverified", state: "indirect_exposure", reason: "search_index_candidate_observed" }],
     });
+    await caseLedger.reserveSubmission(profileId, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
     await caseLedger.recordRemoval({
       state: "submitted", subject_ref: profileId, broker_id: "beenverified",
       generated_at: "2026-07-12T08:30:00Z", delivery: { accepted_by_outbound_smtp: true },
