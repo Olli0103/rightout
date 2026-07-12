@@ -436,7 +436,7 @@ class InstallerTests(unittest.TestCase):
                 env_extra=env,
             )
             run(
-                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification"]', "--strict-json"],
+                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification","rightout_purge_subject_state"]', "--strict-json"],
                 env_extra=env,
             )
             validation = run([env["OPENCLAW_BIN"], "config", "validate"], env_extra=env)

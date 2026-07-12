@@ -461,7 +461,7 @@ def main() -> None:
             fail(errors, f"SMTP security invariant missing: {required}")
 
     installer = (ROOT / "install.sh").read_text(encoding="utf-8")
-    for required in [".rightout-install.lock", "lock_acquired=1", 'rmdir "$lock_dir"']:
+    for required in [".rightout-install.lock", "lock_acquired=1", 'rmdir "$lock_dir"', "--ignore-scripts"]:
         if required not in installer:
             fail(errors, f"installer concurrency invariant missing: {required}")
 

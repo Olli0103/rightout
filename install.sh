@@ -219,7 +219,7 @@ finish() {
 trap finish EXIT INT TERM
 if [[ "$LINK" != "1" ]]; then
   pack_dir="$(mktemp -d -t rightout-pack.XXXXXX)"
-  package_source="$(npm pack "$REPO_ROOT" --pack-destination "$pack_dir" --silent | tail -n 1)"
+  package_source="$(npm pack "$REPO_ROOT" --pack-destination "$pack_dir" --ignore-scripts --silent | tail -n 1)"
   package_source="$pack_dir/$package_source"
   if [[ ! -f "$package_source" ]]; then
     echo "npm did not produce the RightOut release archive" >&2
