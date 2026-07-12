@@ -2,39 +2,41 @@
 
 ## Trust boundaries
 
-OpenClaw owns optional-tool exposure, SecretRef resolution, native per-call approval, and SSRF-guarded transport. RightOut owns input minimization, catalog destination policy, fixed scan behavior, result sanitization, and absence of write capabilities. The operator owns subject authorization, secret-provider isolation, tool policy, approval routing, and Gateway exposure.
-
-Prompt text, caller JSON, environment flags, HMAC receipts, local files, page content, and controller-provided domains are not approval authority.
+OpenClaw owns optional-tool exposure, SecretRef resolution, native approval, and the Gateway process. RightOut owns input minimization, catalog policy, action-specific binding, transport restrictions, and result sanitization. The operator owns subject authority, provider accounts, approval routing, tool policy, and process isolation.
 
 ## Controls
 
 | Threat | Control |
 | --- | --- |
-| Model receives raw PII | Tool schema accepts only opaque profile ID and broker IDs |
-| Agent mints, replays, or widens approval | Native OpenClaw `before_tool_call`; allow-once/deny only; single-use expiring binding to tool-call ID plus exact displayed profile/broker scope |
-| Stale provider acceptance or unapproved subject scope | Fail-closed exact-profile and broker-search-scope attestations plus pinned Brave terms revision and customer responsibilities |
-| No human route | OpenClaw fails closed |
-| Plaintext config | SecretInput contracts plus critical plugin security-audit findings |
-| Unexpected destination or publisher access | Only fixed Brave HTTPS host, guarded DNS, zero redirects; no publisher fetch implementation |
-| Search result overclaim | Same-domain result is only `indirect_exposure`; never `found` or identity proof |
-| Cancellation continues network work | Host abort signal is checked and passed to the Brave guarded request; abort is rethrown |
-| Debug capture leakage | `capture: false` on every guarded request |
-| Search negative becomes false assurance | Live scan never emits `not_found` |
-| Raw result leakage | URL/title/snippet/body discarded; allowlisted state and reason fields only |
-| Scan becomes removal | No removal/email/form/provider-write implementation or tool |
-| Direct Gateway exposure | Recommended `gateway.tools.deny` plus audit warning |
-
-SecretRefs do not make a shared process or OS account safe from a sufficiently privileged agent. Use OS/container separation and a hardened external provider when shell/file capabilities are in scope.
+| Raw PII reaches model args | Opaque profile/broker refs and fixed request enum only |
+| Scan without consent or changed subject | Recorded `scan` consent, operator review, and normalized profile digest checked before Brave access |
+| Scan approval widens to write | Tool name/action class included in single-use binding |
+| Agent invents approval | Native OpenClaw allow-once/deny; no local receipt/HMAC path |
+| Stale/wide scope | Revision-bound exact profile/broker/action attestations plus normalized profile/SMTP SHA-256 bindings rechecked at execution |
+| Action without consent | Recorded `broker_removal` consent plus operator consent review |
+| Arbitrary email destination | Recipient/domain/request kind locked in schema-v3 catalog |
+| Excess disclosure | Fixed field set; no address, phone, DOB, ID, listing URL, or attachments |
+| SMTP SSRF/TLS downgrade | Compile-time host/port/TLS matrix; TLS validation; no tool-supplied host |
+| Message pulls local/remote content | Nodemailer file and URL access disabled |
+| Duplicate send | Non-replay-safe metadata, deterministic Message-ID, consumed approval, process-local cooldown |
+| False completion | SMTP handoff emits only `submitted`; current live path never confirms removal |
+| Publisher access | Fixed Brave endpoint through OpenClaw SSRF guard; no publisher fetch |
+| Search overclaim | `indirect_exposure` or `inconclusive` only |
+| PII leakage | Values/bodies/receipts omitted; opaque proof reference only |
+| Direct Gateway exposure | deny both tools on `gateway.tools.deny`; audit warning otherwise |
 
 ## Live invariants
 
-- per-call native approval;
-- raw PII absent from tool params, approval text, reports, and RightOut storage;
-- network host limited to `api.search.brave.com`; publisher-domain requests equal zero;
-- submissions, email, provider writes, and local PII writes equal zero;
-- live negative result equals `inconclusive`;
-- only `scan.supported: true` people-search entries are eligible.
+- separate native approval per scan/removal call;
+- raw PII absent from public params, approval descriptions, reports, and RightOut storage;
+- scan network host is only `api.search.brave.com`;
+- removal recipient is only the selected supported catalog recipient;
+- forms, CAPTCHA bypasses, attachments, and identity documents equal zero;
+- live scan never emits `not_found`;
+- live removal never emits `confirmed_removed`.
 
-## Offline invariants
+SecretRefs do not isolate a trusted in-process plugin from the Gateway OS account. Strong hostile-user/agent isolation requires separate Gateways and OS identities.
 
-The Python runner uses synthetic `.invalid` data, makes zero network calls, and cannot transition non-fixture catalog cases. Its filesystem hardening does not authorize real-PII storage.
+## Offline invariant
+
+The Python runner uses `.invalid` fixtures, makes zero network/provider calls, and cannot transition a non-fixture catalog case.

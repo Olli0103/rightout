@@ -298,8 +298,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
     errors: list[str] = []
     if not isinstance(catalog, dict):
         return ["catalog must be an object"]
-    if catalog.get("schema_version") != 2:
-        errors.append("catalog schema_version must be 2")
+    if catalog.get("schema_version") != 3:
+        errors.append("catalog schema_version must be 3")
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
         return errors + ["catalog brokers must be a non-empty list"]
@@ -418,7 +418,35 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 else:
                     validate_catalog_url(scan["terms_url"], official_domains, label, "scan.terms_url", errors)
                 continue
-            if not (lane == "search_index" and gate == "live_scan" and broker.get("human_only") is False):
+            removal = broker.get("removal")
+            removal_supported = isinstance(removal, dict) and removal.get("supported") is True
+            if removal_supported:
+                if not (lane == "email" and gate == "send_request" and broker.get("human_only") is False):
+                    errors.append(f"{label} automated removal lane is inconsistent")
+                recipient = removal.get("recipient")
+                if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
+                    errors.append(f"{label} removal recipient is invalid")
+                elif recipient.rsplit("@", 1)[1].lower() != removal.get("smtp_recipient_domain"):
+                    errors.append(f"{label} removal recipient domain is not locked")
+                if removal.get("channel") != "email" or removal.get("request_kinds") != ["delete_and_opt_out"]:
+                    errors.append(f"{label} removal channel or request kind is unsafe")
+                if removal.get("disclosure_fields") != ["full_name", "contact_email", "region", "country"]:
+                    errors.append(f"{label} removal disclosure fields violate minimum disclosure")
+                if broker.get("required_fields") != removal.get("disclosure_fields"):
+                    errors.append(f"{label} removal disclosure fields disagree with required_fields")
+                eligible = removal.get("eligible_jurisdictions")
+                if not isinstance(eligible, list) or not eligible or not all(isinstance(item, str) and re.fullmatch(r"(?:EU|EEA|[A-Z]{2}(?:-[A-Z0-9]{2,3})?)", item) for item in eligible):
+                    errors.append(f"{label} removal jurisdictions are invalid")
+                if removal.get("identity_verification") != "broker_may_request_follow_up":
+                    errors.append(f"{label} removal identity-verification posture is unsafe")
+                if removal.get("confirmation_policy") != "submitted_until_later_rescan":
+                    errors.append(f"{label} removal confirmation policy is unsafe")
+                validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
+                removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
+                if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
+                    errors.append(f"{label} removal policy provenance is stale or future-dated")
+                parse_catalog_date(removal.get("policy_revision"), label, "removal.policy_revision", errors)
+            elif not (lane == "search_index" and gate == "live_scan" and broker.get("human_only") is False):
                 errors.append(f"{label} people_search has inconsistent live-scan lane")
             if not (
                 scan.get("supported") is True
@@ -806,6 +834,8 @@ def next_actions(plan: dict[str, Any], approved_gates: set[str] | None = None) -
                 actions.append({"case": case["broker_id"], "action": "run_synthetic_fixture", "gate": None, "allowed_now": True})
             elif case.get("category") == "people_search" and case.get("approval_gate") == "live_scan":
                 actions.append({"case": case["broker_id"], "action": "use_rightout_live_scan_plugin", "gate": "live_scan", "allowed_now": False})
+            elif case.get("category") == "people_search" and case.get("approval_gate") == "send_request" and case.get("lane") == "email":
+                actions.append({"case": case["broker_id"], "action": "use_rightout_submit_removal_plugin", "gate": "send_request", "allowed_now": False})
             else:
                 actions.append({"case": case["broker_id"], "action": "human_or_unsupported_lane_not_checked", "gate": gate, "allowed_now": False})
         elif case["state"] in {"found", "indirect_exposure", "inconclusive"}:
@@ -1103,7 +1133,7 @@ def build_report(plan: dict[str, Any], intelligence: dict[str, Any] | None = Non
     removal_summary["requests_submitted"] = removal_summary["submitted"]
     report = {
         **summary,
-        "report_version": 3,
+        "report_version": 4,
         "scan_only": bool(plan.get("scan_only")),
         "generated_at": now(),
         "coverage": {
@@ -1127,7 +1157,8 @@ def build_report(plan: dict[str, Any], intelligence: dict[str, Any] | None = Non
                 "current_removal_states": removal_summary,
             },
             "next_steps": [
-                "Use only the approval-gated rightout_live_scan tool for live discovery.",
+                "Use rightout_live_scan only for separately approved live discovery.",
+                "Use rightout_submit_removal only for a separately approved catalog email lane; submitted is not confirmed_removed.",
                 "Configure private subject data only through OpenClaw SecretRefs; never paste it into chat or runner files.",
                 "Do not treat synthetic results as evidence of exposure or removal.",
             ],
@@ -1222,6 +1253,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         catalog_path(skill_dir),
         plugin_root / "index.ts",
         plugin_root / "lib" / "live-scan.mjs",
+        plugin_root / "lib" / "removal.mjs",
         plugin_root / "openclaw.plugin.json",
     ]
     missing = [str(p) for p in required if not p.exists()]
@@ -1231,9 +1263,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "missing": missing,
         "broker_count": len(catalog["brokers"]),
         "runner": "openclaw-data-broker-removal",
-        "capability_posture": "approval_gated_live_plugin_plus_dummy_runner",
+        "capability_posture": "separately_approval_gated_live_scan_and_removal_plus_dummy_runner",
         "public_commands": sorted(PUBLIC_COMMANDS),
         "live_tool": "rightout_live_scan",
+        "removal_tool": "rightout_submit_removal",
         "live_approval_adapter": "native_openclaw_plugin_permission_allow_once",
         "live_pii_input": "secretref_profile_not_tool_params",
     }, indent=2))
@@ -1299,19 +1332,25 @@ def cmd_validate(args: argparse.Namespace) -> None:
     else:
         manifest = load_json(manifest_path)
         tool = manifest.get("toolMetadata", {}).get("rightout_live_scan", {})
+        removal_tool = manifest.get("toolMetadata", {}).get("rightout_submit_removal", {})
         secret_paths = {
             item.get("path")
             for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])
             if isinstance(item, dict)
         }
-        if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != ["rightout_live_scan"]:
+        if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != ["rightout_live_scan", "rightout_submit_removal"]:
             errors.append("OpenClaw plugin tool contract is inconsistent")
         if tool.get("optional") is not True or tool.get("replaySafe") is not False:
             errors.append("live tool must be optional and non-replay-safe")
+        if removal_tool.get("optional") is not True or removal_tool.get("replaySafe") is not False:
+            errors.append("removal tool must be optional and non-replay-safe")
         required_config = set((tool.get("configSignals") or [{}])[0].get("required", []))
         if "operatorAttestations" not in required_config:
             errors.append("live tool must require operator attestations")
-        if {"braveApiKey", "profiles.*.payload"} - secret_paths:
+        removal_required_config = set((removal_tool.get("configSignals") or [{}])[0].get("required", []))
+        if {"smtpTransport", "profiles", "removalAttestations"} - removal_required_config:
+            errors.append("removal tool must require SMTP, profiles, and removal attestations")
+        if {"braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password", "smtpTransport.fromAddress"} - secret_paths:
             errors.append("live secrets must use declared SecretInput contracts")
     print(json.dumps({"ok": not errors, "errors": errors, "broker_count": len(catalog.get("brokers", [])), "catalog_schema_version": catalog.get("schema_version")}, indent=2))
     if errors:

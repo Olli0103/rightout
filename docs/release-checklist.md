@@ -1,67 +1,61 @@
-# Release checklist
+# Release checklist: v0.3.0
 
-## Scope and evidence
+## Version and package
 
-- [ ] Root/package/manifest/skill/SBOM versions match the immutable `v0.2.0` tag.
-- [x] Missing primary audit evidence remains `needs_evidence`.
-- [x] README/release notes say live **scan**, not live deletion or commercial parity.
-- [x] No unrelated, personal, secret, or generated local artifacts are committed.
+- [x] Root/package/manifest/skill/SBOM versions match `0.3.0`.
+- [x] Compiled `dist/` matches a clean TypeScript build and includes scan/removal libraries.
+- [x] Package contains manifest, skill, licenses, notices, SBOM, docs, and no tests/node_modules/bytecode.
+- [x] `npm audit --omit=dev --audit-level=high` is clean and runs in CI.
 
-## OpenClaw and approval
+## OpenClaw runtime
 
-- [x] OpenClaw 2026.6.11 isolated packed install succeeds.
-- [x] Runtime inspect shows `loaded`, optional `rightout_live_scan`, and `before_tool_call`.
-- [x] Approval offers only allow-once/deny and fails closed on deny/timeout/cancel/no-route/hook failure.
-- [x] Approval displays exact opaque profile/brokers and is single-use bound to tool-call ID plus frozen scope.
-- [x] Public tool schema contains only opaque profile ID and broker IDs.
-- [x] Direct `/tools/invoke` hardening and trust model are documented/audited.
-- [x] `plugins doctor`, config validation, SecretRef audit, and security audit pass or have explicitly accepted non-critical findings.
+- [x] Runtime inspection shows status `loaded`, both optional tools, and `before_tool_call`.
+- [x] `openclaw plugins doctor` passes.
+- [x] `openclaw config validate`, secrets audit, and deep security audit pass in isolated install tests.
+- [x] Both tools are documented for `tools.allow` and `gateway.tools.deny`.
 
-## Security and privacy
+## Approval and privacy
 
-- [x] SecretInput contracts cover Brave key and every profile payload.
-- [x] No plaintext profile/key, real PII, secrets, absolute user paths, or raw live fixtures exist.
-- [x] Guarded HTTPS, DNS/SSRF policy, catalog allowlists, redirects, limits, timeouts, and capture denial are tested.
-- [x] Only Brave Search is reachable; publisher-domain requests and direct-page verification code are absent.
-- [x] Search Results are transiently reduced to `indirect_exposure`/`inconclusive`; raw and derived result artifacts are not retained.
-- [x] Abort signals reach every request and cancel before or during outbound work.
-- [x] Installer restores config and the prior managed extension after a post-install runtime validation failure.
-- [x] Reports/errors omit PII, keys, queries, URLs, raw bodies, and unallowlisted errors.
-- [x] Live invariants prove zero local PII writes, submissions, emails, and provider writes.
-- [x] Index absence is inconclusive, never not-found.
-- [x] Offline filesystem and zero-network invariants pass.
+- [x] Scan and removal use different action-bound allow-once approvals.
+- [x] Cross-tool approval, replay, mutation, missing ID, timeout, denial, and attestation changes fail closed.
+- [x] Public schemas contain no raw PII, recipient, body, URL, SMTP host, or credentials.
+- [x] SecretInput contracts and plaintext audit findings cover every private value.
+- [x] Brave retention/disclosure and SMTP/broker disclosure are explicit.
 
-## Catalog, legal, and product claims
+## Removal lane
 
-- [x] Catalog schema/provenance/freshness/domain/lane tests pass.
-- [x] Live selection accepts only supported people-search entries.
-- [x] Controller domains cannot self-authorize; sensitive documents remain human-only/out of scope.
-- [x] GDPR/DSGVO/CCPA/DROP language is posture, not legal/compliance assurance.
-- [x] Commercial comparison cites official sources and states all missing capabilities.
-- [x] Published provider terms/robots are reviewed; prohibited publisher automation is disabled and publisher pages are never requested.
-- [x] Approval discloses Brave's published standard query-log retention maximum.
-- [x] Operator acceptance is bound to Brave Terms revision `2026-02-11` and customer responsibilities.
+- [x] BeenVerified official current policy source and recipient are independently verified.
+- [x] Catalog schema v3 locks request kind, recipient domain, fields, jurisdiction, verification posture, and confirmation policy.
+- [x] Consent, exact scope, sender/profile equality, and SMTP TLS allowlist fail closed.
+- [x] Mocked acceptance reports only `submitted`; rejection/error/abort-before-write never claim submission.
+- [x] No real SMTP or broker request is used in tests.
+- [x] Forms, CAPTCHAs, browser automation, attachments, identity documents, and auto-retry remain absent.
 
-## Package and tests
+## Scan and reporting
+
+- [x] Brave remains the only scan destination and RightOut publisher requests remain zero.
+- [x] `indirect_exposure` stays distinct from `found`; index negatives remain `inconclusive`.
+- [x] Report v4 and synthetic full state matrix validate.
+- [x] Live removal never claims `confirmed_removed`.
+
+## Required commands
 
 ```bash
-npm ci --ignore-scripts
 make test
 make scan-only-dummy
 make e2e-dummy
 make installer-test
+make release-check
+npm audit --omit=dev --audit-level=high
+npm pack --ignore-scripts
 ```
 
-- [x] `npm pack` contains compiled `dist/`, manifest, skill, license, notices, docs, and SBOM; excludes tests/node_modules.
-- [x] Standard unittest discovery and Node tests are green.
-- [x] Fresh/force install, failed preflight no-write, source symlink, SecretRef, runtime inspect, and doctor cases pass.
-- [x] Independent review reports no open P0/P1, fixes are applied, and the entire matrix is rerun.
-- [x] CI is green on the final release-content commit.
-- [x] CI action dependencies are pinned to full commit SHAs.
-- [x] Installer concurrency lock and adversarial concurrent-run test pass.
+## Independent review and release
 
-## Publish decision
+- [x] Independent review reports no P0/P1.
+- [x] Review findings are fixed and the full matrix is rerun.
+- [ ] PR merges to protected `main` with green CI.
+- [ ] Annotated `v0.3.0` tag points at the merged commit.
+- [ ] Tag CI is green and GitHub release/assets/checksums are published.
 
-- `GO` for the stable approval-gated read-only index-scan plugin only when every applicable gate is evidenced.
-- `NO-GO` for any removal, monitoring, legal-service, or feature-parity claim.
-- Provider account/key validity remains a deployment readiness check. The stable software release does not claim a particular operator subscription is active and uses no real PII to manufacture release evidence.
+Decision remains `NO-GO` until every applicable item is evidenced.

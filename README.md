@@ -1,23 +1,46 @@
 # RightOut
 
-RightOut is an approval-gated OpenClaw plugin and skill for read-only people-search discovery with privacy-safe reports. Version: `0.2.0`.
+RightOut `0.3.0` is an OpenClaw plugin and bundled skill for two separately authorized actions:
 
-It is live-scan capable for the US catalog entry `truepeoplesearch` through the Brave Search API only. The operator must attest the exact profile scope, Brave Search API Terms revision `2026-02-11`, and Brave customer responsibilities. RightOut never requests a TruePeopleSearch or Spokeo page, so publisher automation uncertainty cannot widen the runtime network boundary. It does **not** submit removals, send email, fill forms, solve CAPTCHAs, schedule monitoring, or write to providers.
+1. a read-only live people-search scan through the Brave Search API; and
+2. one catalog-locked broker removal request through the operator's SMTP account.
+
+The tools are `rightout_live_scan` and `rightout_submit_removal`. Both are optional, non-replay-safe, accept only opaque references, and require their own native OpenClaw `allow-once` approval. A scan approval cannot authorize an email or any other provider write.
+
+## What works live
+
+### Scan
+
+`rightout_live_scan(profileId, brokerIds)` sends name and US location from a SecretRef-backed profile to Brave Search in a POST body. It never requests a broker page and never returns or stores PII, queries, result URLs, titles, snippets, or bodies.
+
+- same-domain index candidate: `indirect_exposure`;
+- no candidate or provider failure: `inconclusive`;
+- never `found` or `not_found` from index-only evidence.
+
+The current scan catalog covers TruePeopleSearch and BeenVerified through Brave only. Spokeo automation remains disabled because its published terms prohibit automated access.
+
+The scan requires recorded `scan` consent, operator review, and a normalized profile digest bound into the approval. A changed profile fails before Brave receives a request.
+
+### Removal
+
+`rightout_submit_removal(profileId, brokerId, requestKind)` can currently send one `delete_and_opt_out` email to BeenVerified's official `privacy@beenverified.com` address for an operator-attested `US-CA` subject. The plugin:
+
+- requires recorded subject consent inside the private profile;
+- requires separate removal policy, consent, exact-scope, minimum-disclosure, and SMTP attestations bound to normalized profile/transport SHA-256 snapshots;
+- locks the recipient and field categories in catalog schema v3;
+- restricts SMTP to pinned Gmail, Yahoo, iCloud, or Fastmail TLS endpoints; Microsoft 365 is excluded because this release has no OAuth 2.0 SMTP flow;
+- sends only full name, contact email, region, and country;
+- performs no form submission, CAPTCHA work, identity-document upload, or browser automation.
+
+A successful SMTP handoff is reported only as `submitted`. It is not evidence that the broker received, processed, or completed the request. Later index absence remains `inconclusive`, so RightOut does not claim `confirmed_removed` from its current live evidence.
 
 ## Security boundary
 
-The optional `rightout_live_scan` tool accepts only:
+Private profiles and credentials live in OpenClaw SecretRefs, not chat or tool arguments. Native `before_tool_call.requireApproval` runs after tool selection and before execution. Only `allow-once` and `deny` are offered; denial, timeout, cancellation, missing approval routing, changed attestations, changed bound profile/SMTP snapshots, mutated parameters, or a missing host tool-call ID fails closed.
 
-- an opaque operator-configured `profileId`;
-- one or two supported catalog broker IDs.
+RightOut also registers security-audit checks for plaintext profiles, Brave keys, SMTP credentials/sender address, incomplete attestations, and direct Gateway tool exposure. Add both tools to `gateway.tools.deny` unless full-operator `/tools/invoke` access is intentionally required.
 
-The private subject profile and Brave Search key live in OpenClaw SecretRef-backed plugin config, not chat or tool arguments. Before offering approval, the plugin also requires operator-owned exact-profile scope, revision-bound Brave terms acceptance, customer-responsibility acceptance, and an explicit broker search scope. After the model selects the tool, a native `before_tool_call` hook requires `allow-once` or `deny`; denial, timeout, cancellation, missing attestations, hook failure, or no approval route fails closed. `allow-always` is not offered.
-
-The scan sends full name and US location to Brave Search in a POST body. Brave's published privacy notice states that standard-plan query logs may be retained for up to 90 days; Zero Data Retention is an enterprise option. RightOut examines the transient response only for an HTTPS result on the selected official domain, then discards every result URL, title, snippet, and body. It makes no publisher request. A same-domain result becomes only `indirect_exposure`; index absence remains `inconclusive`, never proof of presence or absence.
-
-Reports contain broker states, sanitized reason codes, disclosure categories, and coverage gaps. They contain no raw Search Results or derivative proof reference and exclude raw PII, API keys, queries, candidate URLs, titles, snippets, and bodies. RightOut performs zero publisher requests, submissions, emails, local PII writes, or provider writes.
-
-See [approval boundary](docs/approval-boundary.md), [privacy posture](docs/privacy-posture.md), and [security policy](SECURITY.md).
+See [approval boundary](docs/approval-boundary.md), [privacy posture](docs/privacy-posture.md), [OpenClaw conformance](docs/openclaw-conformance.md), and [security policy](SECURITY.md).
 
 ## Install
 
@@ -30,28 +53,22 @@ npm ci --ignore-scripts
 ./install.sh
 ```
 
-The installer validates the source, creates a minimal npm archive with compiled JavaScript, installs it through the official OpenClaw plugin installer, loads the runtime, verifies the live tool and approval hook, and runs `openclaw plugins doctor`.
+The installer builds and validates the package, installs through OpenClaw's plugin CLI, inspects the live runtime, and rolls back a failed update. Follow [INSTALL.md](INSTALL.md) for SecretRefs, attestations, optional-tool policy, and approval routing. Installation and release testing never contact a real broker or use real PII.
 
-Live readiness additionally requires operator-created SecretRefs, optional-tool allowlisting, an approval route, and clean secret/security audits. Follow [INSTALL.md](INSTALL.md); never paste a real profile into chat or a repository file.
-
-## Offline validation runner
-
-The bundled Python runner remains deliberately dummy-only. It cannot read real subject files or invoke the live plugin.
+## Validation
 
 ```bash
 make test
 make scan-only-dummy
 make e2e-dummy
+make installer-test
+make release-check
 ```
 
-It exercises report v3, catalog policy, filesystem hardening, and the synthetic removal-state matrix. All synthetic results are labeled `fixture_only`; catalog lanes remain `not_checked` in dummy output.
+The Python runner remains dummy-only. Report v4 and the complete removal state matrix are synthetic validation; live removal state currently stops at `submitted`.
 
-## Product scope
+## Scope and comparison
 
-RightOut currently provides a narrow live discovery capability and a broader reporting/state model. It is not feature-equivalent to Incogni, DeleteMe, Optery, Privacy Bee, or Aura: autonomous removals, recurring monitoring, dashboards, screenshots, custom-removal teams, family plans, Google cleanup, identity vaults, and dark-web/credit protection are not implemented. The source-backed comparison is in [docs/feature-benchmark.md](docs/feature-benchmark.md).
+RightOut now has the core product shape used by Hermes Unbroker and commercial services—discovery, explicit removal submission, lifecycle semantics, human-task boundaries, and reappearance-aware reporting—but not their breadth or managed operations. It has one automated removal lane, no dashboard, no mailbox polling, no scheduler, no screenshot proof, no custom-removal team, and no family/enterprise administration.
 
-## Catalog and evidence policy
-
-Every catalog entry must use independently authored notes plus official URLs, domains, jurisdiction, lane, minimum field categories, prerequisites, freshness, and structured provenance. Do not copy commercial broker lists, Privacy Guides, IntelTechniques, BADBOOL, screenshots, or proprietary reports.
-
-The exact independent v0.1.0 audit artifact was not found in the repository, releases, issues, pull requests, release assets, or supplied attachments. Its exact wording and IDs remain `needs_evidence`; [the current audit](docs/audit-2026-07-11.md) preserves only evidenced baseline facts.
+The evidence-backed comparison with Incogni, Optery, DeleteMe, Kanary, and Hermes Unbroker is in [docs/feature-benchmark.md](docs/feature-benchmark.md). No commercial broker list, Hermes code, BADBOOL data, or third-party prose is copied into RightOut.

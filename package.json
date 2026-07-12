@@ -1,7 +1,7 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.2.0",
-  "description": "Approval-gated live data-broker scanning and privacy-safe reporting for OpenClaw",
+  "version": "0.3.0",
+  "description": "Separately approval-gated data-broker scanning and removal requests for OpenClaw",
   "type": "module",
   "license": "MIT",
   "files": [
@@ -16,6 +16,7 @@
     "CHANGELOG.md",
     "SBOM.spdx.json",
     "docs/",
+    "scripts/compute-removal-bindings.mjs",
     "VERSION"
   ],
   "scripts": {
@@ -26,10 +27,12 @@
     "prepack": "npm run check"
   },
   "dependencies": {
+    "nodemailer": "9.0.3",
     "typebox": "1.3.6"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "@types/nodemailer": "^8.0.1",
     "openclaw": "2026.6.11",
     "typescript": "5.9.3"
   },

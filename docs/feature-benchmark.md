@@ -1,36 +1,56 @@
-# Feature benchmark: RightOut and commercial privacy services
+# Feature benchmark: RightOut, Hermes Unbroker, and removal services
 
-Review date: 2026-07-11. This is a source-backed scope comparison, not an effectiveness test or endorsement. Commercial claims below are vendor claims and may change.
+Review date: 2026-07-12. This compares publicly documented product categories, not effectiveness, security certification, or legal compliance. Vendor figures are vendor claims and can change.
 
-Official product material describes broad service expectations:
+Primary product sources reviewed:
 
-- Optery advertises exposure/removal reports, screenshots, status tracking, recurring scans, custom removals, and dashboard history ([Optery](https://www.optery.com/), [Exposure Report help](https://help.optery.com/en/articles/6495279-what-is-an-exposure-report-and-where-can-i-find-it)).
-- Incogni advertises an exposure scanner/risk view, automated data-removal requests, request status, recurring handling, and custom removals ([Incogni](https://incogni.com/), [Exposure Scanner](https://incogni.com/blog/incogni-exposure-scanner)).
-- DeleteMe describes scanning, removal, verification, monitoring for reappearance, privacy reports, and assisted/custom removal work ([How DeleteMe works](https://joindeleteme.com/how-it-works/)).
-- Privacy Bee advertises exposure/risk scoring, dashboard progress, automated removals, and repeated scans ([Privacy Bee](https://privacybee.com/)).
-- Aura bundles data-broker removal with broader identity/digital-security features and recurring monitoring ([Aura data removal](https://www.aura.com/digital-security/data-removal-service)).
+- [Hermes Unbroker](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-unbroker): consented multi-subject dossiers, deterministic ledger/queue, browser/form/email lanes, verification polling, human digest, and recurring rechecks.
+- [Incogni removal features](https://incogni.com/features/remove-my-information-from-internet), [statuses](https://support.incogni.com/hc/en-us/articles/4904721869458-What-do-the-data-removal-statuses-on-my-dashboard-mean), and [custom removals](https://support.incogni.com/hc/en-us/articles/25599884277778-How-can-I-submit-a-link-for-Custom-Removals): recurring broker requests, status dashboard, custom links, specialist handling, and broad claimed coverage.
+- [Optery](https://www.optery.com/), [removal reports](https://help.optery.com/en/article/what-is-a-removals-report-1ht35vl/), and [verification](https://help.optery.com/en/article/how-can-i-verify-the-profiles-optery-says-have-been-removed-have-actually-been-removed-yh009a/): scans, automated/custom removals, dashboard/history, and before/after screenshot proof.
+- [DeleteMe workflow](https://help.joindeleteme.com/hc/en-us/articles/8142303949587-How-Does-DeleteMe-Work) and [monitoring](https://help.joindeleteme.com/hc/en-us/articles/8171611866899-Do-you-constantly-monitor-my-info-around-the-clock): broker search, removal, verification, re-removal, reports, and custom requests.
+- [Kanary](https://www.kanary.com/): self-guided/managed removals, Google/social coverage, recurring scans, family options, reports, and escalation support.
 
 ## Capability matrix
 
-| Capability | RightOut 0.2.0 | Commercial benchmark | Status |
+| Capability | RightOut 0.3.0 | Reference products | Status |
 | --- | --- | --- | --- |
-| Live people-search discovery | One catalog broker; revision-bound Brave-only index discovery with no publisher request | Broad scans claimed | implemented, highly restricted |
-| Per-call human approval | Native OpenClaw allow-once/deny | Vendor account/service consent models vary | implemented, differentiated |
-| PII absent from agent tool params | Opaque SecretRef profile ID only | Not evidenced from public marketing | implemented |
-| Indirect/inconclusive semantics | Same-domain Brave result produces only `indirect_exposure`; index negatives never produce `not_found` | Exposure/report semantics vary | implemented |
-| Evidence artifact | No raw or derived Search Result retained | Screenshots and detailed reports commonly claimed | intentionally absent |
-| Removal status model | Full synthetic report states | Dashboards/status commonly claimed | model only, no live removals |
-| Automated removal/submission | None | Core commercial feature | not implemented |
-| Recurring monitoring/reappearance | State/report schema only; no scheduler | Commonly claimed | not implemented |
-| Custom/manual removal service | None | Some vendors claim human/custom assistance | not implemented |
-| Dashboard/history | JSON report only | Commonly claimed | not implemented |
-| Family/team coverage | None | Available in some products | not implemented |
-| Google result cleanup | Reference catalog lane only | Claimed by some products | not implemented |
-| Identity vault/dark web/credit/VPN | None | Bundled by broader security suites such as Aura | out of scope |
-| Public API/integrations | OpenClaw tool only | Varies by vendor/plan | partial |
+| Live discovery | Brave index-only for 2 catalog brokers | Broad direct/private scans claimed | implemented, narrow and indirect |
+| Explicit subject consent | Consent inside SecretRef profile plus operator attestation | Unbroker and managed services use intake/authorization | implemented |
+| Per-action native approval | Separate OpenClaw allow-once for scan and removal | Unbroker defaults to standing authorization; vendor consent models vary | implemented, stricter |
+| PII absent from model tool args | Opaque refs only | Not generally evidenced in public vendor material | implemented |
+| Broker removal submission | One catalog-locked BeenVerified SMTP request | Core feature with broad coverage | implemented, one lane |
+| Minimum disclosure | Fixed name/email/region/country | Claimed/practiced by several services; implementation details vary | implemented for supported lane |
+| CAPTCHA/form safety | No automation; human-only | Unbroker/browser services support more form lanes | implemented as fail-closed limit |
+| Submission lifecycle semantics | `submitted`, verification/processing/removal/reappearance model | Dashboards expose comparable states | implemented; live stops at submitted |
+| Broker receipt/verification polling | None | Unbroker polls email; managed services track responses | missing |
+| Direct removal proof | No screenshots or direct absence evidence | Optery/DeleteMe emphasize proof/reports | missing |
+| Recurring monitoring and re-removal | Manual later scan only | Standard commercial/Unbroker capability | missing |
+| Durable live case history/dashboard | PII-safe result in OpenClaw session only | Common dashboard/ledger capability | missing |
+| Custom URL removals | None | Incogni/Optery/DeleteMe support custom cases | missing |
+| Human specialist/escalation service | Human task instructions only | Commercial services offer staff workflows | out of scope for software-only release |
+| Family/team administration | Multiple opaque profiles possible; no administration UI | Common paid feature | partial data model only |
+| Google/social/image cleanup | Human/reference lanes only | Kanary and some managed tiers cover these | not implemented |
+| Private-database broker coverage | None | Incogni claims many private brokers | not implemented |
+| Public API/integration | Two OpenClaw tools | APIs vary by vendor/tier | implemented for OpenClaw |
+| Identity/dark-web/credit/VPN bundle | None | Broader suites may bundle these | out of scope |
+
+## Unbroker clean-room adoption
+
+RightOut uses Unbroker as a product-architecture reference, not a code or data source. Adopted concepts:
+
+- consent before action;
+- separate discovery and delete phases;
+- least disclosure;
+- explicit lifecycle states;
+- human tasks for CAPTCHA/ID/phone/fax;
+- later verification and reappearance awareness.
+
+RightOut deliberately rejects Unbroker's default hands-off submission model for OpenClaw. Every external write gets a new native approval. RightOut also does not import Unbroker's broker files, BADBOOL-derived material, templates, code, or prose.
+
+Reference snapshot: NousResearch/hermes-agent commit `7c14d2a046217c5ccbaa06a9449b0fcf329221f9` reviewed 2026-07-12.
 
 ## Release conclusion
 
-RightOut has the minimum coherent feature set for an approval-gated live-scan plugin: private profile indirection, explicit broker selection, revision-bound Brave discovery, zero publisher requests, honest uncertainty, catalog policy, and report UX.
+RightOut now has a complete, internally coherent minimum workflow: SecretRef profile and consent, live discovery, a real catalog-locked removal write, separate approval scopes, honest submission state, human-only blockers, and removal/reappearance report semantics.
 
-It does **not** have feature parity with commercial removal services. Claiming parity would be false. Closing the removal/monitoring gaps would add external writes, identity verification, legal/terms obligations, recurring jobs, retention, customer support, and materially different approval capabilities. Those changes require separate goals and security reviews; they are not silently folded into a scan approval.
+It does not have coverage or managed-service parity with Incogni, Optery, DeleteMe, Kanary, or Hermes Unbroker. The largest remaining product gaps are durable live tracking, inbound verification, scheduled rechecks, proof artifacts, custom URLs, and broker breadth. Claiming feature/effectiveness parity would be false.

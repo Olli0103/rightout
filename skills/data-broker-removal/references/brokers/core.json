@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "catalog_id": "rightout-clean-room-core",
   "catalog_license": "MIT",
   "catalog_policy": "Official-source facts and URLs with original RightOut notes only. No third-party broker-list records or prose.",
@@ -216,6 +216,84 @@
         "not_found_policy": "never_from_index_absence"
       },
       "notes": "Read-only indirect discovery through Brave Search only. RightOut never requests a TruePeopleSearch page, so uncertain publisher automation permission is outside the runtime request boundary. Search-index candidates are indirect signals, never identity proof or a direct found result. CAPTCHA, removal, email, and submissions are out of scope."
+    },
+    {
+      "id": "beenverified",
+      "name": "BeenVerified",
+      "category": "people_search",
+      "jurisdictions": [
+        "US",
+        "US-CA"
+      ],
+      "official_url": "https://www.beenverified.com/",
+      "official_domains": [
+        "beenverified.com"
+      ],
+      "lane": "email",
+      "required_fields": [
+        "full_name",
+        "contact_email",
+        "region",
+        "country"
+      ],
+      "prerequisites": [
+        "subject_authorization",
+        "recorded_broker_removal_consent",
+        "native_openclaw_plugin_approval",
+        "operator_authorized_smtp_account",
+        "rightout_removal_policy_2026_07_12"
+      ],
+      "approval_gate": "send_request",
+      "human_only": false,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_license": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.beenverified.com/faq/privacy/",
+          "title": "BeenVerified Privacy and Cookies Policy",
+          "publisher": "BeenVerified",
+          "license_scope": "official_contact_and_request_channel_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "scan": {
+        "supported": true,
+        "automated_access_policy": "search_index_only_no_publisher_access",
+        "terms_status": "publisher_not_accessed",
+        "strategy": "brave_site_query_no_publisher_fetch",
+        "query_fields": [
+          "full_name",
+          "city",
+          "region"
+        ],
+        "search_provider_host": "api.search.brave.com",
+        "not_found_policy": "never_from_index_absence"
+      },
+      "removal": {
+        "supported": true,
+        "channel": "email",
+        "request_kinds": [
+          "delete_and_opt_out"
+        ],
+        "recipient": "privacy@beenverified.com",
+        "smtp_recipient_domain": "beenverified.com",
+        "disclosure_fields": [
+          "full_name",
+          "contact_email",
+          "region",
+          "country"
+        ],
+        "eligible_jurisdictions": [
+          "US-CA"
+        ],
+        "identity_verification": "broker_may_request_follow_up",
+        "confirmation_policy": "submitted_until_later_rescan",
+        "policy_url": "https://www.beenverified.com/faq/privacy/",
+        "policy_revision": "2025-10-21",
+        "last_verified": "2026-07-12"
+      },
+      "notes": "Brave-only discovery remains read-only. A separate allow-once removal tool may send one minimum-disclosure deletion and opt-out email to the official privacy address for an attested California subject. SMTP acceptance is submitted, never confirmed_removed."
     },
     {
       "id": "spokeo",

@@ -74,9 +74,10 @@ class PublicBoundaryTests(unittest.TestCase):
     def test_validator_and_doctor_prove_split_live_plugin_boundary(self) -> None:
         result = run([sys.executable, str(VALIDATOR), "--skill-dir", str(SKILL)])
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["doctor"]["capability_posture"], "approval_gated_live_plugin_plus_dummy_runner")
+        self.assertEqual(result["doctor"]["capability_posture"], "separately_approval_gated_live_scan_and_removal_plus_dummy_runner")
         self.assertEqual(result["doctor"]["live_approval_adapter"], "native_openclaw_plugin_permission_allow_once")
         self.assertEqual(result["doctor"]["live_pii_input"], "secretref_profile_not_tool_params")
+        self.assertEqual(result["doctor"]["removal_tool"], "rightout_submit_removal")
 
     def test_public_command_surface_excludes_live_and_mutating_commands(self) -> None:
         help_result = run([sys.executable, str(RUNNER), "--help"])
@@ -222,7 +223,7 @@ class ReportingAndStateTests(unittest.TestCase):
     def test_report_distinguishes_catalog_coverage_from_fixtures(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rightout-coverage-") as tmp:
             report = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
-        self.assertEqual(report["coverage"]["catalog_case_count"], 5)
+        self.assertEqual(report["coverage"]["catalog_case_count"], 6)
         self.assertEqual(report["coverage"]["fixture_case_count"], 3)
         self.assertTrue(all(not item["fixture_only"] for item in report["scan_report"]["not_checked"]))
 
@@ -286,10 +287,20 @@ class ReportingAndStateTests(unittest.TestCase):
 
 
 class CatalogValidationTests(unittest.TestCase):
-    def test_catalog_is_schema_v2_and_valid(self) -> None:
+    def test_catalog_is_schema_v3_and_valid(self) -> None:
         catalog = load_catalog()
-        self.assertEqual(catalog["schema_version"], 2)
+        self.assertEqual(catalog["schema_version"], 3)
         self.assertEqual(rightout.validate_catalog_data(catalog), [])
+
+    def test_email_removal_lane_is_catalog_locked_and_minimum_disclosure(self) -> None:
+        catalog = load_catalog()
+        broker = next(item for item in catalog["brokers"] if item["id"] == "beenverified")
+        self.assertEqual(broker["removal"]["recipient"], "privacy@beenverified.com")
+        self.assertEqual(broker["removal"]["disclosure_fields"], ["full_name", "contact_email", "region", "country"])
+        self.assertEqual(broker["removal"]["confirmation_policy"], "submitted_until_later_rescan")
+        unsafe = load_catalog()
+        next(item for item in unsafe["brokers"] if item["id"] == "beenverified")["removal"]["recipient"] = "attacker@example.invalid"
+        self.assertTrue(rightout.validate_catalog_data(unsafe))
 
     def test_catalog_rejects_unsafe_ids(self) -> None:
         catalog = load_catalog()
@@ -404,7 +415,11 @@ class InstallerTests(unittest.TestCase):
                         "braveTermsAccepted": True,
                         "braveTermsVersion": "2026-02-11",
                         "braveCustomerResponsibilitiesAccepted": True,
+                        "subjectConsentReviewed": True,
                         "authorizedProfileIds": ["profile_a1b2c3d4e5f60718"],
+                        "authorizedProfileDigests": {
+                            "profile_a1b2c3d4e5f60718": "0" * 64,
+                        },
                         "authorizedBrokerIds": ["truepeoplesearch"],
                     }),
                     "--strict-json",
@@ -412,7 +427,7 @@ class InstallerTests(unittest.TestCase):
                 env_extra=env,
             )
             run(
-                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan"]', "--strict-json"],
+                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_submit_removal"]', "--strict-json"],
                 env_extra=env,
             )
             validation = run([env["OPENCLAW_BIN"], "config", "validate"], env_extra=env)
@@ -422,7 +437,8 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("unresolved=0", audit["stdout"])
             security = run([env["OPENCLAW_BIN"], "security", "audit", "--deep"], env_extra=env)
             self.assertNotIn("rightout.secretref", security["stdout"] + security["stderr"])
-            self.assertNotIn("rightout.operator_attestations", security["stdout"] + security["stderr"])
+            self.assertNotIn("rightout.scan_operator_attestations", security["stdout"] + security["stderr"])
+            self.assertNotIn("rightout.removal_operator_attestations", security["stdout"] + security["stderr"])
             self.assertNotIn("rightout.gateway.tools_invoke", security["stdout"] + security["stderr"])
             second = run([str(INSTALLER), "--force"], env_extra=env)
             self.assertIn("plugin installed and runtime-validated", second["stdout"])

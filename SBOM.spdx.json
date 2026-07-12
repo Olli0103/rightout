@@ -2,17 +2,17 @@
   "SPDXID": "SPDXRef-DOCUMENT",
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
-  "name": "openclaw-rightout-0.2.0",
-  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/plugin/0.2.0",
+  "name": "openclaw-rightout-0.3.0",
+  "documentNamespace": "https://github.com/Olli0103/rightout/sbom/plugin/0.3.0",
   "creationInfo": {
-    "created": "2026-07-11T00:00:00Z",
+    "created": "2026-07-12T00:00:00Z",
     "creators": ["Tool: RightOut release process"]
   },
   "packages": [
     {
       "SPDXID": "SPDXRef-Package-RightOut",
       "name": "@olli0103/openclaw-rightout",
-      "versionInfo": "0.2.0",
+      "versionInfo": "0.3.0",
       "downloadLocation": "https://github.com/Olli0103/rightout",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -21,7 +21,7 @@
       "externalRefs": [{
         "referenceCategory": "PACKAGE-MANAGER",
         "referenceType": "purl",
-        "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.2.0"
+        "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.3.0"
       }]
     },
     {
@@ -38,6 +38,21 @@
         "referenceType": "purl",
         "referenceLocator": "pkg:npm/typebox@1.3.6"
       }]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-Nodemailer",
+      "name": "nodemailer",
+      "versionInfo": "9.0.3",
+      "downloadLocation": "https://registry.npmjs.org/nodemailer/-/nodemailer-9.0.3.tgz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT-0",
+      "licenseDeclared": "MIT-0",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE-MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:npm/nodemailer@9.0.3"
+      }]
     }
   ],
   "relationships": [
@@ -50,6 +65,11 @@
       "spdxElementId": "SPDXRef-Package-RightOut",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-Package-TypeBox"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-RightOut",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-Nodemailer"
     }
   ]
 }

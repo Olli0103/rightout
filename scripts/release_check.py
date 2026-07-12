@@ -36,6 +36,7 @@ def main() -> None:
     errors: list[str] = []
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     package = read_json(ROOT / "package.json")
+    package_lock = read_json(ROOT / "package-lock.json")
     manifest = read_json(ROOT / "openclaw.plugin.json")
     catalog = read_json(ROOT / "skills/data-broker-removal/references/brokers/core.json")
     sbom = read_json(ROOT / "SBOM.spdx.json")
@@ -54,9 +55,106 @@ def main() -> None:
 
     if package.get("openclaw", {}).get("extensions") != ["./dist/index.js"]:
         fail(errors, "package must load compiled dist/index.js")
-    for path in [ROOT / "dist/index.js", ROOT / "dist/lib/live-scan.mjs"]:
+    if manifest.get("activation") != {"onStartup": False}:
+        fail(errors, "manifest must explicitly declare lazy onStartup activation")
+    sbom_versions = {
+        item.get("name"): item.get("versionInfo")
+        for item in sbom.get("packages", [])
+        if isinstance(item, dict)
+    }
+    root_lock_dependencies = package_lock.get("packages", {}).get("", {}).get("dependencies", {})
+    for dependency, declared_version in package.get("dependencies", {}).items():
+        if not isinstance(declared_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", declared_version):
+            fail(errors, f"production dependency must be exactly pinned: {dependency}={declared_version!r}")
+            continue
+        locked_version = package_lock.get("packages", {}).get(f"node_modules/{dependency}", {}).get("version")
+        if root_lock_dependencies.get(dependency) != declared_version or locked_version != declared_version:
+            fail(errors, f"production dependency lock mismatch: {dependency}")
+        if sbom_versions.get(dependency) != declared_version:
+            fail(errors, f"production dependency SBOM mismatch: {dependency}")
+    for path in [ROOT / "dist/index.js", ROOT / "dist/lib/live-scan.mjs", ROOT / "dist/lib/removal.mjs", ROOT / "dist/lib/smtp.mjs"]:
         if not path.is_file():
             fail(errors, f"compiled release file missing: {path.relative_to(ROOT)}")
+
+    with tempfile.TemporaryDirectory(prefix="rightout-bindings-check-") as tmp:
+        private_dir = Path(tmp)
+        profile_path = private_dir / "profile.json"
+        smtp_path = private_dir / "smtp.json"
+        profile_path.write_text(json.dumps({
+            "fullName": "Release Fixture",
+            "city": "Exampleville",
+            "region": "CA",
+            "country": "US",
+            "contactEmail": "release-fixture@example.invalid",
+            "jurisdictions": ["US", "US-CA"],
+            "consent": {
+                "authorized": True,
+                "recordedAt": "2026-07-12T08:00:00.000Z",
+                "scope": ["scan", "broker_removal"],
+            },
+        }), encoding="utf-8")
+        smtp_path.write_text(json.dumps({
+            "host": "smtp.gmail.com",
+            "port": 465,
+            "secure": True,
+            "username": "release-fixture",
+            "password": "dummy-app-password",
+            "fromAddress": "release-fixture@example.invalid",
+        }), encoding="utf-8")
+        profile_path.chmod(0o600)
+        smtp_path.chmod(0o600)
+        binding_check = subprocess.run(
+            ["node", "scripts/compute-removal-bindings.mjs", "profile_a1b2c3d4e5f60718", str(profile_path), str(smtp_path)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        try:
+            binding_result = json.loads(binding_check.stdout)
+        except json.JSONDecodeError:
+            binding_result = {}
+        binding_values = [
+            binding_result.get("scanProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
+            binding_result.get("authorizedProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
+            binding_result.get("smtpTransportDigest"),
+        ]
+        repeat_check = subprocess.run(
+            ["node", "scripts/compute-removal-bindings.mjs", "profile_a1b2c3d4e5f60718", str(profile_path), str(smtp_path)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        try:
+            repeat_result = json.loads(repeat_check.stdout)
+        except json.JSONDecodeError:
+            repeat_result = {}
+        repeat_values = [
+            repeat_result.get("scanProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
+            repeat_result.get("authorizedProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
+            repeat_result.get("smtpTransportDigest"),
+        ]
+        if binding_check.returncode != 0 or not all(isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) for value in binding_values):
+            fail(errors, f"binding helper failed: {binding_check.stderr.strip()}")
+        if repeat_check.returncode != 0 or binding_values != repeat_values:
+            fail(errors, "binding helper output is not deterministic")
+        if any(value in binding_check.stdout for value in ["Release Fixture", "release-fixture@example.invalid", "dummy-app-password"]):
+            fail(errors, "binding helper leaked fixture values")
+        profile_link = private_dir / "profile-link.json"
+        profile_link.symlink_to(profile_path)
+        nofollow_check = subprocess.run(
+            ["node", "scripts/compute-removal-bindings.mjs", "profile_a1b2c3d4e5f60718", str(profile_link), str(smtp_path)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if nofollow_check.returncode == 0 or nofollow_check.stderr.strip() != "profile_file_unavailable":
+            fail(errors, "binding helper did not reject a symlinked private profile")
 
     tsc = ROOT / "node_modules/.bin/tsc"
     if not tsc.is_file():
@@ -74,29 +172,37 @@ def main() -> None:
             if build.returncode != 0:
                 fail(errors, f"clean TypeScript build failed: {build.stderr.strip()}")
             else:
-                for relative in [Path("index.js"), Path("lib/live-scan.mjs")]:
+                for relative in [Path("index.js"), Path("lib/live-scan.mjs"), Path("lib/removal.mjs"), Path("lib/smtp.mjs")]:
                     generated = Path(tmp) / relative
                     committed = ROOT / "dist" / relative
                     if not generated.is_file() or not committed.is_file() or generated.read_bytes() != committed.read_bytes():
                         fail(errors, f"compiled artifact is stale: dist/{relative}")
 
     tool = manifest.get("toolMetadata", {}).get("rightout_live_scan", {})
-    if manifest.get("contracts", {}).get("tools") != ["rightout_live_scan"]:
+    removal_tool = manifest.get("toolMetadata", {}).get("rightout_submit_removal", {})
+    if manifest.get("contracts", {}).get("tools") != ["rightout_live_scan", "rightout_submit_removal"]:
         fail(errors, "manifest tool contract mismatch")
     if tool.get("optional") is not True or tool.get("replaySafe") is not False:
         fail(errors, "live tool must be optional and non-replay-safe")
+    if removal_tool.get("optional") is not True or removal_tool.get("replaySafe") is not False:
+        fail(errors, "removal tool must be optional and non-replay-safe")
     secret_paths = {item.get("path") for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])}
-    if secret_paths != {"braveApiKey", "profiles.*.payload"}:
+    if secret_paths != {"braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password", "smtpTransport.fromAddress"}:
         fail(errors, "SecretInput contract mismatch")
     required_config = set(tool.get("configSignals", [{}])[0].get("required", []))
     if "operatorAttestations" not in required_config:
         fail(errors, "operator attestation config signal is missing")
+    removal_required_config = set(removal_tool.get("configSignals", [{}])[0].get("required", []))
+    if removal_required_config != {"smtpTransport", "profiles", "removalAttestations"}:
+        fail(errors, "removal config signals are incomplete")
     attestation_schema = manifest.get("configSchema", {}).get("properties", {}).get("operatorAttestations", {})
     expected_attestation_fields = {
         "braveTermsAccepted",
         "braveTermsVersion",
         "braveCustomerResponsibilitiesAccepted",
+        "subjectConsentReviewed",
         "authorizedProfileIds",
+        "authorizedProfileDigests",
         "authorizedBrokerIds",
     }
     if set(attestation_schema.get("required", [])) != expected_attestation_fields:
@@ -106,13 +212,48 @@ def main() -> None:
         attestation_properties.get("braveTermsVersion", {}).get("const") != "2026-02-11"
         or attestation_properties.get("braveTermsAccepted", {}).get("const") is not True
         or attestation_properties.get("braveCustomerResponsibilitiesAccepted", {}).get("const") is not True
+        or attestation_properties.get("subjectConsentReviewed", {}).get("const") is not True
     ):
         fail(errors, "Brave terms/customer attestation constants are incomplete")
+    removal_schema = manifest.get("configSchema", {}).get("properties", {}).get("removalAttestations", {})
+    expected_removal_fields = {
+        "rightoutRemovalPolicyAccepted",
+        "rightoutRemovalPolicyVersion",
+        "subjectConsentReviewed",
+        "smtpAccountAuthorized",
+        "minimumDisclosureAccepted",
+        "authorizedProfileIds",
+        "authorizedProfileDigests",
+        "authorizedBrokerIds",
+        "authorizedRequestKinds",
+        "smtpTransportDigest",
+    }
+    if set(removal_schema.get("required", [])) != expected_removal_fields:
+        fail(errors, "removal attestation schema is not revision-complete")
+    removal_properties = removal_schema.get("properties", {})
+    if (
+        removal_properties.get("rightoutRemovalPolicyVersion", {}).get("const") != "2026-07-12"
+        or removal_properties.get("rightoutRemovalPolicyAccepted", {}).get("const") is not True
+        or removal_properties.get("subjectConsentReviewed", {}).get("const") is not True
+        or removal_properties.get("smtpAccountAuthorized", {}).get("const") is not True
+        or removal_properties.get("minimumDisclosureAccepted", {}).get("const") is not True
+    ):
+        fail(errors, "removal policy/consent/SMTP attestation constants are incomplete")
     live_brokers = [item for item in catalog.get("brokers", []) if item.get("scan", {}).get("supported") is True]
-    if [item.get("id") for item in live_brokers] != ["truepeoplesearch"]:
-        fail(errors, "live catalog must contain only the Brave-index TruePeopleSearch scope")
-    if live_brokers[0].get("scan", {}).get("automated_access_policy") != "search_index_only_no_publisher_access":
-        fail(errors, "live broker must use search-index-only discovery")
+    if [item.get("id") for item in live_brokers] != ["truepeoplesearch", "beenverified"]:
+        fail(errors, "live catalog must contain only the reviewed Brave-index broker scope")
+    if any(item.get("scan", {}).get("automated_access_policy") != "search_index_only_no_publisher_access" for item in live_brokers):
+        fail(errors, "every live broker must use search-index-only discovery")
+    removal_brokers = [item for item in catalog.get("brokers", []) if item.get("removal", {}).get("supported") is True]
+    if [item.get("id") for item in removal_brokers] != ["beenverified"]:
+        fail(errors, "removal catalog must contain only the reviewed BeenVerified email lane")
+    removal_lane = removal_brokers[0].get("removal", {}) if removal_brokers else {}
+    if (
+        removal_lane.get("recipient") != "privacy@beenverified.com"
+        or removal_lane.get("disclosure_fields") != ["full_name", "contact_email", "region", "country"]
+        or removal_lane.get("confirmation_policy") != "submitted_until_later_rescan"
+    ):
+        fail(errors, "removal broker must use the catalog-locked minimum-disclosure lane")
     spokeo = next((item for item in catalog.get("brokers", []) if item.get("id") == "spokeo"), {})
     if spokeo.get("scan", {}).get("supported") is not False or spokeo.get("scan", {}).get("automated_access_policy") != "prohibited_by_published_terms":
         fail(errors, "Spokeo automation prohibition is not fail-closed")
@@ -128,8 +269,13 @@ def main() -> None:
     for label, pattern in secret_patterns.items():
         if re.search(pattern, combined):
             fail(errors, f"release text contains {label}")
+    allowed_public_emails = {
+        item.get("removal", {}).get("recipient", "").lower()
+        for item in catalog.get("brokers", [])
+        if item.get("removal", {}).get("supported") is True
+    }
     for email in re.findall(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", combined):
-        if not email.lower().endswith("@example.invalid"):
+        if not email.lower().endswith("@example.invalid") and email.lower() not in allowed_public_emails:
             fail(errors, f"non-fixture email found: {email}")
 
     runner = (ROOT / "skills/data-broker-removal/scripts/data_broker_removal.py").read_text(encoding="utf-8")
@@ -138,7 +284,7 @@ def main() -> None:
             fail(errors, f"offline runner contains prohibited token: {token}")
     if '"indirect_exposure": by_state["indirect_exposure"]' not in runner or 'by_state["found"] + by_state["indirect_exposure"]' in runner:
         fail(errors, "offline report must keep indirect_exposure separate from found")
-    runtime_js = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in ["index.ts", "lib/live-scan.mjs"])
+    runtime_js = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in ["index.ts", "lib/live-scan.mjs", "lib/removal.mjs", "lib/smtp.mjs"])
     if "globalThis.fetch" in combined or re.search(r"\bfetch\s*\(", runtime_js) or re.search(r"(?<!guarded)fetch\s*\(", runner):
         fail(errors, "unguarded fetch path detected")
     index = (ROOT / "index.ts").read_text(encoding="utf-8")
@@ -146,10 +292,12 @@ def main() -> None:
         "requireApproval",
         'allowedDecisions: ["allow-once", "deny"]',
         'timeoutBehavior: "deny"',
-        "scopeBinding",
+        "scanScopeBinding",
+        "removalScopeBinding",
         "approvalBindings.delete(toolCallId)",
         "rightout_approval_binding_failed",
-        "operatorAttestationSnapshot",
+        "scanAttestationSnapshot",
+        "removalAttestationSnapshot",
         "validateOperatorAttestations",
         "capture: false",
         "registerSecurityAuditCollector",
@@ -159,6 +307,7 @@ def main() -> None:
     live_scan = (ROOT / "lib/live-scan.mjs").read_text(encoding="utf-8")
     for required in [
         'const BRAVE_TERMS_VERSION = "2026-02-11"',
+        'const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"',
         "braveCustomerResponsibilitiesAccepted",
         "hasIndexCandidate",
         'to_broker_pages: []',
@@ -174,6 +323,33 @@ def main() -> None:
     for prohibited in ["verifyCandidate", "directPageMatches", "candidate_path_pattern", "allowedHosts: officialDomains", 'method: "GET"']:
         if prohibited in live_scan:
             fail(errors, f"publisher-fetch path must be absent: {prohibited}")
+    removal = (ROOT / "lib/removal.mjs").read_text(encoding="utf-8")
+    for required in [
+        'const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-12"',
+        'new Set(["delete_and_opt_out"])',
+        'state: "submitted"',
+        'removal_confirmed: false',
+        'forms_submitted: 0',
+        'captcha_bypasses: 0',
+        'local_pii_storage: 0',
+        'confirmation_policy !== "submitted_until_later_rescan"',
+        "validateRemovalOperatorAttestations",
+        "subject_consent_required",
+        "ALLOWED_SMTP_ENDPOINTS",
+    ]:
+        if required not in removal:
+            fail(errors, f"removal security invariant missing: {required}")
+    smtp = (ROOT / "lib/smtp.mjs").read_text(encoding="utf-8")
+    for required in [
+        "requireTLS: !transport.secure",
+        "disableFileAccess: true",
+        "disableUrlAccess: true",
+        'rejectUnauthorized: true, minVersion: "TLSv1.2"',
+        "connectionTimeout: 10_000",
+        'addEventListener("abort"',
+    ]:
+        if required not in smtp:
+            fail(errors, f"SMTP security invariant missing: {required}")
 
     installer = (ROOT / "install.sh").read_text(encoding="utf-8")
     for required in [".rightout-install.lock", "lock_acquired=1", 'rmdir "$lock_dir"']:
@@ -181,6 +357,8 @@ def main() -> None:
             fail(errors, f"installer concurrency invariant missing: {required}")
 
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    if "npm audit --omit=dev --audit-level=high" not in workflow:
+        fail(errors, "CI must audit production dependencies at high severity")
     action_uses = re.findall(r"uses:\s*([^\s#]+)", workflow)
     if not action_uses or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in action_uses):
         fail(errors, "CI actions must be pinned to full commit SHAs")
@@ -197,7 +375,7 @@ def main() -> None:
         fail(errors, f"npm pack dry-run failed: {proc.stderr.strip()}")
     else:
         packed = {item["path"] for item in json.loads(proc.stdout)[0]["files"]}
-        for required in ["dist/index.js", "dist/lib/live-scan.mjs", "openclaw.plugin.json", "skills/data-broker-removal/SKILL.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "SBOM.spdx.json"]:
+        for required in ["dist/index.js", "dist/lib/live-scan.mjs", "dist/lib/removal.mjs", "dist/lib/smtp.mjs", "scripts/compute-removal-bindings.mjs", "openclaw.plugin.json", "skills/data-broker-removal/SKILL.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "SBOM.spdx.json"]:
             if required not in packed:
                 fail(errors, f"release archive missing: {required}")
         if any(

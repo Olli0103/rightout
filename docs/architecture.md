@@ -1,51 +1,71 @@
 # Architecture
 
-## Live path
+## Runtime
 
 ```text
-operator-owned SecretRefs                    catalog schema v2
-  Brave key + private profile                supported broker IDs/domains
-              \                               /
-               v                             v
-model -> optional rightout_live_scan(profileId, brokerIds)
-                         |
-                         v
-              native before_tool_call approval
-              allow-once | deny | fail closed
-                         |
-                         v
-       plugin accesses already materialized profile
-                         |
-                         |
-                         v
-              Brave POST search only
-              fixed guarded host, zero redirects
-              transient domain classification
-                         |
-                         v
-              sanitized report v3 only
+operator SecretRefs                         clean-room catalog schema v3
+  profile + consent                          scan policy + removal policy
+  Brave key                                  official recipient + fields
+  SMTP identity/credential                   jurisdiction + provenance
+          |                                             |
+          +---------------- OpenClaw plugin ------------+
+                               |
+            +------------------+------------------+
+            |                                     |
+ rightout_live_scan                    rightout_submit_removal
+ optional, replaySafe=false             optional, replaySafe=false
+ opaque profile + broker IDs            opaque profile/broker + fixed kind
+            |                                     |
+ separate before_tool_call approval     separate before_tool_call approval
+            |                                     |
+ Brave guarded HTTPS POST               pinned SMTP TLS endpoint
+            |                                     |
+ indirect/inconclusive report           submitted-only report
 ```
 
-The model-visible call and transcript contain no raw PII. OpenClaw materializes SecretRef-backed plugin config before plugin registration, so the Gateway/plugin process may hold the resolved profile and key from config load until reload or restart. RightOut accesses them only after approval and never writes or returns them. SecretRefs are a config-persistence control, not OS/process or call-lifetime isolation.
+The tools share profiles and catalog data but no approval authority. Each execution validates and consumes a binding tagged with its exact tool name.
 
-## OpenClaw integration
+## Live scan data flow
 
-`index.ts` uses `definePluginEntry` because one plugin registers both a tool and a typed hook. The tool is optional and `replaySafe: false`. The manifest declares tool/config/SecretInput contracts. Production packaging compiles `index.ts` and `lib/live-scan.mjs` into `dist/`; `package.json` points OpenClaw at `dist/index.js`.
+1. OpenClaw resolves the profile and Brave key from SecretRefs.
+2. The model sees only opaque IDs.
+3. RightOut validates supported broker scan policies, recorded scan consent, and current attestations including a normalized profile digest.
+4. OpenClaw presents a scan-specific allow-once prompt.
+5. After approval, RightOut rechecks the bound profile snapshot, then POSTs one site query per broker to `api.search.brave.com` using the Plugin SDK SSRF guard.
+6. It checks transiently for an HTTPS result on an official broker domain.
+7. It discards all result content and returns only sanitized states and coverage gaps.
 
-The `before_tool_call` hook validates and normalizes the exact profile/broker scope plus the complete exact-profile, pinned-Brave-revision, customer-responsibility, and broker-search-scope attestation snapshot. It displays the disclosure and Brave retention limit in `requireApproval`, then binds an `allow-once` resolution to the host-authoritative tool-call ID for 120 seconds. Execution reconstructs the normalized current snapshot, compares the full binding, consumes it, and passes the actual snapshot to the live library for independent validation before reading the profile/key or making a request. Missing, changed, expired, replayed, denied, unattested, or parameter-mutated calls fail closed.
+Publisher requests, redirects, raw-result storage, and provider writes are absent.
 
-The only external request uses `openclaw/plugin-sdk/ssrf-runtime` with HTTPS required, the exact Brave host allowlist, zero redirects, timeout, size limit, safe headers, capture disabled, and OpenClaw abort-signal propagation. Result URLs are parsed transiently only to classify an HTTPS official-domain candidate; they are never requested, returned, hashed into a proof reference, or stored.
+## Live removal data flow
 
-## Result semantics
+1. OpenClaw resolves profile/consent and SMTP values from SecretRefs.
+2. The model supplies only `profileId`, `brokerId`, and `delete_and_opt_out`.
+3. RightOut resolves the PII-free catalog lane and exact opaque-scope attestations, including operator-generated normalized profile/SMTP digests.
+4. OpenClaw presents a removal-specific allow-once prompt with broker, recipient, and field categories; the hook does not parse profile or SMTP secrets.
+5. After approval, RightOut resolves secrets and verifies both bound snapshots, consent, jurisdiction, SMTP endpoint, sender/profile equality, and minimum fields before opening a connection.
+6. RightOut renders the fixed request internally and sends one TLS-protected SMTP message.
+7. The result reports only `submitted`, an opaque proof reference, and explicit uncertainty.
 
-- `indirect_exposure`: Brave returned at least one HTTPS result on the selected official domain. This is an index signal, not identity, ownership, page-content, or current-listing proof.
-- `inconclusive`: no same-domain index candidate, provider/network/policy failure, or unsupported proof condition.
-- `not_found`: intentionally never emitted by live v0.2 scans because search-index absence cannot prove absence.
+No request body, profile value, credential, or raw SMTP receipt is returned or persisted by RightOut. A 24-hour in-process cooldown blocks accidental duplicate scope during one Gateway lifetime; each post-restart send still requires a new approval.
 
-Live reports contain no proof reference because deriving or retaining evidence from a Search Result would weaken the transient-use posture. The report carries only the selected broker ID, state, sanitized reason, provider disclosure, and coverage gaps.
+## Reporting semantics
 
-## Offline runner
+- `indirect_exposure`: Brave returned an HTTPS candidate on the selected official domain; identity and current content remain unverified.
+- `inconclusive`: index/provider evidence cannot prove presence or absence.
+- `submitted`: outbound SMTP accepted the message; broker receipt/removal remain unverified.
+- `confirmed_removed`: available only in the synthetic state machine because the current live plugin has no direct absence proof.
+- `reappeared`: modeled and tested synthetically; live detection can only show a later indirect signal.
 
-The Python runner exposes only `doctor`, `validate`, `plan-dummy`, `scan-only-dummy`, `e2e-dummy`, and `verify-link`. It has no network or live subject command. Its private filesystem model uses opaque IDs, lexical containment, symlink rejection, `O_NOFOLLOW` where supported, `0700` directories, `0600` files, locks, revision compare-and-swap, atomic replace, and fsync.
+## Dummy runner
 
-Synthetic removal states exist only to verify report UX and transitions. They do not authorize or execute a removal.
+The Python runner exposes only `doctor`, `validate`, `plan-dummy`, `scan-only-dummy`, `e2e-dummy`, and `verify-link`. It makes no network request, reads no live profile, and cannot transition a shipped catalog case. It retains opaque IDs, containment checks, symlink rejection, private permissions, atomic writes, locking, and revision conflict protection for synthetic artifacts.
+
+## Deliberate limits
+
+- no publisher fetch or browser automation;
+- no form/CAPTCHA/identity-document lane;
+- no inbound email or verification-link polling;
+- no durable live case database or scheduler;
+- no claim of commercial coverage/effectiveness parity;
+- no legal advice or certification.

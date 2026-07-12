@@ -102,16 +102,18 @@ def main() -> None:
 
     e2e_report = e2e["report"]
     scan_report = scan["report"]
-    if not doctor.get("ok") or doctor.get("capability_posture") != "approval_gated_live_plugin_plus_dummy_runner":
+    if not doctor.get("ok") or doctor.get("capability_posture") != "separately_approval_gated_live_scan_and_removal_plus_dummy_runner":
         errors.append("doctor did not prove the split live-plugin/dummy-runner posture")
     if doctor.get("live_approval_adapter") != "native_openclaw_plugin_permission_allow_once":
         errors.append("doctor did not prove the native approval boundary")
     if doctor.get("live_pii_input") != "secretref_profile_not_tool_params":
         errors.append("doctor did not prove the private-profile boundary")
-    if not validation.get("ok") or validation.get("catalog_schema_version") != 2:
+    if doctor.get("removal_tool") != "rightout_submit_removal":
+        errors.append("doctor did not prove the separate removal tool boundary")
+    if not validation.get("ok") or validation.get("catalog_schema_version") != 3:
         errors.append("catalog validation failed")
-    if e2e_report.get("report_version") != 3:
-        errors.append("report v3 is missing")
+    if e2e_report.get("report_version") != 4:
+        errors.append("report v4 is missing")
     for section in ["scan_report", "removal_report", "user_summary", "hibp"]:
         if section not in e2e_report:
             errors.append(f"report section missing: {section}")
