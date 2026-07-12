@@ -543,12 +543,20 @@ def main() -> None:
     action_uses = [value for text in workflows.values() for value in re.findall(r"uses:\s*([^\s#]+)", text)]
     external_uses = [value for value in action_uses if not value.startswith("./")]
     local_uses = [value for value in action_uses if value.startswith("./")]
+    checkout_uses = [value for value in external_uses if value.startswith("actions/checkout@")]
+    persisted_credential_disables = sum(text.count("persist-credentials: false") for text in workflows.values())
+
+    def valid_local_use(value: str) -> bool:
+        path = ROOT / value.removeprefix("./")
+        return path.is_file() or (path.is_dir() and any((path / name).is_file() for name in ("action.yml", "action.yaml")))
     if (
         not external_uses
         or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in external_uses)
-        or any(not (ROOT / value.removeprefix("./")).is_file() for value in local_uses)
+        or any(not valid_local_use(value) for value in local_uses)
     ):
         fail(errors, "CI actions must be pinned to full commit SHAs")
+    if persisted_credential_disables < len(checkout_uses):
+        fail(errors, "every checkout action must disable persisted credentials")
     for invariant in [
         "needs: [test-matrix, installer, openclaw-compatibility]",
         "uses: ./.github/workflows/release.yml",

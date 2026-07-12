@@ -149,6 +149,14 @@ test("input validation accepts only opaque refs and a private US profile", () =>
     subject: privateProfile,
     brokerIds: toolInput.brokerIds,
   });
+  const exactMaxConsent = {
+    ...privateProfile.consent,
+    validUntil: new Date(Date.parse(privateProfile.consent.recordedAt) + 365 * 24 * 60 * 60_000).toISOString(),
+  };
+  assert.doesNotThrow(() => validateLiveScanInput({
+    ...scanInput,
+    subject: JSON.stringify({ ...privateProfile, consent: exactMaxConsent }),
+  }));
   assert.throws(
     () => validateLiveScanInput({ ...scanInput, subject: JSON.stringify({ ...privateProfile, country: "DE" }) }),
     /unsupported_country/,
@@ -162,6 +170,7 @@ test("input validation accepts only opaque refs and a private US profile", () =>
     { ...privateProfile.consent, scope: ["broker_removal"] },
     { ...privateProfile.consent, recordedAt: "2999-01-01T00:00:00.000Z" },
     { ...privateProfile.consent, validUntil: "2000-01-01T00:00:00.000Z" },
+    { ...privateProfile.consent, validUntil: privateProfile.consent.recordedAt },
     { ...privateProfile.consent, validUntil: new Date(Date.parse(privateProfile.consent.recordedAt) + 366 * 24 * 60 * 60_000).toISOString() },
   ]) {
     assert.throws(

@@ -17,11 +17,11 @@ RightOut 0.6.0 hardens the v0.5.0 live-scan/removal product loop for crash safet
 ## Safety corrections
 
 - A single direct 404/410 can never confirm people-search removal. The first complete known-set absence remains `awaiting_processing`; a second time-separated absence after the durable recheck time is required.
-- Possible provider writes never auto-retry. Only human-reviewed `provider_write_not_started` releases the dedupe and returns the case to `action_selected`.
+- Possible provider writes do not auto-retry. Only human-reviewed `provider_write_not_started` releases the dedupe and returns the case to `action_selected`.
 - EU and US controller confirmations remain `controller_response_only`; other identifiers/controllers and California DROP are explicitly unchecked.
 
 ## Honest scope
 
-The catalog contains 56 entries: 22 people-search targets, 21 Brave discovery lanes, and 23 classified EU controller/preference processes. RightOut has 28 independently locked executable targets: 27 US/EU emails and the Intelius/PeopleConnect browser-form initiation. This exceeds the 22 executable entries in the reviewed public Unbroker skill, though the lane mix differs. CAPTCHA, identity documents, unclear forms, DROP, portal/device identifiers, legal judgment, and controller-response review remain human work.
+The catalog contains 56 entries spanning overlapping sets of 22 people-search targets, 21 Brave discovery lanes, and 23 classified EU controller/preference processes. RightOut has 28 independently locked executable targets: 27 US/EU emails and the Intelius/PeopleConnect browser-form initiation. This exceeds the 22 executable entries in the reviewed public Unbroker skill, though the lane mix differs. CAPTCHA, identity documents, unclear forms, DROP, portal/device identifiers, legal judgment, and controller-response review remain human work.
 
 No release test uses real PII, a live scan, email, form, link open, or provider write.

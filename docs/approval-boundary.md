@@ -11,6 +11,8 @@ RightOut has six provider-I/O tools plus three critical local-state tools: destr
 | `rightout_poll_verification` | one profile/broker/read-only mailbox snapshot | link opening or write |
 | `rightout_open_verification` | one short-lived broker-bound link handle | another link, mailbox read, completion claim |
 | `rightout_purge_subject_state` | one opaque subject's encrypted local cases, handles, and dedupe records | provider deletion, OpenClaw config/SecretRef deletion, another subject |
+| `rightout_record_controller_outcome` | one personally reviewed outcome category for one submitted EU/US controller case | raw response content, SMTP acceptance as outcome evidence, another broker |
+| `rightout_reconcile_submission` | one personally reviewed ambiguous write outcome for one subject/broker case | automatic retry, provider claim without review, another case |
 
 Configuration contains revision-bound attestations for each action class. Digests bind the exact profile and, where applicable, SMTP/IMAP transport. Direct scans additionally require publisher-access authority and operator terms review for the selected broker. These deployment attestations are not legal certification and do not replace the interactive native approval.
 

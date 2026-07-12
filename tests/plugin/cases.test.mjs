@@ -268,6 +268,27 @@ test("human-reviewed EU and US controller outcomes are explicit and scoped", asy
   });
   const wiza = (await ledger.status(PROFILE)).cases.find((item) => item.broker_id === "wiza_us");
   assert.equal(wiza.next_recheck_at, "2026-08-26T10:00:00.000Z");
+
+  const partialBroker = {
+    id: "partialcycle_us",
+    process_class: "us_data_broker_email_deletion",
+    removal: { confirmation_policy: "submitted_until_controller_response", processing_days: 45 },
+  };
+  await ledger.reserveSubmission(PROFILE, partialBroker.id, {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted", subject_ref: PROFILE, broker_id: partialBroker.id,
+    generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_3123456789abcdef01234567"], disclosures: { to_broker: ["full_name", "contact_email", "region", "country"] },
+  }, 45);
+  assert.equal((await ledger.recordControllerOutcome(PROFILE, partialBroker.id, "partial_deletion", partialBroker)).state, "partially_removed");
+  assert.equal((await ledger.recordControllerOutcome(PROFILE, partialBroker.id, "processing_acknowledged", partialBroker)).state, "awaiting_processing");
+  assert.equal((await ledger.recordControllerOutcome(PROFILE, partialBroker.id, "partial_deletion", partialBroker)).state, "partially_removed");
+  assert.equal((await ledger.recordControllerOutcome(PROFILE, partialBroker.id, "identity_required", partialBroker)).state, "identity_verification_required");
+  assert.equal((await ledger.recordControllerOutcome(PROFILE, partialBroker.id, "partial_deletion", partialBroker)).state, "partially_removed");
+  assert.equal((await ledger.recordControllerOutcome(PROFILE, partialBroker.id, "request_rejected", partialBroker)).state, "request_rejected");
   await assert.rejects(
     ledger.recordControllerOutcome(PROFILE, "fullenrich_eu", "erasure_confirmed", {
       ...broker, process_class: "eu_advertising_preference",

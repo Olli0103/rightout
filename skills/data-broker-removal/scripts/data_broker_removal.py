@@ -384,12 +384,36 @@ def validate_eu_process(broker: dict[str, Any], official_domains: list[str], lab
     validate_catalog_url(process.get("official_action_url"), official_domains, label, "eu_process.official_action_url", errors)
 
 
+def validate_removal_recipient(
+    removal: dict[str, Any], official_domains: list[str], label: str,
+    region: str, errors: list[str],
+) -> None:
+    recipient = removal.get("recipient")
+    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
+        errors.append(f"{label} {region} removal recipient is invalid")
+        return
+    recipient_domain = recipient.rsplit("@", 1)[1].lower()
+    if recipient_domain != removal.get("smtp_recipient_domain"):
+        errors.append(f"{label} {region} removal recipient domain is not locked")
+    if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
+        errors.append(f"{label} {region} removal recipient is outside official domains")
+
+
+def policy_matched_sources(broker: dict[str, Any], removal: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        source for source in broker.get("sources", [])
+        if isinstance(source, dict) and source.get("url") == removal.get("policy_url")
+    ]
+
+
 def validate_eu_data_broker(
     broker: dict[str, Any], official_domains: list[str], label: str,
     freshness: int, today: dt.date, errors: list[str],
 ) -> None:
     if broker.get("process_class") not in {"eu_controller_email_erasure", "eu_controller_portal_erasure"}:
         errors.append(f"{label} EU data-broker process class is invalid")
+    if broker.get("us_process") is not None:
+        errors.append(f"{label} EU data-broker lane must not claim US process metadata")
     validate_eu_process(broker, official_domains, label, errors)
     removal = broker.get("removal")
     if broker.get("human_only") is True:
@@ -412,15 +436,7 @@ def validate_eu_data_broker(
     ):
         errors.append(f"{label} automated EU data-broker lane is incomplete")
         return
-    recipient = removal.get("recipient")
-    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
-        errors.append(f"{label} EU removal recipient is invalid")
-    else:
-        recipient_domain = recipient.rsplit("@", 1)[1].lower()
-        if recipient_domain != removal.get("smtp_recipient_domain"):
-            errors.append(f"{label} EU removal recipient domain is not locked")
-        if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
-            errors.append(f"{label} EU removal recipient is outside official domains")
+    validate_removal_recipient(removal, official_domains, label, "EU", errors)
     allowed_disclosures = {
         ("contact_email", "country"),
         ("full_name", "contact_email", "country"),
@@ -431,10 +447,7 @@ def validate_eu_data_broker(
     if broker.get("required_fields") != disclosures:
         errors.append(f"{label} EU disclosure fields disagree with required_fields")
     validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
-    policy_sources = [
-        source for source in broker.get("sources", [])
-        if isinstance(source, dict) and source.get("url") == removal.get("policy_url")
-    ]
+    policy_sources = policy_matched_sources(broker, removal)
     if not any(
         isinstance(source.get("fact_scope"), str)
         and "email" in source["fact_scope"]
@@ -491,20 +504,9 @@ def validate_us_data_broker(
     ):
         errors.append(f"{label} automated US data-broker lane is incomplete")
         return
-    recipient = removal.get("recipient")
-    if not isinstance(recipient, str) or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", recipient):
-        errors.append(f"{label} US removal recipient is invalid")
-    else:
-        recipient_domain = recipient.rsplit("@", 1)[1].lower()
-        if recipient_domain != removal.get("smtp_recipient_domain"):
-            errors.append(f"{label} US removal recipient domain is not locked")
-        if not any(recipient_domain == domain or recipient_domain.endswith("." + domain) for domain in official_domains):
-            errors.append(f"{label} US removal recipient is outside official domains")
+    validate_removal_recipient(removal, official_domains, label, "US", errors)
     validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
-    policy_sources = [
-        source for source in broker.get("sources", [])
-        if isinstance(source, dict) and source.get("url") == removal.get("policy_url")
-    ]
+    policy_sources = policy_matched_sources(broker, removal)
     if not any(
         isinstance(source.get("fact_scope"), str)
         and "email" in source["fact_scope"]
@@ -528,7 +530,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
         errors.append("catalog schema_version must be 6")
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
-        return errors + ["catalog brokers must be a non-empty list"]
+        return [*errors, "catalog brokers must be a non-empty list"]
     catalog_ids = {item.get("id") for item in brokers if isinstance(item, dict) and isinstance(item.get("id"), str)}
     seen: set[str] = set()
     reserved_ids = {"con", "prn", "aux", "nul", "clock$", ".", ".."}

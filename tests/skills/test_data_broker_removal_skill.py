@@ -313,6 +313,9 @@ class CatalogValidationTests(unittest.TestCase):
         unsafe = load_catalog()
         next(item for item in unsafe["brokers"] if item["id"] == "edaa_yoc")["eu_process"]["erasure_semantics"] = "controller_erasure_request_not_yet_confirmed"
         self.assertTrue(any("process tuple" in error for error in rightout.validate_catalog_data(unsafe)))
+        metadata_unsafe = load_catalog()
+        next(item for item in metadata_unsafe["brokers"] if item["id"] == "fullenrich_eu")["us_process"] = {}
+        self.assertTrue(any("must not claim US process metadata" in error for error in rightout.validate_catalog_data(metadata_unsafe)))
 
     def test_us_data_broker_email_lane_has_distinct_legal_semantics(self) -> None:
         catalog = load_catalog()
