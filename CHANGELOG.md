@@ -13,7 +13,7 @@ All notable changes to RightOut are documented here.
 - Exact-pinned Nodemailer and added lockfile/SBOM dependency consistency release gates; Microsoft 365 is excluded until an OAuth 2.0 SMTP contract exists.
 - Added report v4 live submission semantics: SMTP acceptance is only `submitted`, never broker receipt, processing, or `confirmed_removed`.
 - Expanded Brave-only live discovery to BeenVerified without adding publisher-page requests.
-- Reworked the bundled skill from scan-only to a separate scan/removal workflow based clean-room on Hermes Unbroker's product shape.
+- Reworked the bundled skill from scan-only to a separate scan/removal workflow developed clean-room, using Hermes Unbroker only as a product-shape benchmark.
 - Added adversarial tests for approval crossover, profile/SMTP substitution, recipient injection, consent, contradictory jurisdiction, SMTP restrictions, raw transport-error leakage, rejection, abort-before-write, PII-safe reports, and catalog semantics.
 - Updated OpenClaw conformance, security, privacy, installer, architecture, provider, benchmark, and release documentation.
 

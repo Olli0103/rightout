@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import process from "node:process";
 
 import {
@@ -17,11 +18,29 @@ function fail(message) {
 }
 
 async function readPrivateJson(path, label) {
-  const metadata = await stat(path);
-  if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) {
-    throw new Error(`${label}_file_must_be_private_mode_0600`);
+  if (!Number.isInteger(constants.O_NOFOLLOW)) throw new Error(`${label}_nofollow_unavailable`);
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    throw new Error(`${label}_file_unavailable`);
   }
-  return readFile(path, "utf8");
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) {
+      throw new Error(`${label}_file_must_be_private_mode_0600`);
+    }
+    return await handle.readFile({ encoding: "utf8" });
+  } catch (error) {
+    if (error instanceof Error && error.message === `${label}_file_must_be_private_mode_0600`) throw error;
+    throw new Error(`${label}_file_unavailable`);
+  } finally {
+    try {
+      await handle.close();
+    } catch {
+      // The descriptor is never reused; do not expose path-bearing close errors.
+    }
+  }
 }
 
 async function main() {

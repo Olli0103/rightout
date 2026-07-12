@@ -120,10 +120,41 @@ def main() -> None:
             binding_result.get("authorizedProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
             binding_result.get("smtpTransportDigest"),
         ]
+        repeat_check = subprocess.run(
+            ["node", "scripts/compute-removal-bindings.mjs", "profile_a1b2c3d4e5f60718", str(profile_path), str(smtp_path)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        try:
+            repeat_result = json.loads(repeat_check.stdout)
+        except json.JSONDecodeError:
+            repeat_result = {}
+        repeat_values = [
+            repeat_result.get("scanProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
+            repeat_result.get("authorizedProfileDigests", {}).get("profile_a1b2c3d4e5f60718"),
+            repeat_result.get("smtpTransportDigest"),
+        ]
         if binding_check.returncode != 0 or not all(isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) for value in binding_values):
             fail(errors, f"binding helper failed: {binding_check.stderr.strip()}")
+        if repeat_check.returncode != 0 or binding_values != repeat_values:
+            fail(errors, "binding helper output is not deterministic")
         if any(value in binding_check.stdout for value in ["Release Fixture", "release-fixture@example.invalid", "dummy-app-password"]):
             fail(errors, "binding helper leaked fixture values")
+        profile_link = private_dir / "profile-link.json"
+        profile_link.symlink_to(profile_path)
+        nofollow_check = subprocess.run(
+            ["node", "scripts/compute-removal-bindings.mjs", "profile_a1b2c3d4e5f60718", str(profile_link), str(smtp_path)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if nofollow_check.returncode == 0 or nofollow_check.stderr.strip() != "profile_file_unavailable":
+            fail(errors, "binding helper did not reject a symlinked private profile")
 
     tsc = ROOT / "node_modules/.bin/tsc"
     if not tsc.is_file():
