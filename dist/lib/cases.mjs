@@ -69,7 +69,8 @@ function safeOfficialActionUrl(broker) {
     const domains = Array.isArray(broker?.official_domains) ? broker.official_domains : [];
     try {
         const url = new URL(raw);
-        if (url.protocol !== "https:" || url.username || url.password || url.hash
+        if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash
+            || (url.port && url.port !== "443")
             || !domains.some((domain) => typeof domain === "string" && (url.hostname === domain || url.hostname.endsWith(`.${domain}`))))
             return undefined;
         return url.toString();

@@ -31,7 +31,7 @@ For both lanes:
 - EU/EEA membership, exact country tag, consent, profile digest, SMTP digest, broker, request kind, and minimum fields are checked before transport;
 - no listing discovery is required to exercise a data-subject right;
 - SMTP acceptance means only `submitted`;
-- the controller response is human-reviewed and no automated `confirmed_removed` state is available;
+- these EU controller-email cases do not automatically transition to `confirmed_removed`; that state remains available only where another supported workflow supplies its required evidence;
 - no identity document is attached or requested proactively.
 
 ## Request content and follow-up

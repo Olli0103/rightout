@@ -259,7 +259,7 @@
         "discovery_requirement": "not_required_for_data_subject_request",
         "processing_days": 30,
         "policy_url": "https://www.emetriq.com/datenschutz/",
-        "policy_revision": "2025-04",
+        "policy_revision": "reviewed-2025-04",
         "last_verified": "2026-07-12"
       },
       "notes": "The official privacy notice directs data-subject rights to datenschutz@emetriq.com. RightOut initially discloses only the subject-controlled contact email and country. Because advertising data may be pseudonymous, the controller may need proportionate follow-up context; RightOut never invents or pre-emptively discloses extra identifiers."

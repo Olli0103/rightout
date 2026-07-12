@@ -294,7 +294,7 @@ def load_catalog(skill_dir: Path) -> dict[str, Any]:
 
 
 def validate_policy_revision(value: Any, label: str, errors: list[str]) -> None:
-    if not isinstance(value, str) or not re.fullmatch(r"(?:\d{4}-\d{2}(?:-\d{2})?|reviewed-\d{4}-\d{2}-\d{2})", value):
+    if not isinstance(value, str) or not re.fullmatch(r"(?:\d{4}-\d{2}(?:-\d{2})?|reviewed-\d{4}-\d{2}(?:-\d{2})?)", value):
         errors.append(f"{label} removal.policy_revision is invalid")
         return
     normalized = value.removeprefix("reviewed-")
@@ -340,6 +340,47 @@ def validate_eu_process(broker: dict[str, Any], official_domains: list[str], lab
         errors.append(f"{label} EU process erasure semantics are invalid")
     if process.get("one_click_level") not in allowed_click_levels:
         errors.append(f"{label} EU process one-click classification is invalid")
+    contracts = {
+        "eu_controller_email_erasure": {
+            (
+                "controller_wide_for_identified_mobile_advertising_id",
+                "controller_erasure_request_not_yet_confirmed",
+                "not_one_click_controller_email",
+            ),
+            (
+                "controller_wide_request_subject_to_identification",
+                "controller_erasure_request_not_yet_confirmed",
+                "not_one_click_controller_email",
+            ),
+        },
+        "eu_controller_portal_erasure": {
+            (
+                "controller_portal_selected_right",
+                "controller_erasure_request_not_yet_confirmed",
+                "single_controller_form_not_one_click",
+            ),
+            (
+                "controller_data_linked_to_supplied_cookie_or_ad_id",
+                "controller_portal_erasure_request_not_yet_confirmed",
+                "single_controller_portal_or_app_not_one_click",
+            ),
+        },
+        "eu_advertising_preference": {
+            (
+                "participating_companies_current_browser",
+                "preference_only_not_controller_erasure",
+                "multi_company_one_stop_preference",
+            ),
+            (
+                "emetriq_current_browser",
+                "browser_opt_out_then_short_term_unlinked_data_deletion",
+                "single_controller_browser_button",
+            ),
+        },
+    }
+    process_tuple = (process.get("effect_scope"), process.get("erasure_semantics"), process.get("one_click_level"))
+    if process_tuple not in contracts.get(broker.get("process_class"), set()):
+        errors.append(f"{label} EU process tuple does not match process_class")
     validate_catalog_url(process.get("official_action_url"), official_domains, label, "eu_process.official_action_url", errors)
 
 

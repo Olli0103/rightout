@@ -36,7 +36,7 @@ Claims from commercial pages describe vendor offerings; RightOut does not indepe
 
 RightOut adopts product capability classes, not Unbroker implementation or broker data. It does not copy Hermes code, templates, prose, broker records, BADBOOL material, privacy-guide lists, or commercial inventories. RightOut catalog provenance is limited to official broker/government facts with original notes and semantic validation.
 
-The official Unbroker reference currently has broader immediately executable people-search operations: 20 web-form, one email, and one phone lane. RightOut has one US email, one US form, and two EU controller-email lanes; other brokers are still scan, portal, preference, or human work. Managed services additionally claim much broader inventories, dashboards, recurring submissions, screenshot/proof workflows, compliance scoring, custom removals, and human escalation. Therefore the accurate claim is **minimum workflow feature parity**, not broker-lane, effectiveness, managed-operations, or commercial-service parity.
+The official Unbroker reference at the reviewed commit has broader immediately executable people-search operations: 20 web-form, one email, and one phone lane. RightOut has one US email, one US form, and two EU controller-email lanes; other brokers are still scan, portal, preference, or human work. Managed services additionally claim much broader inventories, dashboards, recurring submissions, screenshot/proof workflows, compliance scoring, custom removals, and human escalation. Therefore the accurate claim is **minimum workflow feature parity**, not broker-lane, effectiveness, managed-operations, or commercial-service parity.
 
 ## Approval difference
 

@@ -20,8 +20,11 @@ Audit date: 2026-07-12.
 | RO-052 | P1 | Changing both catalog recipient and SMTP-recipient-domain could bypass a simple equality check. | Runtime and Python validator now also require the recipient domain to be an official catalog domain; adversarial tests perform zero sends. |
 | RO-053 | P2 | Month-only or review-date policy evidence could be represented as an invented exact publisher date. | Schema v4 accepts an evidenced month (`2025-04`) or explicit `reviewed-YYYY-MM-DD` token and separately tracks `last_verified`. |
 | RO-054 | P1 | A shared profile's Mobile Advertising ID could accidentally enter Brave search vectors. | Live-scan parsing permits the private field but excludes it from scan digests, vectors, requests, reports, and the case ledger; tests inspect mocked provider calls. |
-| RO-055 | P1 | Free-form `EU` tags could contradict the actual country. | The live lane requires an EU/EEA ISO country, the same exact country tag, and `EU` or `EEA`; contradictory profiles fail before transport. |
+| RO-055 | P1 | Free-form `EU` tags could contradict the actual country. | The live lane requires an EU/EEA ISO country, the exact country tag, and `EU` or `EEA`; contradictory profiles fail before transport. |
 | RO-056 | P1 | SMTP acceptance or a browser preference could be mislabeled as deletion. | EU email remains `submitted_until_controller_response`; preference routes are human-only; no EU route can automatically produce `confirmed_removed`. |
+| RO-057 | P1 | A directly supplied planning catalog could expose an official-domain URL with a query or non-default HTTPS port. | PII-safe plan URLs now enforce HTTPS, no credentials/query/fragment, default port, and official-domain suffix; adversarial plan fixtures omit unsafe metadata. |
+| RO-058 | P1 | Individually valid EU metadata values could be crossed between controller and preference process classes. | Schema v4 now validates the complete effect/erasure/one-click tuple against its exact process class; a globally valid controller semantic is rejected for EDAA. |
+| RO-059 | P1 | emetriq's evidenced month-only policy label was shorter than the runtime catalog minimum. | The catalog uses the explicit `reviewed-2025-04` token; validation accepts and date-checks reviewed month or reviewed day forms without inventing a publisher day. |
 
 Open P0/P1/P2 findings: **none**.
 

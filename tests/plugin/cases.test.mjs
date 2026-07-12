@@ -272,6 +272,15 @@ test("EU plan distinguishes controller erasure from browser-scoped preference co
   assert.equal(plan.actions[1].erasure_semantics, "preference_only_not_controller_erasure");
   assert.equal(plan.summary.eu_processes, 2);
 
+  for (const unsafeUrl of ["https://adsquare.com/privacy?next=evil", "https://adsquare.com:444/privacy"]) {
+    const unsafeCatalog = structuredClone(euCatalog);
+    unsafeCatalog.brokers[0].eu_process.official_action_url = unsafeUrl;
+    const unsafePlan = await ledger.plan(PROFILE, unsafeCatalog);
+    const unsafeAdsquare = unsafePlan.actions.find((row) => row.broker_id === "adsquare_eu");
+    assert.equal(Object.hasOwn(unsafeAdsquare, "official_action_url"), false);
+    assert.equal(Object.hasOwn(unsafeAdsquare, "erasure_semantics"), false);
+  }
+
   await ledger.recordRemoval({
     state: "submitted",
     subject_ref: PROFILE,

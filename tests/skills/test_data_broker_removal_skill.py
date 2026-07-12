@@ -311,8 +311,8 @@ class CatalogValidationTests(unittest.TestCase):
         self.assertEqual(adsquare["removal"]["confirmation_policy"], "submitted_until_controller_response")
         self.assertEqual(edaa["eu_process"]["erasure_semantics"], "preference_only_not_controller_erasure")
         unsafe = load_catalog()
-        next(item for item in unsafe["brokers"] if item["id"] == "edaa_yoc")["eu_process"]["erasure_semantics"] = "confirmed_erasure"
-        self.assertTrue(any("erasure semantics" in error for error in rightout.validate_catalog_data(unsafe)))
+        next(item for item in unsafe["brokers"] if item["id"] == "edaa_yoc")["eu_process"]["erasure_semantics"] = "controller_erasure_request_not_yet_confirmed"
+        self.assertTrue(any("process tuple" in error for error in rightout.validate_catalog_data(unsafe)))
 
     def test_catalog_rejects_unsafe_ids(self) -> None:
         catalog = load_catalog()
