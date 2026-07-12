@@ -8,9 +8,9 @@ Audit date: 2026-07-12. Target branch: `feat/v0.6.0-ten-of-ten-audit`.
 release evidence completes.**
 
 An independent read-only reviewer reproduced the final schema-v6 snapshot,
-official-source semantics, and material local gates. Publication remains gated
-on remote PR/main/tag CI, beta packaged runtime inspection, release assets,
-checksums, and signed attestation.
+official-source semantics, and material local gates. PR CI subsequently passed
+the declared OS/runtime matrix and both OpenClaw versions. Publication remains
+gated on merged-main/tag CI, release assets, checksums, and signed attestation.
 
 ## Severity summary
 
@@ -18,8 +18,8 @@ checksums, and signed attestation.
 - P1: 0;
 - P2: 0;
 - P3: 0;
-- `needs_evidence`: beta packaged runtime inspection, remote CI, merged main,
-  annotated tag, release assets, checksums, and signed attestation.
+- `needs_evidence`: merged main, annotated tag, tag CI, release assets,
+  checksums, and signed attestation.
 
 ## Independently reproduced local evidence
 
@@ -40,6 +40,10 @@ The independent review found no open local P0/P1/P2/P3. It verified the final
 Lead411 EU and Amplemarket US channels against their official policies. It did
 not execute the cached OpenClaw beta package, mutate GitHub state, or perform
 any live scan, email, form submission, broker write, or real-PII action.
+
+After independent closeout, PR CI separately passed packaged runtime
+inspection and plugin doctor on OpenClaw 2026.6.11 and 2026.7.1-beta.5, the
+Ubuntu/macOS Node/Python matrix, and the isolated installer suite.
 
 ## Product boundary
 

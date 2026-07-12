@@ -44,18 +44,19 @@ v0.6.0 ten-of-ten claim.
 
 ## Current v0.6.0 candidate
 
-Current local evidence: 45/45 Python tests, 125/125 Node tests, TypeScript typecheck
-and build, skill validator, schema-v6 catalog/provenance checks, release
-checker, dependency audit, stable OpenClaw 2026.6.11 installer tests, and a
-local current-beta build, packaged install, runtime inspection, and plugin
-doctor. Every test uses synthetic data and isolated/mock providers.
+Current evidence: 45/45 local Python tests, 125/125 local Node tests, TypeScript
+typecheck and build, skill validator, schema-v6 catalog/provenance checks,
+release checker, and dependency audit. PR CI additionally passes Ubuntu/macOS,
+Node 22/24, Python 3.11/3.12, installer mutation tests, and packaged runtime
+inspection plus plugin doctor on OpenClaw 2026.6.11 and 2026.7.1-beta.5. Every
+test uses synthetic data and isolated/mock providers.
 
 | Area | Current | Evidence / remaining boundary |
 | --- | ---: | --- |
 | Security engineering | 10 | The single-absence P1 is closed; provider-write intent, phased dedupe recovery, uncertain-write stop, adversarial inputs, fail-closed network gates, and zero high production dependency findings pass. |
 | Privacy and PII minimization | 10 | SecretRef-only PII, minimum disclosure, finite 365-day consent, execute-time validation, encrypted bounded state, local purge, and PII-safe reports pass. |
 | Native approval boundary | 10 | All six provider-I/O and three critical local-state tools use exact one-time host bindings, allow-once/deny, timeout-deny, and execute-time revalidation. |
-| OpenClaw conformance | 9 | Twelve-tool manifest/runtime parity, SecretRef schema, native approval hooks, and stable 2026.6.11 packaged runtime inspection pass. Independent beta-runtime reproduction remains `needs_evidence`. |
+| OpenClaw conformance | 10 | Twelve-tool manifest/runtime parity, SecretRef schema, native approval hooks, and packaged runtime inspection/doctor pass in PR CI on OpenClaw 2026.6.11 and 2026.7.1-beta.5. |
 | Autonomous orchestration | 10 | Every supported non-human lane can plan, request exact approvals, execute, persist intent/outcome, reconcile, resume, and expose due work; CAPTCHA/ID/legal/portal judgment remains explicit human work. |
 | Discovery coverage | 10 | 21 independently cataloged multi-vector Brave index lanes retain honest indirect/inconclusive semantics, durable opaque listing handles, and bounded exact-URL follow-up where allowed. |
 | Executable broker breadth | 10 | 28 independently locked and tested targets pass: 27 controller/people-search email lanes plus one sandbox browser-form initiation, each with exact destination, disclosure, jurisdiction, approval, and non-confirmation semantics. |
@@ -65,25 +66,24 @@ doctor. Every test uses synthetic data and isolated/mock providers.
 | Filesystem and state integrity | 10 | Containment, no-follow, private modes, AES-GCM, atomic replace/fsync, cross-process locks, TTL/bounds, v0.5 schema-v1 compatibility, wrong-key failure, and purge pass. |
 | Catalog provenance and freshness | 10 | Schema v6 validates all 56 entries and 61 dated primary-source fact records, exact domains/recipients, EU/US semantic contracts, freshness, clean-room use policy, and reproducible content/source-fact digests. A future source change is an operational refresh condition, not an unevidenced current catalog fact. |
 | Installer and upgrade safety | 10 | Source and packed-stage validation, isolated runtime inspection/doctor, fresh/force install, rollback, concurrency, forged-path, symlink, uninstall/reinstall posture, and v1-state compatibility are covered. |
-| Tests and CI | 9 | Local full suites and release gates pass; CI defines Ubuntu/macOS, Node 22/24, Python 3.11/3.12, installer, stable/beta, audit, denial, catalog, and release jobs, but the final remote matrix remains `needs_evidence`. |
+| Tests and CI | 10 | Local suites pass and PR CI passes Ubuntu/macOS, Node 22/24, Python 3.11/3.12, installer, stable/beta, audit, denial, catalog, and release checks. |
 | Documentation and usability | 10 | Setup, 365-day consent, recovery, campaign resume, EU semantics, official handoffs, limits, competitive comparison, and release verification match the runtime. |
 | Supply chain | 9 | Exact pins/shrinkwrap/SBOM, clean archive, checksums, pinned actions, provenance digest, main-ancestry/full-matrix release gate, and signed-attestation workflow are complete locally; published assets and signed attestation remain `needs_evidence`. |
 | Competitive feature parity | 10 | RightOut's 28 executable targets exceed the reviewed Unbroker count of 22 while preserving stricter per-effect approvals, durable ambiguity recovery, controller outcomes, and restart-safe campaigns; it does not claim managed-service inventory or effectiveness parity. |
 | Release quality | 9 | Local gates are reproducible, but independent closeout, green PR/main/tag CI, immutable assets, and attestation verification remain `needs_evidence`. |
 
-Current pre-publication score: **9.8/10** across the 18 release-contract areas.
-OpenClaw beta reproduction, remote CI, supply-chain publication, and release
-quality remain below 10 until the independent and remote evidence exists. This
-is not yet a GO claim and is not a claim that any real person's data was found
-or removed.
+Current pre-publication score: **9.9/10** across the 18 release-contract areas.
+Supply-chain publication and release quality remain below 10 until merged main,
+tag, immutable assets, checksums, and attestation exist. This is not yet a GO
+claim and is not a claim that any real person's data was found or removed.
 
 ## Closed remediation tracks
 
 Durable write intent/ambiguity, operator reconciliation, EU/US controller
 outcomes, executable breadth, restart-safe campaign operation, stable/beta
 compatibility, OS/runtime coverage, provenance and supply-chain gates are
-implemented. The final independent review, beta reproduction, and remote
-publication verification remain release-contract evidence gates.
+implemented. The final merge and remote publication verification remain
+release-contract evidence gates.
 
 ## Evidence boundary
 
