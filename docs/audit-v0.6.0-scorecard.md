@@ -1,6 +1,7 @@
 # RightOut v0.6.0 ten-of-ten audit
 
-Audit baseline: 2026-07-12. Target branch: `feat/v0.6.0-ten-of-ten-audit`.
+Audit baseline: 2026-07-12. Released tag: `v0.6.0` at
+`e5a62d7c133449f3f37d5fc9f2dd5faa9e88c273`.
 
 This scorecard is a release contract, not a marketing score. A category receives
 10/10 only when every stated criterion is implemented and covered by current,
@@ -49,7 +50,9 @@ typecheck and build, skill validator, schema-v6 catalog/provenance checks,
 release checker, and dependency audit. PR CI additionally passes Ubuntu/macOS,
 Node 22/24, Python 3.11/3.12, installer mutation tests, and packaged runtime
 inspection plus plugin doctor on OpenClaw 2026.6.11 and 2026.7.1-beta.5. Every
-test uses synthetic data and isolated/mock providers.
+test uses synthetic data and isolated/mock providers. PR #5 was squash-merged
+to protected `main`; main CI run `29206091369` and annotated-tag/release run
+`29206248400` both passed.
 
 | Area | Current | Evidence / remaining boundary |
 | --- | ---: | --- |
@@ -68,22 +71,21 @@ test uses synthetic data and isolated/mock providers.
 | Installer and upgrade safety | 10 | Source and packed-stage validation, isolated runtime inspection/doctor, fresh/force install, rollback, concurrency, forged-path, symlink, uninstall/reinstall posture, and v1-state compatibility are covered. |
 | Tests and CI | 10 | Local suites pass and PR CI passes Ubuntu/macOS, Node 22/24, Python 3.11/3.12, installer, stable/beta, audit, denial, catalog, and release checks. |
 | Documentation and usability | 10 | Setup, 365-day consent, recovery, campaign resume, EU semantics, official handoffs, limits, competitive comparison, and release verification match the runtime. |
-| Supply chain | 9 | Exact pins/shrinkwrap/SBOM, clean archive, checksums, pinned actions, provenance digest, main-ancestry/full-matrix release gate, and signed-attestation workflow are complete locally; published assets and signed attestation remain `needs_evidence`. |
+| Supply chain | 10 | The immutable release publishes the archive, checksum, SBOM, and catalog provenance. The downloaded archive SHA-256 is `cd65f557918f0f320a30917104001f3ae9e527aff1428742b9e24cad88f9a505`; its checksum, repository SBOM/provenance parity, clean package contents, and GitHub/SLSA provenance attestation all verify against the annotated tag and release workflow. |
 | Competitive feature parity | 10 | RightOut's 28 executable targets exceed the reviewed Unbroker count of 22 while preserving stricter per-effect approvals, durable ambiguity recovery, controller outcomes, and restart-safe campaigns; it does not claim managed-service inventory or effectiveness parity. |
-| Release quality | 9 | Local gates are reproducible, but independent closeout, green PR/main/tag CI, immutable assets, and attestation verification remain `needs_evidence`. |
+| Release quality | 10 | Independent closeout found no P0/P1/P2/P3. PR #5, protected-main CI, annotated-tag CI, the publish workflow, four immutable release assets, downloaded checksums, and the source-bound attestation all pass. |
 
-Current pre-publication score: **9.9/10** across the 18 release-contract areas.
-Supply-chain publication and release quality remain below 10 until merged main,
-tag, immutable assets, checksums, and attestation exist. This is not yet a GO
-claim and is not a claim that any real person's data was found or removed.
+Final released score: **10.0/10** across all 18 release-contract areas. This is
+a software and release-quality GO, not a claim that any real person's data was
+found or removed.
 
 ## Closed remediation tracks
 
 Durable write intent/ambiguity, operator reconciliation, EU/US controller
 outcomes, executable breadth, restart-safe campaign operation, stable/beta
 compatibility, OS/runtime coverage, provenance and supply-chain gates are
-implemented. The final merge and remote publication verification remain
-release-contract evidence gates.
+implemented. Merge, remote publication, downloaded-asset verification, and
+attestation verification are closed by the evidence above.
 
 ## Evidence boundary
 

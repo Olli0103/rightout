@@ -11,5 +11,5 @@
 - [x] CI defines Ubuntu/macOS, Node 22/24, Python 3.11/3.12, stable/beta OpenClaw, installer, dependency-audit, and release-check gates.
 - [x] Release workflow requires an annotated version-matching tag and publishes archive, checksum, SBOM, catalog provenance, and signed build attestation.
 - [x] Independent closing review reports no open local P0/P1/P2 for the final schema-v6 snapshot.
-- [ ] Pull request CI is green and the candidate is approved/merged.
-- [ ] Annotated `v0.6.0` tag CI and release workflow are green; downloaded assets and attestation verify.
+- [x] PR #5 CI is green and the candidate was squash-merged to protected `main` as `e5a62d7c133449f3f37d5fc9f2dd5faa9e88c273`; main CI run `29206091369` passed.
+- [x] Annotated `v0.6.0` tag/release run `29206248400` passed; the four downloaded assets, archive SHA-256 `cd65f557918f0f320a30917104001f3ae9e527aff1428742b9e24cad88f9a505`, repository SBOM/provenance parity, and source-bound GitHub/SLSA attestation verify.

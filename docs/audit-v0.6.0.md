@@ -1,16 +1,17 @@
 # Independent closing audit: RightOut v0.6.0
 
-Audit date: 2026-07-12. Target branch: `feat/v0.6.0-ten-of-ten-audit`.
+Audit date: 2026-07-12. Released tag: `v0.6.0` at
+`e5a62d7c133449f3f37d5fc9f2dd5faa9e88c273`.
 
 ## Verdict
 
-**PASS for the local software closeout; NO-GO for publication until remote
-release evidence completes.**
+**PASS and GO: RightOut v0.6.0 is released and its remote evidence verifies.**
 
 An independent read-only reviewer reproduced the final schema-v6 snapshot,
 official-source semantics, and material local gates. PR CI subsequently passed
-the declared OS/runtime matrix and both OpenClaw versions. Publication remains
-gated on merged-main/tag CI, release assets, checksums, and signed attestation.
+the declared OS/runtime matrix and both OpenClaw versions. PR #5 was merged to
+protected `main`; main CI, annotated-tag CI, publication, downloaded assets,
+checksums, and signed provenance all passed.
 
 ## Severity summary
 
@@ -18,8 +19,25 @@ gated on merged-main/tag CI, release assets, checksums, and signed attestation.
 - P1: 0;
 - P2: 0;
 - P3: 0;
-- `needs_evidence`: merged main, annotated tag, tag CI, release assets,
-  checksums, and signed attestation.
+- release-scoped `needs_evidence`: none.
+
+## Remote release evidence
+
+- PR #5 squash-merged as
+  `e5a62d7c133449f3f37d5fc9f2dd5faa9e88c273`;
+- protected-main CI run `29206091369`: success;
+- annotated `v0.6.0` tag and release run `29206248400`: success, including the
+  full matrix, installer, OpenClaw stable/beta, clean archive build,
+  attestation, and publication;
+- immutable release:
+  `https://github.com/Olli0103/rightout/releases/tag/v0.6.0`;
+- downloaded archive:
+  `olli0103-openclaw-rightout-0.6.0.tgz`, SHA-256
+  `cd65f557918f0f320a30917104001f3ae9e527aff1428742b9e24cad88f9a505`;
+- downloaded `RELEASE-SHA256SUMS` verifies the archive; downloaded SBOM and
+  catalog provenance are byte-identical to the tagged repository copies;
+- `gh attestation verify` passes with repository, signer workflow,
+  `refs/tags/v0.6.0`, source commit, and hosted-runner constraints.
 
 ## Independently reproduced local evidence
 
@@ -54,3 +72,7 @@ portal/device context, and legal-judgment steps remain explicit handoffs.
 
 The full 18-area rating and its evidence boundary are recorded in
 `docs/audit-v0.6.0-scorecard.md`.
+
+Real-world broker response and removal effectiveness remain deployment
+evidence outside this software-release verdict because the governing audit
+prohibited real PII, live scans, emails, form submissions, and provider writes.
