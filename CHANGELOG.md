@@ -2,6 +2,19 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.7.1 - 2026-07-12
+
+- Replace fast SHA-256 credential snapshot bindings with domain-separated
+  `scrypt` bindings so configured SMTP/IMAP digests resist offline guessing
+  while remaining deterministic and exact-snapshot scoped.
+- Make verification-link entity decoding single-pass to prevent recursive
+  decoding of attacker-controlled mail content.
+- Replace regex-based publisher HTML stripping with bounded parser-backed
+  visible-text extraction that excludes scripts, styles, templates, noscript,
+  image attributes, and link destinations.
+- Add adversarial regression tests for all four post-release CodeQL findings
+  and promote CodeQL to a mandatory clean release gate.
+
 ## 0.7.0 - 2026-07-12
 
 - Separate distributable operator documentation from repository-only audit and

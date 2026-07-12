@@ -7,7 +7,7 @@ SHA-256 utility. Install the immutable release archive rather than moving
 `main`:
 
 ```bash
-VERSION=0.7.0
+VERSION=0.7.1
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 shasum -a 256 -c RELEASE-SHA256SUMS
@@ -93,7 +93,7 @@ node scripts/compute-removal-bindings.mjs \
 
 The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. For a non-US profile, `scanProfileDigests` is intentionally empty because Brave people-search discovery is US-only. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. RightOut 0.7.0
+Back up the state encryption key through the secret provider. RightOut 0.7.1
 keeps the v1 encrypted-store schema and forced upgrades preserve it. Encrypted
 subject cases expire after `stateRetentionDays` without an update; the range is
 30-730 days and the default is 365. Verification/listing/dedupe records retain

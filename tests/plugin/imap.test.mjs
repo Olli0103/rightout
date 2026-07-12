@@ -100,6 +100,23 @@ test("verification links require both a broker sender and broker HTTPS link", ()
   assert.equal(extractBoundVerificationLink({ ...base, senderDomains: ["beenverified.com"], text: "http://www.beenverified.com/confirm" }), undefined);
 });
 
+test("verification link entity decoding is single-pass", () => {
+  const base = {
+    html: false,
+    senderDomains: ["beenverified.com"],
+    allowedSenderDomains: ["beenverified.com"],
+    allowedLinkDomains: ["beenverified.com"],
+  };
+  assert.equal(
+    extractBoundVerificationLink({ ...base, text: "https://www.beenverified.com/confirm?a=1&amp;b&#61;2" }),
+    "https://www.beenverified.com/confirm?a=1&b=2",
+  );
+  assert.equal(
+    extractBoundVerificationLink({ ...base, text: "https://www.beenverified.com/confirm?a&amp;#61;secret" }),
+    "https://www.beenverified.com/confirm?a&#61;secret",
+  );
+});
+
 test("poller opens INBOX read-only and returns only an opaque message reference plus internal link", async () => {
   const client = fakeClient([rawMessage()]);
   const poll = createImapPoller({ clientFactory: () => client, now: () => new Date("2026-07-12T10:00:00Z") });

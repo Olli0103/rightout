@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Separately approval-gated live data-broker scans and broker removal requests",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "skills": [
     "./skills"
   ],
