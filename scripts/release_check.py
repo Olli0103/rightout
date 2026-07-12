@@ -78,6 +78,24 @@ def main() -> None:
         fail(errors, "versioned release notes are missing")
     if not (ROOT / f"docs/parity-matrix-v{version}.md").is_file():
         fail(errors, "versioned Unbroker parity matrix is missing")
+    audit_path = ROOT / f"docs/audit-v{version}.md"
+    checklist_path = ROOT / f"docs/release-checklist-v{version}.md"
+    parity_path = ROOT / f"docs/parity-matrix-v{version}.md"
+    if not audit_path.is_file():
+        fail(errors, "versioned independent closing audit is missing")
+    if not checklist_path.is_file():
+        fail(errors, "versioned release checklist is missing")
+    elif "- [ ]" in checklist_path.read_text(encoding="utf-8"):
+        fail(errors, "versioned release checklist has open items")
+    if parity_path.is_file() and re.search(
+        r"implementation in progress|pending final audit|\|\s*(?:missing|pending)\s*\|",
+        parity_path.read_text(encoding="utf-8"),
+        re.I,
+    ):
+        fail(errors, "versioned parity matrix contains a pending verdict")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    if f"## {version} - Unreleased" in changelog or not re.search(rf"^## {re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.M):
+        fail(errors, "changelog version is not release-dated")
 
     brokers = catalog.get("brokers", [])
     parity_counts = {

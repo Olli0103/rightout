@@ -2,7 +2,7 @@
 
 All notable changes to RightOut are documented here.
 
-## 0.7.0 - Unreleased
+## 0.7.0 - 2026-07-12
 
 - Separate distributable operator documentation from repository-only audit and
   historical release evidence.
@@ -12,6 +12,10 @@ All notable changes to RightOut are documented here.
   path for stable releases.
 - Add runtime catalog freshness, finite case retention, safe state-key rotation,
   policy-health reporting, coverage gates, CodeQL, and dependency automation.
+- Enforce a global stale-catalog provider-I/O kill switch before approval and
+  again at execution, with a PII-free health report.
+- Migrate untouched legacy case envelopes to finite retention on first read and
+  defer all state-key inspection until after native `allow-once` approval.
 
 ## 0.6.0 - 2026-07-12
 

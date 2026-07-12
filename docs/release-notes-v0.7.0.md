@@ -5,7 +5,7 @@ documentation, verified installation, runtime catalog freshness, state
 retention/key lifecycle, autonomous operational readiness, test coverage, and
 repository governance while retaining per-effect OpenClaw approval.
 
-This candidate uses only synthetic `.invalid` identities and mocked/isolated
+This release uses only synthetic `.invalid` identities and mocked/isolated
 providers. It does not claim that a real broker record was found or removed.
 Real-world delivery and removal effectiveness remain deployment evidence and
 must be established under the authorized canary protocol; they are not software
