@@ -259,15 +259,16 @@ export function removalProfileDigest(profilePayload) {
     return normalizedProfileDigest(parseRemovalProfile(profilePayload));
 }
 export function removalSmtpDigest(smtp) {
+    const clean = validateSmtpConfig(smtp, { contactEmail: smtp?.fromAddress });
     const salt = JSON.stringify([
         "rightout-smtp-transport-v2",
-        smtp.host,
-        smtp.port,
-        smtp.secure,
-        smtp.username,
-        smtp.fromAddress,
+        clean.host,
+        clean.port,
+        clean.secure,
+        clean.username,
+        clean.fromAddress,
     ]);
-    return scryptSync(smtp.password, salt, 32).toString("hex");
+    return scryptSync(clean.password, salt, 32).toString("hex");
 }
 export function validateRemovalOperatorAttestations(input, value) {
     const publicInput = validateRemovalPublicToolInput(input);

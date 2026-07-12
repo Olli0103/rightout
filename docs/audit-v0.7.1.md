@@ -21,6 +21,9 @@ person's data was found or removed.
 | RO-077 | P1 | Candidate docs claimed terminal independent/remote evidence before the branch existed remotely. | Candidate audit and checklist now distinguish reproduced local gates from protected PR/tag terminal gates. |
 | RO-078 | P2 | Third-party notices omitted the new direct parser dependency and had a stale transitive count. | Both notice copies list `html-to-text` and the SBOM-backed root/direct/transitive counts. |
 | RO-079 | P2 | The KDF changes relied only on pre-existing password-change tests. | A dedicated transport-binding regression covers determinism, credential changes, account changes, and protocol domain separation. |
+| RO-080 | P2 | The root and installed-skill SPDX documents reused one document namespace. | The installed-skill SBOM now has its own UUID-backed SPDX `documentNamespace`. |
+| RO-081 | P3 | The exported SMTP digest helper relied on callers to normalize and validate the transport first. | The helper now invokes `validateSmtpConfig` internally before deriving the binding. |
+| RO-082 | P3 | Transport-binding tests did not cover every variable or immutable endpoint invariant. | Regression coverage now includes SMTP host/port/TLS/from-address changes, IMAP address changes, and invalid IMAP endpoint/TLS rejection. |
 
 ## Reproduced evidence
 

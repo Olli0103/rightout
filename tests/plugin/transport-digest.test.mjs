@@ -33,5 +33,12 @@ test("transport credential bindings are deterministic, scoped, and protocol-sepa
   assert.notEqual(removalSmtpDigest({ ...smtp, username: "other@example.invalid" }), smtpDigest);
   assert.notEqual(imapTransportDigest({ ...imap, password: "changed-dummy-app-password" }), imapDigest);
   assert.notEqual(imapTransportDigest({ ...imap, username: "other@example.invalid" }), imapDigest);
+  assert.notEqual(removalSmtpDigest({ ...smtp, host: "smtp.mail.yahoo.com" }), smtpDigest);
+  assert.notEqual(removalSmtpDigest({ ...smtp, port: 587, secure: false }), smtpDigest);
+  assert.notEqual(removalSmtpDigest({ ...smtp, fromAddress: "changed@example.invalid" }), smtpDigest);
+  assert.notEqual(imapTransportDigest({ ...imap, address: "changed@example.invalid" }), imapDigest);
+  assert.throws(() => imapTransportDigest({ ...imap, host: "imap.other.invalid" }), /rightout_imap_not_configured/);
+  assert.throws(() => imapTransportDigest({ ...imap, port: 143 }), /rightout_imap_not_configured/);
+  assert.throws(() => imapTransportDigest({ ...imap, secure: false }), /rightout_imap_not_configured/);
   assert.notEqual(smtpDigest, imapDigest);
 });
