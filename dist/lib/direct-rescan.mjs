@@ -7,6 +7,9 @@ const SAFE_SHA256 = /^[a-f0-9]{64}$/;
 const MAX_RESPONSE_BYTES = 1_000_000;
 export const RIGHTOUT_DIRECT_SCAN_POLICY_VERSION = "2026-07-12";
 function cleanInput(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["profileId", "brokerId", "listingHandle"].includes(key))) {
+        throw new Error("invalid_direct_scan_input");
+    }
     if (!SAFE_PROFILE_ID.test(input?.profileId))
         throw new Error("invalid_profile_ref");
     if (!SAFE_BROKER_ID.test(input?.brokerId))

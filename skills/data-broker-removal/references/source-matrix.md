@@ -32,6 +32,9 @@ Review date: 2026-07-12.
 - `https://edaa.eu/` and `https://www.youronlinechoices.eu/`: participating-company browser advertising-preference scope.
 - `https://www.criteo.com/privacy/your-rights/`: official controller form routing by GDPR right.
 - `https://zeotap.com/privacy-policy/` and `https://privacy.zeotap.com/`: official Cookie-ID portal and Ad-ID app routing.
+- `https://www.quantcast.com/privacy-choices` and `/privacy/data-subject-rights/`: current EU rights and controller-portal routing.
+- `https://www.lotame.com/privacy/services-privacy-notice/` and `https://legal.epsilon.com/dsr/`: current controller/process scope, identifier retention, verification, and rights-form routing.
+- `https://id5.io/trust/privacy-policy` and `https://id5-sync.com/privacy/`: current EEA/UK rights and official DSAR/privacy-portal routing.
 
 No real subject query or broker request was run during research/testing.
 

@@ -53,6 +53,15 @@ fi
 python3 "$REPO_ROOT/skills/data-broker-removal/scripts/validate_data_broker_removal.py" \
   --skill-dir "$REPO_ROOT/skills/data-broker-removal" >/dev/null
 
+if [[ -x "$REPO_ROOT/node_modules/.bin/tsc" ]]; then
+  npm --prefix "$REPO_ROOT" run typecheck >/dev/null
+  npm --prefix "$REPO_ROOT" run build >/dev/null
+else
+  while IFS= read -r file; do
+    node --check "$file" >/dev/null
+  done < <(find "$REPO_ROOT/dist" -type f \( -name '*.js' -o -name '*.mjs' \) -print | sort)
+fi
+
 version_output="$($OPENCLAW_BIN --version)"
 python3 - "$version_output" <<'PY'
 import re
@@ -227,6 +236,44 @@ if [[ "$LINK" != "1" ]]; then
   fi
 fi
 
+stage_state="$transaction_dir/stage-state"
+stage_home="$transaction_dir/stage-home"
+stage_inspection="$transaction_dir/stage-inspection.json"
+mkdir -p "$stage_state" "$stage_home"
+chmod 700 "$stage_state" "$stage_home"
+stage_source="$package_source"
+if [[ "$LINK" != "1" ]]; then
+  stage_unpack="$transaction_dir/stage-package"
+  mkdir -p "$stage_unpack"
+  tar -xzf "$package_source" -C "$stage_unpack"
+  stage_source="$stage_unpack/package"
+  npm --prefix "$stage_source" install --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null
+fi
+stage_args=(plugins install "$stage_source" --link)
+env HOME="$stage_home" OPENCLAW_STATE_DIR="$stage_state" OPENCLAW_CONFIG_PATH="$stage_state/openclaw.json" \
+  "$OPENCLAW_BIN" "${stage_args[@]}" >/dev/null
+env HOME="$stage_home" OPENCLAW_STATE_DIR="$stage_state" OPENCLAW_CONFIG_PATH="$stage_state/openclaw.json" \
+  "$OPENCLAW_BIN" plugins inspect rightout --runtime --json >"$stage_inspection"
+python3 - "$stage_inspection" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+plugin = data.get("plugin", {})
+typed_hooks = {item.get("name") for item in data.get("typedHooks", [])}
+tools = {name for item in data.get("tools", []) for name in item.get("names", [])}
+required = {
+    "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
+    "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
+    "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
+    "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
+}
+if plugin.get("status") != "loaded" or required - tools or "before_tool_call" not in typed_hooks:
+    raise SystemExit("staged RightOut archive failed runtime contract validation")
+PY
+env HOME="$stage_home" OPENCLAW_STATE_DIR="$stage_state" OPENCLAW_CONFIG_PATH="$stage_state/openclaw.json" \
+  "$OPENCLAW_BIN" plugins doctor >/dev/null
+
 install_args=(plugins install "$package_source")
 if [[ "$FORCE" == "1" ]]; then install_args+=(--force); fi
 if [[ "$LINK" == "1" ]]; then install_args+=(--link); fi
@@ -248,7 +295,7 @@ if plugin.get("status") != "loaded":
 required = {
     "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
-    "rightout_purge_subject_state",
+    "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
     "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
 }
 if required - tools or "before_tool_call" not in typed_hooks:
@@ -261,8 +308,8 @@ cat <<EOF
 RightOut plugin installed and runtime-validated.
 
 Version: $(tr -d '\n' < "$REPO_ROOT/VERSION")
-Tools: scan, direct rescan, email/form removal, inbox/link verification, approved local subject purge, and durable case planning/status/due checks
-Approval: separate native OpenClaw allow-once/deny per live read or external write, fail closed
+Tools: scan, direct rescan, email/form removal, inbox/link verification, controller outcomes, ambiguous-write reconciliation, local purge, and durable campaign planning/status/due checks
+Approval: separate native OpenClaw allow-once/deny per live read, provider write, or critical local state change; fail closed
 PII input: operator-configured SecretRef profile only
 Live readiness: install complete; provider/profile SecretRefs and exact attestations still required
 EOF

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import { removalProfileDigest } from "../../lib/removal.mjs";
 import {
@@ -16,7 +17,7 @@ const input = { profileId, brokerId: "intelius", requestKind: "delete_and_opt_ou
 const profile = {
   fullName: "Avery Example", city: "Exampleville", region: "CA", country: "US",
   contactEmail: "avery@example.invalid", jurisdictions: ["US", "US-CA"],
-  consent: { authorized: true, recordedAt: "2026-07-12T08:00:00Z", scope: ["scan", "broker_removal"] },
+  consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["scan", "broker_removal"] },
 };
 const payload = JSON.stringify(profile);
 const catalog = { brokers: [{
@@ -28,6 +29,7 @@ const catalog = { brokers: [{
     disclosure_fields: ["contact_email"], eligible_jurisdictions: ["US"],
     identity_verification: "email_control_then_subject_selection",
     confirmation_policy: "verification_pending_until_email_confirmed",
+    discovery_requirement: "prior_discovery_required",
     form_recipe: {
       recipe_version: 1,
       fields: [{ profile_field: "contact_email", type: "text", roles: ["textbox"], name_contains: ["email"] }],

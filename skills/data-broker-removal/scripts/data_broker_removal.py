@@ -443,8 +443,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
     errors: list[str] = []
     if not isinstance(catalog, dict):
         return ["catalog must be an object"]
-    if catalog.get("schema_version") != 4:
-        errors.append("catalog schema_version must be 4")
+    if catalog.get("schema_version") != 5:
+        errors.append("catalog schema_version must be 5")
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
         return errors + ["catalog brokers must be a non-empty list"]
@@ -452,11 +452,11 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
     seen: set[str] = set()
     reserved_ids = {"con", "prn", "aux", "nul", "clock$", ".", ".."}
     forbidden_source_domains = {"privacyguides.org", "inteltechniques.com", "badbool.com"}
-    allowed_source_licenses = {"official-facts-only-no-content-copy", "MIT", "CC0-1.0", "Apache-2.0"}
+    allowed_source_use_policies = {"official-facts-only-no-content-copy", "MIT", "CC0-1.0", "Apache-2.0"}
     required = {
         "id", "name", "category", "jurisdictions", "official_url", "official_domains", "lane",
         "required_fields", "prerequisites", "approval_gate", "last_verified", "freshness_days",
-        "source_license", "sources", "notes",
+        "source_use_policy", "sources", "notes",
     }
     for index, broker in enumerate(brokers):
         label = f"broker[{index}]"
@@ -488,6 +488,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
             errors.append(f"{label} official_domains must be a non-empty string list")
             official_domains = []
         validate_catalog_url(broker.get("official_url"), official_domains, label, "official_url", errors)
+        if broker.get("human_action_url") is not None:
+            validate_catalog_url(broker.get("human_action_url"), official_domains, label, "human_action_url", errors)
         registry = broker.get("registry_provenance")
         if registry is not None:
             if not isinstance(registry, dict) or not {"url", "publisher", "entity", "last_verified"}.issubset(registry):
@@ -537,8 +539,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
         verified = parse_catalog_date(broker.get("last_verified"), label, "last_verified", errors)
         if verified and (verified > today or (today - verified).days > freshness):
             errors.append(f"{label} provenance is stale or future-dated")
-        if broker.get("source_license") not in allowed_source_licenses:
-            errors.append(f"{label} has unsupported source_license")
+        if broker.get("source_use_policy") not in allowed_source_use_policies:
+            errors.append(f"{label} has unsupported source_use_policy")
         sources = broker.get("sources")
         removal_domains = (broker.get("removal") or {}).get("allowed_form_domains", []) if isinstance(broker.get("removal"), dict) else []
         source_allowed_domains = [*official_domains, *(removal_domains if isinstance(removal_domains, list) else [])]
@@ -550,7 +552,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 if not isinstance(source, dict):
                     errors.append(f"{source_label} must be an object")
                     continue
-                if not {"url", "title", "publisher", "license_scope", "last_verified"}.issubset(source):
+                if not {"url", "title", "publisher", "fact_scope", "last_verified"}.issubset(source):
                     errors.append(f"{source_label} missing provenance fields")
                 validate_catalog_url(source.get("url"), source_allowed_domains, source_label, "url", errors)
                 source_host = urlparse(str(source.get("url", ""))).hostname or ""
@@ -559,7 +561,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 source_date = parse_catalog_date(source.get("last_verified"), source_label, "last_verified", errors)
                 if source_date and (source_date > today or (today - source_date).days > freshness):
                     errors.append(f"{source_label} is stale or future-dated")
-                for text_key in ["title", "publisher", "license_scope"]:
+                for text_key in ["title", "publisher", "fact_scope"]:
                     if not isinstance(source.get(text_key), str) or not source[text_key].strip():
                         errors.append(f"{source_label} missing {text_key}")
         sensitive = set(fields) & SENSITIVE_FIELDS
@@ -1533,6 +1535,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "verification_poll_tool": "rightout_poll_verification",
         "verification_open_tool": "rightout_open_verification",
         "subject_purge_tool": "rightout_purge_subject_state",
+        "controller_outcome_tool": "rightout_record_controller_outcome",
+        "submission_reconciliation_tool": "rightout_reconcile_submission",
         "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_due_rechecks"],
         "live_approval_adapter": "native_openclaw_plugin_permission_allow_once",
         "live_pii_input": "secretref_profile_not_tool_params",
@@ -1605,6 +1609,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
         open_tool = manifest.get("toolMetadata", {}).get("rightout_open_verification", {})
         direct_tool = manifest.get("toolMetadata", {}).get("rightout_direct_rescan", {})
         purge_tool = manifest.get("toolMetadata", {}).get("rightout_purge_subject_state", {})
+        controller_outcome_tool = manifest.get("toolMetadata", {}).get("rightout_record_controller_outcome", {})
+        reconciliation_tool = manifest.get("toolMetadata", {}).get("rightout_reconcile_submission", {})
         secret_paths = {
             item.get("path")
             for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])
@@ -1612,7 +1618,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         }
         expected_tools = [
             "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal", "rightout_submit_form_removal", "rightout_poll_verification",
-            "rightout_open_verification", "rightout_purge_subject_state", "rightout_next_actions", "rightout_case_status",
+            "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission", "rightout_next_actions", "rightout_case_status",
             "rightout_due_rechecks",
         ]
         if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != expected_tools:
@@ -1629,6 +1635,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
             errors.append("verification open tool must be optional and non-replay-safe")
         if direct_tool.get("optional") is not True or direct_tool.get("replaySafe") is not False:
             errors.append("direct rescan tool must be optional and non-replay-safe")
+        if controller_outcome_tool.get("optional") is not True or controller_outcome_tool.get("replaySafe") is not False:
+            errors.append("controller outcome tool must be optional and non-replay-safe")
+        if reconciliation_tool.get("optional") is not True or reconciliation_tool.get("replaySafe") is not False:
+            errors.append("submission reconciliation tool must be optional and non-replay-safe")
         if purge_tool.get("optional") is not True or purge_tool.get("replaySafe") is not False:
             errors.append("subject purge tool must be optional and non-replay-safe")
         required_config = set((tool.get("configSignals") or [{}])[0].get("required", []))

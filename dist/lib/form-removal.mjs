@@ -9,6 +9,8 @@ export const RIGHTOUT_FORM_POLICY_VERSION = "2026-07-12";
 function cleanInput(input) {
     if (!input || typeof input !== "object" || Array.isArray(input))
         throw new Error("invalid_form_removal_input");
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "requestKind"].includes(key)))
+        throw new Error("invalid_form_removal_input");
     if (typeof input.profileId !== "string" || !SAFE_PROFILE_ID.test(input.profileId))
         throw new Error("invalid_profile_ref");
     if (typeof input.brokerId !== "string" || !SAFE_BROKER_ID.test(input.brokerId))
@@ -78,7 +80,8 @@ export function resolveFormCatalogEntry(catalog, input) {
         || removal?.supported !== true || removal.channel !== "browser_form"
         || !Array.isArray(removal.request_kinds) || !removal.request_kinds.includes(publicInput.requestKind)
         || removal.confirmation_policy !== "verification_pending_until_email_confirmed"
-        || removal.identity_verification !== "email_control_then_subject_selection")
+        || removal.identity_verification !== "email_control_then_subject_selection"
+        || removal.discovery_requirement !== "prior_discovery_required")
         throw new Error("unsupported_form_lane");
     const allowedDomains = cleanDomains(removal.allowed_form_domains);
     let formUrl;
@@ -101,6 +104,7 @@ export function resolveFormCatalogEntry(catalog, input) {
         allowedDomains,
         disclosureFields: ["contact_email"],
         eligibleJurisdictions,
+        discoveryRequirement: "prior_discovery_required",
         recipe: cleanRecipe(removal.form_recipe),
     };
 }

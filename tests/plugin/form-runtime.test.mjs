@@ -3,6 +3,7 @@ import test from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import { removalProfileDigest } from "../../lib/removal.mjs";
 import { createCaseLedger } from "../../lib/cases.mjs";
@@ -12,7 +13,7 @@ const profileId = "profile_a1b2c3d4e5f60718";
 const profile = {
   fullName: "Avery Example", city: "Exampleville", region: "CA", country: "US",
   contactEmail: "avery@example.invalid", jurisdictions: ["US", "US-CA"],
-  consent: { authorized: true, recordedAt: "2026-07-12T08:00:00Z", scope: ["scan", "broker_removal"] },
+  consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["scan", "broker_removal"] },
 };
 const payload = JSON.stringify(profile);
 

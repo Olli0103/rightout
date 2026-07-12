@@ -2,8 +2,8 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "@olli0103/openclaw-rightout@0.5.0",
-  "documentNamespace": "http://spdx.org/spdxdocs/@olli0103%2fopenclaw-rightout-0.5.0-f7785b90-2781-46e0-af08-db9d710a285d",
+  "name": "@olli0103/openclaw-rightout@0.6.0",
+  "documentNamespace": "http://spdx.org/spdxdocs/@olli0103%2fopenclaw-rightout-0.6.0-f7785b90-2781-46e0-af08-db9d710a285d",
   "creationInfo": {
     "created": "2026-07-12T14:11:02.208Z",
     "creators": [
@@ -11,13 +11,13 @@
     ]
   },
   "documentDescribes": [
-    "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0"
+    "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0"
   ],
   "packages": [
     {
       "name": "@olli0103/openclaw-rightout",
-      "SPDXID": "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0",
-      "versionInfo": "0.5.0",
+      "SPDXID": "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0",
+      "versionInfo": "0.6.0",
       "packageFileName": "",
       "description": "Separately approval-gated US and EU data-broker scanning and removal requests for OpenClaw",
       "primaryPackagePurpose": "LIBRARY",
@@ -29,7 +29,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.5.0"
+          "referenceLocator": "pkg:npm/%40olli0103/openclaw-rightout@0.6.0"
         }
       ]
     },
@@ -1141,27 +1141,27 @@
   "relationships": [
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
-      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0",
+      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0",
       "relationshipType": "DESCRIBES"
     },
     {
       "spdxElementId": "SPDXRef-Package-imapflow-1.4.7",
-      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0",
+      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-mailparser-3.9.14",
-      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0",
+      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-nodemailer-9.0.3",
-      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0",
+      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-typebox-1.3.6",
-      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.5.0",
+      "relatedSpdxElement": "SPDXRef-Package-olli0103.openclaw-rightout-0.6.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {

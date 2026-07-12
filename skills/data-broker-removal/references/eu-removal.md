@@ -16,6 +16,9 @@ The reviewed simple controls have narrower effects:
 | [emetriq browser opt-out](https://www.emetriq.com/opt-out/) | Stops further emetriq interest-profile collection for the current browser. The official page says previously linked data becomes unassignable and is automatically deleted after a short period. The opt-out cookie must remain and the action must be repeated per browser/device. | `browser_opt_out_then_short_term_unlinked_data_deletion` |
 | [Criteo rights page](https://www.criteo.com/privacy/your-rights/) | Controller-specific form for Article 17 erasure and Article 21 objection. | `controller_erasure_request_not_yet_confirmed` |
 | [Zeotap privacy policy](https://zeotap.com/privacy-policy/) | Cookie-ID portal or Ad-ID mobile app for access/deletion of data linked to the supplied identifier. | `controller_portal_erasure_request_not_yet_confirmed` |
+| [Quantcast privacy choices](https://www.quantcast.com/privacy-choices) | EU rights page routing erasure and other rights to a controller-specific portal. | `controller_erasure_request_not_yet_confirmed` |
+| [Lotame Services Privacy Notice](https://www.lotame.com/privacy/services-privacy-notice/) | Epsilon rights form; verification and digital-identifier scope matter, and restriction flags/identifiers may be retained after behavior-profile deletion. | `controller_portal_erasure_request_not_yet_confirmed` |
+| [ID5 privacy page](https://id5.io/trust/privacy-policy) | Links EEA/UK rights and a browser/device-context privacy portal. | `controller_portal_erasure_request_not_yet_confirmed` |
 
 Cookie, browser, device, consent, and marketing controls must never be reported as controller-wide erasure unless the controller independently confirms that outcome.
 
@@ -31,7 +34,7 @@ For both lanes:
 - EU/EEA membership, exact country tag, consent, profile digest, SMTP digest, broker, request kind, and minimum fields are checked before transport;
 - no listing discovery is required to exercise a data-subject right;
 - SMTP acceptance means only `submitted`;
-- these EU controller-email cases do not automatically transition to `confirmed_removed`; that state remains available only where another supported workflow supplies its required evidence;
+- these EU controller-email cases do not automatically transition to `confirmed_removed`; after personally reviewing the official response, the operator may separately approve `rightout_record_controller_outcome`, whose confirmation scope is only `controller_response_only`;
 - no identity document is attached or requested proactively.
 
 ## Request content and follow-up

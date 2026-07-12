@@ -4,6 +4,7 @@ import { inspect } from "node:util";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import { scanProfileDigest } from "../../lib/live-scan.mjs";
 
@@ -36,7 +37,8 @@ const privateProfile = {
   jurisdictions: ["US", "US-CA"],
   consent: {
     authorized: true,
-    recordedAt: "2026-07-12T08:00:00.000Z",
+    recordedAt: CONSENT_RECORDED_AT,
+    validUntil: CONSENT_VALID_UNTIL,
     scope: ["scan", "broker_removal"],
   },
 };
@@ -87,7 +89,7 @@ const broker = {
     last_verified: "2026-07-12",
   },
 };
-const catalog = { schema_version: 4, brokers: [broker] };
+const catalog = { schema_version: 5, brokers: [broker] };
 
 test("removal approval names the exact write without exposing PII values", () => {
   const text = removalApprovalDescription(toolInput, {
@@ -113,6 +115,17 @@ test("public input is opaque and the private profile requires recorded removal c
   assert.ok(parsed.consent.scope.includes("broker_removal"));
   assert.throws(
     () => parseRemovalProfile(JSON.stringify({ ...privateProfile, consent: { ...privateProfile.consent, authorized: false } })),
+    /subject_consent_required/,
+  );
+  assert.throws(
+    () => parseRemovalProfile(JSON.stringify({ ...privateProfile, consent: { ...privateProfile.consent, validUntil: "2000-01-01T00:00:00.000Z" } })),
+    /subject_consent_required/,
+  );
+  assert.throws(
+    () => parseRemovalProfile(JSON.stringify({ ...privateProfile, consent: {
+      ...privateProfile.consent,
+      validUntil: new Date(Date.parse(privateProfile.consent.recordedAt) + 366 * 24 * 60 * 60_000).toISOString(),
+    } })),
     /subject_consent_required/,
   );
   assert.throws(
@@ -236,7 +249,7 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
   const calls = [];
   const report = await runRemovalSubmission({
     input: euInput,
-    catalog: { schema_version: 4, brokers: [euBroker] },
+    catalog: { schema_version: 5, brokers: [euBroker] },
     profilePayload: euPayload,
     smtpConfig: euSmtp,
     operatorAttestations: euAttestations,
@@ -266,7 +279,7 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
   const missingIdPayload = JSON.stringify(euProfileWithoutId);
   await assert.rejects(runRemovalSubmission({
     input: euInput,
-    catalog: { schema_version: 4, brokers: [euBroker] },
+    catalog: { schema_version: 5, brokers: [euBroker] },
     profilePayload: missingIdPayload,
     smtpConfig: euSmtp,
     operatorAttestations: {
@@ -278,7 +291,7 @@ test("EU GDPR lane sends only catalog-approved identifiers and never claims eras
   const contradictoryPayload = JSON.stringify({ ...euProfile, country: "US", region: "CA" });
   await assert.rejects(runRemovalSubmission({
     input: euInput,
-    catalog: { schema_version: 4, brokers: [euBroker] },
+    catalog: { schema_version: 5, brokers: [euBroker] },
     profilePayload: contradictoryPayload,
     smtpConfig: euSmtp,
     operatorAttestations: {

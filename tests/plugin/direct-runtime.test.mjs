@@ -3,6 +3,7 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import plugin from "../../index.ts";
 import { createListingTokenVault } from "../../lib/listing-tokens.mjs";
@@ -14,7 +15,7 @@ test("runtime direct rescan is exact-handle scoped and requires its own allow-on
   const brokerId = "truepeoplesearch";
   const profilePayload = JSON.stringify({
     fullName: "Avery Example", city: "Exampleville", region: "CA", country: "US",
-    consent: { authorized: true, recordedAt: "2026-07-12T08:00:00.000Z", scope: ["scan"] },
+    consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["scan"] },
   });
   const key = "dummy-encryption-key-with-more-than-32-characters";
   const stateDir = await mkdtemp(join(tmpdir(), "rightout-direct-runtime-"));

@@ -10,7 +10,45 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: "22.19.0"
+            python: "3.11"
+          - os: ubuntu-latest
+            node: "24"
+            python: "3.12"
+          - os: macos-latest
+            node: "22.19.0"
+            python: "3.12"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: npm ci --ignore-scripts
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run check
+      - run: python3 skills/data-broker-removal/scripts/validate_data_broker_removal.py --skill-dir skills/data-broker-removal
+      - name: Python tests excluding installer mutation suite
+        run: >-
+          python3 -m unittest
+          tests.skills.test_data_broker_removal_skill.PublicBoundaryTests
+          tests.skills.test_data_broker_removal_skill.FilesystemSecurityTests
+          tests.skills.test_data_broker_removal_skill.ReportingAndStateTests
+          tests.skills.test_data_broker_removal_skill.CatalogValidationTests
+      - run: python3 scripts/release_check.py
+
+  installer:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -23,6 +61,43 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm ci --ignore-scripts
-      - run: npm audit --omit=dev --audit-level=high
-      - run: make test
       - run: make installer-test
+
+  openclaw-compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        openclaw: ["2026.6.11", "2026.7.1-beta.5"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.19.0"
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: npm ci --ignore-scripts
+      - run: npm install --no-save --ignore-scripts openclaw@${{ matrix.openclaw }}
+      - run: npm run check
+      - name: Isolated packaged runtime inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          HOME="$root/home" \
+          OPENCLAW_STATE_DIR="$root/state" \
+          OPENCLAW_CONFIG_PATH="$root/state/openclaw.json" \
+          OPENCLAW_BIN="$PWD/node_modules/.bin/openclaw" \
+          ./install.sh
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test-matrix, installer, openclaw-compatibility]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml

@@ -49,6 +49,8 @@ const catalog = {
     },
     {
       id: "spokeo",
+      official_url: "https://www.spokeo.com/optout",
+      official_domains: ["spokeo.com"],
       lane: "human_task",
       human_only: true,
       prerequisites: ["manual_site_access_only"],
@@ -60,7 +62,8 @@ const catalog = {
 test("case state contract is complete and stable", () => {
   assert.deepEqual(CASE_STATES, [
     "new", "searching", "inconclusive", "not_found", "found", "indirect_exposure",
-    "action_selected", "submitted", "verification_pending", "awaiting_processing",
+    "action_selected", "submission_pending", "submission_uncertain", "submitted", "verification_pending", "awaiting_processing",
+    "identity_verification_required", "partially_removed", "request_rejected",
     "confirmed_removed", "reappeared", "human_task_queued", "blocked",
   ]);
 });
@@ -83,10 +86,32 @@ test("scan observations persist without raw PII", async () => {
   assert.equal(serialized.includes("@example"), false);
 });
 
+test("opaque listing handles persist for later campaign resumption", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
+  await ledger.recordScan({
+    mode: "approval_gated_live_scan",
+    scan_id: "scan_0123456789abcdef",
+    subject_ref: PROFILE,
+    generated_at: "2026-07-12T10:00:00Z",
+    results: [{
+      broker_id: "beenverified",
+      state: "indirect_exposure",
+      reason: "search_index_candidate_observed",
+      listing_handle: "listing_0123456789abcdef01234567",
+    }],
+  });
+  const plan = await ledger.plan(PROFILE, catalog);
+  assert.equal(plan.actions.find((row) => row.broker_id === "beenverified").listing_handle, "listing_0123456789abcdef01234567");
+  assert.equal(plan.campaign.resume_mode, "approval_gated_actions_available");
+  assert.equal(plan.campaign.autonomous_without_approval, false);
+  assert.equal(plan.campaign.autonomous_after_exact_approvals, true);
+});
+
 test("approved removal records submission, field names, proof, and due date", async () => {
   const store = memoryStore();
   const ledger = createCaseLedger(store, { now: clock("2026-07-12T10:00:00Z", "2026-07-12T10:00:01Z") });
   await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
   await ledger.recordRemoval({
     state: "submitted",
     subject_ref: PROFILE,
@@ -107,13 +132,14 @@ test("confirmed removal cannot be caller-asserted without trusted direct rescan"
   const ledger = createCaseLedger(store);
   await assert.rejects(
     ledger.recordLifecycle(PROFILE, "beenverified", "confirmed_removed", { evidenceKind: "human_task" }),
-    /confirmed_removal_requires_direct_rescan/,
+    /trusted_rescan_or_controller_method_required|untrusted_lifecycle_evidence/,
   );
 });
 
 test("browser form initiation records verification_pending without claiming removal", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await recordDiscovery(ledger, "intelius");
+  await ledger.reserveSubmission(PROFILE, "intelius", { channel: "browser_form", discoveryRequirement: "prior_discovery_required" });
   await ledger.recordFormSubmission({
     state: "verification_pending", subject_ref: PROFILE, broker_id: "intelius",
     generated_at: "2026-07-12T10:00:00Z", delivery: { form_submitted: true },
@@ -125,6 +151,94 @@ test("browser form initiation records verification_pending without claiming remo
   assert.deepEqual(status.cases[0].disclosure_fields, ["contact_email"]);
 });
 
+test("provider writes have a durable intent and ambiguous outcomes never auto-retry", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
+  await recordDiscovery(ledger);
+  const intent = await ledger.reserveSubmission(PROFILE, "beenverified", {
+    channel: "smtp_email",
+    discoveryRequirement: "prior_discovery_required",
+  });
+  assert.equal(intent.state, "submission_pending");
+  assert.match(intent.proof_reference, /^intent_[a-f0-9]{24}$/);
+  await ledger.recordSubmissionUncertain(PROFILE, "beenverified", {
+    channel: "smtp_email",
+    reason: "rightout_removal_transport_failed",
+  });
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.counts.submission_uncertain, 1);
+  assert.equal(status.metrics.uncertain, 1);
+  assert.equal(status.cases[0].submission_outcome, "uncertain");
+  assert.equal(status.cases[0].human_task_reason, "rightout_removal_transport_failed");
+  await assert.rejects(
+    ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" }),
+    /rightout_submission_not_ready/,
+  );
+  const plan = await ledger.plan(PROFILE, catalog);
+  assert.equal(plan.actions.find((row) => row.broker_id === "beenverified").next_action, "reconcile_submission");
+});
+
+test("ambiguous writes can resume only after operator-reviewed reconciliation", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
+  await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", {
+    channel: "smtp_email",
+    discoveryRequirement: "prior_discovery_required",
+  });
+  await ledger.recordSubmissionUncertain(PROFILE, "beenverified", {
+    channel: "smtp_email",
+    reason: "rightout_removal_transport_failed",
+  });
+  const reconciled = await ledger.reconcileSubmission(PROFILE, "beenverified", "provider_write_not_started");
+  assert.equal(reconciled.state, "action_selected");
+  assert.match(reconciled.proof_reference, /^reconcile_[a-f0-9]{24}$/);
+  const retryable = await ledger.status(PROFILE);
+  assert.equal(retryable.cases[0].submission_outcome, "human_reviewed_not_started");
+  await ledger.reserveSubmission(PROFILE, "beenverified", {
+    channel: "smtp_email",
+    discoveryRequirement: "prior_discovery_required",
+  });
+  await ledger.recordSubmissionUncertain(PROFILE, "beenverified", {
+    channel: "smtp_email",
+    reason: "rightout_removal_transport_failed",
+  });
+  const confirmed = await ledger.reconcileSubmission(PROFILE, "beenverified", "provider_write_confirmed", { processingDays: 14 });
+  assert.equal(confirmed.state, "submitted");
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.cases[0].submission_outcome, "human_reviewed_provider_write_confirmed");
+  assert.equal(status.cases[0].next_recheck_at, "2026-07-26T10:00:00.000Z");
+});
+
+test("human-reviewed EU controller outcomes are explicit and scoped", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
+  await ledger.reserveSubmission(PROFILE, "adsquare_eu", {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted", subject_ref: PROFILE, broker_id: "adsquare_eu",
+    generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_0123456789abcdef01234567"], disclosures: { to_broker: ["contact_email"] },
+  }, 30);
+  const broker = {
+    id: "adsquare_eu",
+    process_class: "eu_controller_email_erasure",
+    removal: { confirmation_policy: "submitted_until_controller_response" },
+  };
+  const outcome = await ledger.recordControllerOutcome(PROFILE, "adsquare_eu", "erasure_confirmed", broker);
+  assert.equal(outcome.state, "confirmed_removed");
+  assert.equal(outcome.confirmation_scope, "controller_response_only");
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.counts.confirmed_removed, 1);
+  assert.equal(status.cases[0].coverage_gap, "other_identifiers_or_controllers_not_checked");
+  assert.match(status.cases[0].proof_references.at(-1), /^controller_[a-f0-9]{24}$/);
+  await assert.rejects(
+    ledger.recordControllerOutcome(PROFILE, "adsquare_eu", "erasure_confirmed", {
+      ...broker, process_class: "eu_advertising_preference",
+    }),
+    /unsupported_controller_outcome_lane/,
+  );
+});
+
 test("verification lifecycle reaches confirmed removal only after direct absence evidence", async () => {
   const store = memoryStore();
   const ledger = createCaseLedger(store, { now: clock(
@@ -132,6 +246,7 @@ test("verification lifecycle reaches confirmed removal only after direct absence
     "2026-07-12T10:03:00Z", "2026-07-12T10:04:00Z", "2026-07-12T10:05:00Z",
   ) });
   await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
   await ledger.recordRemoval({
     state: "submitted",
     subject_ref: PROFILE,
@@ -143,9 +258,16 @@ test("verification lifecycle reaches confirmed removal only after direct absence
   });
   await ledger.recordLifecycle(PROFILE, "beenverified", "verification_pending", { evidenceKind: "broker_verification_link" });
   await ledger.recordLifecycle(PROFILE, "beenverified", "awaiting_processing", { evidenceKind: "broker_verification_link" });
-  await ledger.recordLifecycle(PROFILE, "beenverified", "confirmed_removed", {
-    evidenceKind: "trusted_direct_rescan_absent",
-    proofReference: "direct_0123456789abcdef01234567",
+  await ledger.recordDirectRescan({
+    subject_ref: PROFILE, broker_id: "beenverified", observation: "direct_absent_known_listing_set",
+    removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-08-01T10:00:00Z",
+    proof_references: ["direct_0123456789abcdef01234567"],
+  });
+  assert.equal((await ledger.status(PROFILE)).counts.awaiting_processing, 1);
+  await ledger.recordDirectRescan({
+    subject_ref: PROFILE, broker_id: "beenverified", observation: "direct_absent_known_listing_set",
+    removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-08-08T10:00:00Z",
+    proof_references: ["direct_fedcba9876543210fedcba98"],
   });
   const status = await ledger.status(PROFILE);
   assert.equal(status.metrics.confirmed_removed, 1);
@@ -156,6 +278,7 @@ test("verification lifecycle reaches confirmed removal only after direct absence
 test("direct-rescan report confirms a submitted known listing set and later detects reappearance", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
   await ledger.recordRemoval({
     state: "submitted", subject_ref: PROFILE, broker_id: "beenverified",
     generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
@@ -165,6 +288,13 @@ test("direct-rescan report confirms a submitted known listing set and later dete
     subject_ref: PROFILE, broker_id: "beenverified", observation: "direct_absent_known_listing_set",
     removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-07-20T10:00:00Z",
     proof_references: ["direct_0123456789abcdef01234567"],
+  });
+  assert.equal((await ledger.status(PROFILE)).counts.awaiting_processing, 1);
+  assert.equal((await ledger.status(PROFILE)).counts.confirmed_removed, 0);
+  await ledger.recordDirectRescan({
+    subject_ref: PROFILE, broker_id: "beenverified", observation: "direct_absent_known_listing_set",
+    removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-07-27T10:00:00Z",
+    proof_references: ["direct_fedcba9876543210fedcba98"],
   });
   assert.equal((await ledger.status(PROFILE)).counts.confirmed_removed, 1);
   const confirmed = await ledger.status(PROFILE);
@@ -194,6 +324,7 @@ test("index observation never converts confirmed removal into reappeared", async
   const store = memoryStore();
   const ledger = createCaseLedger(store, { now: () => new Date("2026-07-12T10:00:00Z") });
   await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
   await ledger.recordRemoval({
     state: "submitted", subject_ref: PROFILE, broker_id: "beenverified",
     generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
@@ -201,7 +332,16 @@ test("index observation never converts confirmed removal into reappeared", async
   });
   await ledger.recordLifecycle(PROFILE, "beenverified", "verification_pending", { evidenceKind: "broker_verification_link" });
   await ledger.recordLifecycle(PROFILE, "beenverified", "awaiting_processing", { evidenceKind: "broker_verification_link" });
-  await ledger.recordLifecycle(PROFILE, "beenverified", "confirmed_removed", { evidenceKind: "trusted_direct_rescan_absent" });
+  await ledger.recordDirectRescan({
+    subject_ref: PROFILE, broker_id: "beenverified", observation: "direct_absent_known_listing_set",
+    removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-08-01T10:00:00Z",
+    proof_references: ["direct_0123456789abcdef01234567"],
+  });
+  await ledger.recordDirectRescan({
+    subject_ref: PROFILE, broker_id: "beenverified", observation: "direct_absent_known_listing_set",
+    removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-08-08T10:00:00Z",
+    proof_references: ["direct_fedcba9876543210fedcba98"],
+  });
   await ledger.recordScan({
     mode: "approval_gated_live_scan", scan_id: "scan_abcdef0123456789", subject_ref: PROFILE,
     generated_at: "2026-07-13T10:00:00Z",
@@ -219,6 +359,7 @@ test("plan is deterministic and surfaces human work instead of dropping it", asy
     ["spokeo", "human_task", "queue_human_task"],
   ]);
   assert.equal(plan.summary.human_tasks, 1);
+  assert.equal(plan.actions.find((row) => row.broker_id === "spokeo").official_action_url, "https://www.spokeo.com/optout");
   assert.equal(JSON.stringify(plan).includes("Alice"), false);
 });
 
@@ -281,6 +422,7 @@ test("EU plan distinguishes controller erasure from browser-scoped preference co
     assert.equal(Object.hasOwn(unsafeAdsquare, "erasure_semantics"), false);
   }
 
+  await ledger.reserveSubmission(PROFILE, "adsquare_eu", { channel: "smtp_email", discoveryRequirement: "not_required_for_data_subject_request" });
   await ledger.recordRemoval({
     state: "submitted",
     subject_ref: PROFILE,
@@ -301,6 +443,7 @@ test("EU plan distinguishes controller erasure from browser-scoped preference co
 test("due returns only elapsed rechecks", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
   await ledger.recordRemoval({
     state: "submitted", subject_ref: PROFILE, broker_id: "beenverified",
     generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
@@ -317,12 +460,12 @@ test("removal and form submission require prior discovery evidence", async () =>
     state: "submitted", subject_ref: PROFILE, broker_id: "beenverified",
     generated_at: "2026-07-12T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
     proof_references: ["smtp_0123456789abcdef01234567"], disclosures: { to_broker: [] },
-  }), /illegal_case_transition/);
+  }), /submission_intent_required/);
   await assert.rejects(ledger.recordFormSubmission({
     state: "verification_pending", subject_ref: PROFILE, broker_id: "intelius",
     generated_at: "2026-07-12T10:00:00Z", delivery: { form_submitted: true },
     proof_references: ["form_0123456789abcdef01234567"], disclosures: { to_broker: [] },
-  }), /illegal_case_transition/);
+  }), /submission_intent_required/);
 });
 
 test("concurrent updates retain both broker cases", async () => {
@@ -333,6 +476,41 @@ test("concurrent updates retain both broker cases", async () => {
     ledger.ensure(PROFILE, ["truepeoplesearch"]),
   ]);
   assert.deepEqual(Object.keys((await ledger.load(PROFILE)).brokers).sort(), ["beenverified", "truepeoplesearch"]);
+});
+
+test("v0.5 schema-v1 cases remain readable with v0.6 optional fields", async () => {
+  const store = memoryStore();
+  await store.register(PROFILE, {
+    schema_version: 1,
+    subject_ref: PROFILE,
+    created_at: "2026-07-11T10:00:00.000Z",
+    updated_at: "2026-07-11T10:00:00.000Z",
+    brokers: {
+      beenverified: {
+        broker_id: "beenverified",
+        state: "submitted",
+        last_observation: null,
+        proof_references: ["smtp_0123456789abcdef01234567"],
+        disclosure_fields: ["contact_email"],
+        submission_channel: "smtp_email",
+        submission_started_at: "2026-07-11T10:00:00.000Z",
+        submission_outcome: "accepted_by_outbound_smtp",
+        next_recheck_at: "2026-07-25T10:00:00.000Z",
+        removal_confirmed_at: null,
+        removal_confirmation_scope: null,
+        coverage_gap: null,
+        human_task_reason: null,
+        updated_at: "2026-07-11T10:00:00.000Z",
+        history: [],
+      },
+    },
+  });
+  const ledger = createCaseLedger(store, { now: () => new Date("2026-07-12T10:00:00Z") });
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.counts.submitted, 1);
+  assert.equal(status.cases[0].listing_handle, null);
+  assert.equal(status.cases[0].direct_absence_observed_at, null);
+  assert.equal((await ledger.plan(PROFILE, catalog)).actions.find((row) => row.broker_id === "beenverified").state, "submitted");
 });
 
 test("ownership-cluster reduction orders the parent and suppresses redundant child writes", async () => {

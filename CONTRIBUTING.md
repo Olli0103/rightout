@@ -34,7 +34,7 @@ Use only `.invalid` synthetic identities, mocked HTTP responses, and mocked SMTP
 
 ## Catalog contributions
 
-Research clean-room from official broker/controller/legal sources. Do not copy commercial coverage lists, Privacy Guides, IntelTechniques, BADBOOL, screenshots, or prose. Every record needs official HTTPS URLs/domains, jurisdiction, category/lane, minimum field names, prerequisites, freshness, source-license posture, structured provenance, and original notes.
+Research clean-room from official broker/controller/legal sources. Do not copy commercial coverage lists, Privacy Guides, IntelTechniques, BADBOOL, screenshots, or prose. Every record needs official HTTPS URLs/domains, jurisdiction, category/lane, minimum field names, prerequisites, freshness, an explicit facts-only source-use policy, structured provenance, and original notes. Do not mislabel that policy as a license granted by the source.
 
 Sensitive identity documents remain human-only and out of scope. Legal/controller lanes cannot self-authorize a destination. Do not claim eligibility, compliance, removal, or ownership without direct evidence.
 

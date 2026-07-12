@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_id": "rightout-clean-room-core",
   "catalog_license": "MIT",
   "catalog_policy": "Official-source facts and URLs with original RightOut notes only. No third-party broker-list records or prose.",
@@ -29,13 +29,13 @@
       "human_only": true,
       "last_verified": "2026-07-11",
       "freshness_days": 180,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://privacy.ca.gov/drop/",
           "title": "Delete Request and Opt-out Platform",
           "publisher": "California Privacy Protection Agency",
-          "license_scope": "facts_and_official_url_only",
+          "fact_scope": "facts_and_official_url_only",
           "last_verified": "2026-07-11"
         }
       ],
@@ -70,13 +70,13 @@
       "human_only": true,
       "last_verified": "2026-07-11",
       "freshness_days": 180,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://support.google.com/websearch/answer/12719076",
           "title": "Find and remove personal contact info in Google Search results",
           "publisher": "Google Search Help",
-          "license_scope": "facts_and_official_url_only",
+          "fact_scope": "facts_and_official_url_only",
           "last_verified": "2026-07-11"
         }
       ],
@@ -145,13 +145,13 @@
       "controller_domain_policy": "platform_verified_out_of_band_only",
       "last_verified": "2026-07-11",
       "freshness_days": 180,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
           "title": "Regulation EU 2016 679",
           "publisher": "EUR-Lex",
-          "license_scope": "official_legal_reference_and_facts_only",
+          "fact_scope": "official_legal_reference_and_facts_only",
           "last_verified": "2026-07-11"
         }
       ],
@@ -172,20 +172,20 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://adsquare.com/privacy",
           "title": "Adsquare Privacy Center",
           "publisher": "adsquare GmbH",
-          "license_scope": "official_rights_channel_and_minimum_fields_facts_only",
+          "fact_scope": "official_rights_channel_and_minimum_fields_facts_only",
           "last_verified": "2026-07-12"
         },
         {
           "url": "https://adsquare.com/privacy/platform-privacy-policy",
           "title": "Adsquare Platform Privacy Policy",
           "publisher": "adsquare GmbH",
-          "license_scope": "official_controller_and_gdpr_rights_facts_only",
+          "fact_scope": "official_controller_and_gdpr_rights_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -229,13 +229,13 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://www.emetriq.com/datenschutz/",
           "title": "emetriq Datenschutz",
           "publisher": "emetriq GmbH",
-          "license_scope": "official_gdpr_rights_and_contact_facts_only",
+          "fact_scope": "official_gdpr_rights_and_contact_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -279,20 +279,20 @@
       "human_only": true,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://edaa.eu/",
           "title": "European Interactive Digital Advertising Alliance",
           "publisher": "EDAA",
-          "license_scope": "official_consumer_choice_scope_facts_only",
+          "fact_scope": "official_consumer_choice_scope_facts_only",
           "last_verified": "2026-07-12"
         },
         {
           "url": "https://www.youronlinechoices.eu/uk/protecting-your-privacy",
           "title": "Protecting Your Privacy",
           "publisher": "YourOnlineChoices",
-          "license_scope": "official_cookie_and_participant_scope_facts_only",
+          "fact_scope": "official_cookie_and_participant_scope_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -319,13 +319,13 @@
       "human_only": true,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://www.emetriq.com/opt-out/",
           "title": "emetriq Opt-Out",
           "publisher": "emetriq GmbH",
-          "license_scope": "official_browser_scope_and_effect_facts_only",
+          "fact_scope": "official_browser_scope_and_effect_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -352,13 +352,13 @@
       "human_only": true,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://www.criteo.com/privacy/your-rights/",
           "title": "Your rights",
           "publisher": "Criteo",
-          "license_scope": "official_gdpr_portal_and_rights_facts_only",
+          "fact_scope": "official_gdpr_portal_and_rights_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -385,13 +385,13 @@
       "human_only": true,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://zeotap.com/privacy-policy/",
           "title": "Zeotap Privacy Policy",
           "publisher": "Zeotap",
-          "license_scope": "official_identifier_and_erasure_channel_facts_only",
+          "fact_scope": "official_identifier_and_erasure_channel_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -404,6 +404,119 @@
       "notes": "Zeotap provides a website portal for Cookie-ID data and a mobile rights app for Ad-ID data. Because the relevant identifier must be obtained in the subject's browser or device, this remains human-only and no cross-identifier completeness is claimed."
     },
     {
+      "id": "quantcast_eu",
+      "name": "Quantcast data subject rights",
+      "category": "data_broker",
+      "process_class": "eu_controller_portal_erasure",
+      "jurisdictions": ["EU", "EEA"],
+      "official_url": "https://www.quantcast.com/privacy-choices",
+      "official_domains": ["quantcast.com"],
+      "lane": "operator_browser",
+      "required_fields": ["controller_portal_input"],
+      "prerequisites": ["subject_authorization", "human_form_review", "controller_form_submission"],
+      "approval_gate": "send_request",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.quantcast.com/privacy-choices",
+          "title": "Your Privacy Choices",
+          "publisher": "Quantcast",
+          "fact_scope": "official_eu_rights_and_controller_portal_facts_only",
+          "last_verified": "2026-07-12"
+        },
+        {
+          "url": "https://www.quantcast.com/privacy/data-subject-rights/",
+          "title": "Data Subject Rights",
+          "publisher": "Quantcast",
+          "fact_scope": "official_rights_portal_url_fact_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_portal_selected_right",
+        "erasure_semantics": "controller_erasure_request_not_yet_confirmed",
+        "one_click_level": "single_controller_form_not_one_click",
+        "official_action_url": "https://www.quantcast.com/privacy/data-subject-rights/"
+      },
+      "notes": "Quantcast's current privacy choices page lists EU erasure rights and routes them to its controller-specific rights page. The portal fields and resulting scope require operator review, so RightOut does not automate or claim one-click erasure."
+    },
+    {
+      "id": "lotame_eu",
+      "name": "Lotame and Epsilon privacy rights",
+      "category": "data_broker",
+      "process_class": "eu_controller_portal_erasure",
+      "jurisdictions": ["EU", "EEA"],
+      "official_url": "https://www.lotame.com/privacy/services-privacy-notice/",
+      "official_domains": ["lotame.com", "legal.epsilon.com"],
+      "lane": "operator_browser",
+      "required_fields": ["digital_identifier_evidence", "contact_email", "country"],
+      "prerequisites": ["subject_authorization", "human_identifier_collection", "human_form_review", "controller_form_submission"],
+      "approval_gate": "send_request",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://www.lotame.com/privacy/services-privacy-notice/",
+          "title": "Services Privacy Notice",
+          "publisher": "Lotame, a division of Epsilon Data Management LLC",
+          "fact_scope": "official_controller_scope_retention_and_rights_process_facts_only",
+          "last_verified": "2026-07-12"
+        },
+        {
+          "url": "https://legal.epsilon.com/dsr/",
+          "title": "Consumer Privacy Rights",
+          "publisher": "Epsilon Data Management LLC",
+          "fact_scope": "official_rights_form_url_and_verification_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_data_linked_to_supplied_cookie_or_ad_id",
+        "erasure_semantics": "controller_portal_erasure_request_not_yet_confirmed",
+        "one_click_level": "single_controller_portal_or_app_not_one_click",
+        "official_action_url": "https://legal.epsilon.com/dsr/"
+      },
+      "notes": "Lotame's current Services Privacy Notice routes rights requests to Epsilon's form, requires verification, and explains that behavior profiles may be deleted while identifiers can be retained to honor restrictions. Identifier evidence and controller-versus-customer scope require a human; total erasure is not claimed."
+    },
+    {
+      "id": "id5_eu",
+      "name": "ID5 privacy and DSAR portal",
+      "category": "data_broker",
+      "process_class": "eu_controller_portal_erasure",
+      "jurisdictions": ["EU", "EEA", "UK"],
+      "official_url": "https://id5.io/trust/privacy-policy",
+      "official_domains": ["id5.io", "id5-sync.com"],
+      "lane": "operator_browser",
+      "required_fields": ["browser_or_device_identifier"],
+      "prerequisites": ["subject_authorization", "human_browser_or_device_action", "human_portal_review"],
+      "approval_gate": "send_request",
+      "human_only": true,
+      "last_verified": "2026-07-12",
+      "freshness_days": 90,
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [
+        {
+          "url": "https://id5.io/trust/privacy-policy",
+          "title": "Website Privacy Policy and privacy portal routing",
+          "publisher": "ID5",
+          "fact_scope": "official_eu_rights_contact_and_dsar_portal_url_facts_only",
+          "last_verified": "2026-07-12"
+        }
+      ],
+      "eu_process": {
+        "effect_scope": "controller_data_linked_to_supplied_cookie_or_ad_id",
+        "erasure_semantics": "controller_portal_erasure_request_not_yet_confirmed",
+        "one_click_level": "single_controller_portal_or_app_not_one_click",
+        "official_action_url": "https://id5-sync.com/privacy/"
+      },
+      "notes": "ID5's current privacy page lists EEA and UK erasure rights and links its platform privacy choices to the ID5 Sync portal. Because the platform workflow is tied to browser or device context, it remains operator-controlled and no cross-device completeness is claimed."
+    },
+    {
       "id": "truepeoplesearch",
       "name": "TruePeopleSearch",
       "category": "people_search",
@@ -411,6 +524,7 @@
         "US"
       ],
       "official_url": "https://www.truepeoplesearch.com/",
+      "human_action_url": "https://www.truepeoplesearch.com/removal",
       "official_domains": [
         "truepeoplesearch.com"
       ],
@@ -431,20 +545,20 @@
       "human_only": false,
       "last_verified": "2026-07-11",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://www.truepeoplesearch.com/",
           "title": "TruePeopleSearch official site",
           "publisher": "TruePeopleSearch",
-          "license_scope": "official_identity_url_and_facts_only",
+          "fact_scope": "official_identity_url_and_facts_only",
           "last_verified": "2026-07-11"
         },
         {
           "url": "https://www.truepeoplesearch.com/removal",
           "title": "TruePeopleSearch official removal entry point",
           "publisher": "TruePeopleSearch",
-          "license_scope": "official_url_fact_only",
+          "fact_scope": "official_url_fact_only",
           "last_verified": "2026-07-11"
         }
       ],
@@ -506,13 +620,13 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://www.beenverified.com/faq/privacy/",
           "title": "BeenVerified Privacy and Cookies Policy",
           "publisher": "BeenVerified",
-          "license_scope": "official_contact_and_request_channel_facts_only",
+          "fact_scope": "official_contact_and_request_channel_facts_only",
           "last_verified": "2026-07-12"
         }
       ],
@@ -598,10 +712,10 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
-        {"url": "https://www.intelius.com/privacy-policy/", "title": "Intelius privacy policy", "publisher": "Intelius", "license_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"},
-        {"url": "https://suppression.peopleconnect.us/", "title": "PeopleConnect Suppression Center", "publisher": "PeopleConnect", "license_scope": "official_form_contract_facts_only", "last_verified": "2026-07-12"}
+        {"url": "https://www.intelius.com/privacy-policy/", "title": "Intelius privacy policy", "publisher": "Intelius", "fact_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"},
+        {"url": "https://suppression.peopleconnect.us/", "title": "PeopleConnect Suppression Center", "publisher": "PeopleConnect", "fact_scope": "official_form_contract_facts_only", "last_verified": "2026-07-12"}
       ],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Intelius, LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "intelius_ussearch", "parent_broker_id": "intelius", "role": "parent", "evidence": "official_2025_california_registry_dba"},
@@ -646,8 +760,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.ussearch.com/", "title": "US Search official site", "publisher": "US Search", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.ussearch.com/", "title": "US Search official site", "publisher": "US Search", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Intelius, LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "intelius_ussearch", "parent_broker_id": "intelius", "role": "child", "evidence": "official_2025_california_registry_dba"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -659,6 +773,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.nuwber.com/",
+      "human_action_url": "https://www.nuwber.com/policy",
       "official_domains": ["nuwber.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -667,8 +782,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.nuwber.com/policy", "title": "Nuwber policy", "publisher": "Nuwber", "license_scope": "official_identity_and_policy_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.nuwber.com/policy", "title": "Nuwber policy", "publisher": "Nuwber", "fact_scope": "official_identity_and_policy_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Nuwber Inc", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "Discovery uses the Brave index only; absence remains inconclusive."
@@ -679,6 +794,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.whitepages.com/",
+      "human_action_url": "https://www.whitepages.com/privacy",
       "official_domains": ["whitepages.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -687,8 +803,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.whitepages.com/privacy", "title": "Whitepages privacy", "publisher": "Whitepages", "license_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.whitepages.com/privacy", "title": "Whitepages privacy", "publisher": "Whitepages", "fact_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Whitepages, Inc", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "Official California registry evidence identifies the privacy entry point; automated publisher access remains disabled."
@@ -699,6 +815,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.uspeoplesearch.com/",
+      "human_action_url": "https://www.uspeoplesearch.com/purge-my-data/",
       "official_domains": ["uspeoplesearch.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -707,8 +824,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.uspeoplesearch.com/purge-my-data/", "title": "USPeopleSearch privacy request entry point", "publisher": "USPeopleSearch", "license_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.uspeoplesearch.com/purge-my-data/", "title": "USPeopleSearch privacy request entry point", "publisher": "USPeopleSearch", "fact_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "USPEOPLESEARCH.COM, LLC", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "The request page is cataloged for human planning only; live discovery remains Brave-only."
@@ -719,6 +836,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.checkpeople.com/",
+      "human_action_url": "https://www.checkpeople.com/do-not-sell-info",
       "official_domains": ["checkpeople.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -727,8 +845,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.checkpeople.com/do-not-sell-info", "title": "CheckPeople privacy request entry point", "publisher": "CheckPeople", "license_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.checkpeople.com/do-not-sell-info", "title": "CheckPeople privacy request entry point", "publisher": "CheckPeople", "fact_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "CheckPeople, LLC", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "The request entry point is not automated until its form contract and terms are independently verified."
@@ -739,6 +857,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.freepeoplesearch.com/",
+      "human_action_url": "https://www.freepeoplesearch.com/privacy-policy/",
       "official_domains": ["freepeoplesearch.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -747,8 +866,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.freepeoplesearch.com/privacy-policy/", "title": "FreePeopleSearch privacy policy", "publisher": "FreePeopleSearch.com", "license_scope": "official_identity_and_policy_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.freepeoplesearch.com/privacy-policy/", "title": "FreePeopleSearch privacy policy", "publisher": "FreePeopleSearch.com", "fact_scope": "official_identity_and_policy_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "FreePeopleSearch.com, LLC", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "Discovery uses the Brave index only; no publisher page is fetched."
@@ -759,6 +878,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.peoplewhiz.com/",
+      "human_action_url": "https://www.peoplewhiz.com/remove-my-info",
       "official_domains": ["peoplewhiz.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -767,8 +887,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.peoplewhiz.com/remove-my-info", "title": "PeopleWhiz removal entry point", "publisher": "PeopleWhiz", "license_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.peoplewhiz.com/remove-my-info", "title": "PeopleWhiz removal entry point", "publisher": "PeopleWhiz", "fact_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "PeopleWhiz", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "The removal entry point remains human-planned until a safe form contract exists."
@@ -779,6 +899,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.peoplefinders.com/",
+      "human_action_url": "https://www.peoplefinders.com/about/privacy",
       "official_domains": ["peoplefinders.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -787,8 +908,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.peoplefinders.com/about/privacy", "title": "PeopleFinders privacy", "publisher": "PeopleFinders", "license_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.peoplefinders.com/about/privacy", "title": "PeopleFinders privacy", "publisher": "PeopleFinders", "fact_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Peoplefinders LLC", "last_verified": "2026-07-12"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
       "notes": "Discovery uses the Brave index only; no removal form is automated in this lane."
@@ -799,6 +920,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://www.fastpeoplesearch.com/",
+      "human_action_url": "https://www.fastpeoplesearch.com/privacy",
       "official_domains": ["fastpeoplesearch.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -807,8 +929,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.fastpeoplesearch.com/privacy", "title": "FastPeopleSearch privacy", "publisher": "FastPeopleSearch", "license_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.fastpeoplesearch.com/privacy", "title": "FastPeopleSearch privacy", "publisher": "FastPeopleSearch", "fact_scope": "official_identity_and_privacy_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "parent", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -828,8 +950,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.usapeoplesearch.com/", "title": "USA People Search official site", "publisher": "USA People Search", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.usapeoplesearch.com/", "title": "USA People Search official site", "publisher": "USA People Search", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -849,8 +971,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.advancedbackgroundchecks.com/", "title": "Advanced Background Checks official site", "publisher": "Advanced Background Checks", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.advancedbackgroundchecks.com/", "title": "Advanced Background Checks official site", "publisher": "Advanced Background Checks", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -870,8 +992,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.peoplesearchnow.com/", "title": "People Search Now official site", "publisher": "People Search Now", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.peoplesearchnow.com/", "title": "People Search Now official site", "publisher": "People Search Now", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -891,8 +1013,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.usphonebook.com/", "title": "USPhoneBook official site", "publisher": "USPhoneBook", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.usphonebook.com/", "title": "USPhoneBook official site", "publisher": "USPhoneBook", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -912,8 +1034,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.searchpeoplefree.com/", "title": "SearchPeopleFree official site", "publisher": "SearchPeopleFree", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.searchpeoplefree.com/", "title": "SearchPeopleFree official site", "publisher": "SearchPeopleFree", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -933,8 +1055,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.smartbackgroundchecks.com/", "title": "SmartBackgroundChecks official site", "publisher": "SmartBackgroundChecks", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.smartbackgroundchecks.com/", "title": "SmartBackgroundChecks official site", "publisher": "SmartBackgroundChecks", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -954,8 +1076,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.cyberbackgroundchecks.com/", "title": "CyberBackgroundChecks official site", "publisher": "CyberBackgroundChecks", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.cyberbackgroundchecks.com/", "title": "CyberBackgroundChecks official site", "publisher": "CyberBackgroundChecks", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -975,8 +1097,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://www.fastbackgroundcheck.com/", "title": "FastBackgroundCheck official site", "publisher": "FastBackgroundCheck", "license_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.fastbackgroundcheck.com/", "title": "FastBackgroundCheck official site", "publisher": "FastBackgroundCheck", "fact_scope": "official_identity_url_fact_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Mississippi Tornado Alley LLC", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "mtalley_people_search", "parent_broker_id": "fastpeoplesearch", "role": "child", "coverage_policy": "official_registry_claims_one_site_request_applies_across_cluster"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -988,6 +1110,7 @@
       "category": "people_search",
       "jurisdictions": ["US"],
       "official_url": "https://thatsthem.com/",
+      "human_action_url": "https://thatsthem.com/optout",
       "official_domains": ["thatsthem.com"],
       "lane": "search_index",
       "required_fields": ["full_name", "city", "region"],
@@ -996,8 +1119,8 @@
       "human_only": false,
       "last_verified": "2026-07-12",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
-      "sources": [{"url": "https://thatsthem.com/optout", "title": "ThatsThem opt-out entry point", "publisher": "ThatsThem", "license_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://thatsthem.com/optout", "title": "ThatsThem opt-out entry point", "publisher": "ThatsThem", "fact_scope": "official_identity_and_request_url_facts_only", "last_verified": "2026-07-12"}],
       "registry_provenance": {"url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv", "publisher": "California Privacy Protection Agency", "entity": "Spokeo, Inc.", "last_verified": "2026-07-12"},
       "ownership_cluster": {"id": "spokeo_public_sites", "parent_broker_id": "spokeo", "role": "separate_optout_child", "coverage_policy": "official_registry_says_spokeo_optout_excludes_thatsthem"},
       "scan": {"supported": true, "automated_access_policy": "search_index_only_no_publisher_access", "terms_status": "publisher_not_accessed", "strategy": "brave_site_query_no_publisher_fetch", "query_fields": ["full_name", "also_known_as", "current_and_prior_locations", "current_and_prior_addresses", "emails", "phones"], "search_provider_host": "api.search.brave.com", "not_found_policy": "never_from_index_absence"},
@@ -1011,6 +1134,7 @@
         "US"
       ],
       "official_url": "https://www.spokeo.com/",
+      "human_action_url": "https://www.spokeo.com/optout",
       "official_domains": [
         "spokeo.com"
       ],
@@ -1029,27 +1153,27 @@
       "human_only": true,
       "last_verified": "2026-07-11",
       "freshness_days": 90,
-      "source_license": "official-facts-only-no-content-copy",
+      "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
         {
           "url": "https://www.spokeo.com/",
           "title": "Spokeo official site",
           "publisher": "Spokeo",
-          "license_scope": "official_identity_url_and_facts_only",
+          "fact_scope": "official_identity_url_and_facts_only",
           "last_verified": "2026-07-11"
         },
         {
           "url": "https://www.spokeo.com/optout",
           "title": "Spokeo official opt-out entry point",
           "publisher": "Spokeo",
-          "license_scope": "official_url_fact_only",
+          "fact_scope": "official_url_fact_only",
           "last_verified": "2026-07-11"
         },
         {
           "url": "https://www.spokeo.com/terms-of-use-consumer",
           "title": "Spokeo consumer terms of use",
           "publisher": "Spokeo",
-          "license_scope": "official_terms_facts_only",
+          "fact_scope": "official_terms_facts_only",
           "last_verified": "2026-07-11"
         }
       ],

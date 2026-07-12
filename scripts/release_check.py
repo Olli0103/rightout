@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -35,6 +36,16 @@ def release_files() -> list[Path]:
 
 def main() -> None:
     errors: list[str] = []
+    provenance_check = subprocess.run(
+        [sys.executable, "scripts/catalog_provenance.py", "--check"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if provenance_check.returncode != 0:
+        fail(errors, f"catalog provenance check failed: {provenance_check.stderr.strip()}")
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     package = read_json(ROOT / "package.json")
     package_lock = read_json(ROOT / "package-lock.json")
@@ -71,14 +82,15 @@ def main() -> None:
     }
     minimums = {
         "people_search": 22, "scan": 21, "email": 3, "browser_form": 1,
-        "direct_rescan": 1, "inbound_verification": 1, "eu_processes": 6, "eu_email": 2,
+        "direct_rescan": 1, "inbound_verification": 1, "eu_processes": 9, "eu_email": 2,
     }
     for capability, minimum in minimums.items():
         if parity_counts[capability] < minimum:
             fail(errors, f"minimum Unbroker parity capability missing: {capability}")
     for test_file in [
         "cases.test.mjs", "direct-rescan.test.mjs", "file-keyed-store.test.mjs", "form-runtime.test.mjs",
-        "listing-tokens.test.mjs", "verification-runtime.test.mjs",
+        "listing-tokens.test.mjs", "verification-runtime.test.mjs", "adversarial-input-property.test.mjs",
+        "controller-outcome-runtime.test.mjs", "submission-reconciliation-runtime.test.mjs", "dedupe-recovery-runtime.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -151,6 +163,8 @@ def main() -> None:
         private_dir = Path(tmp)
         profile_path = private_dir / "profile.json"
         smtp_path = private_dir / "smtp.json"
+        consent_recorded = datetime.now(timezone.utc) - timedelta(minutes=1)
+        consent_expires = consent_recorded + timedelta(days=364)
         profile_path.write_text(json.dumps({
             "fullName": "Release Fixture",
             "city": "Exampleville",
@@ -160,7 +174,8 @@ def main() -> None:
             "jurisdictions": ["US", "US-CA"],
             "consent": {
                 "authorized": True,
-                "recordedAt": "2026-07-12T08:00:00.000Z",
+                "recordedAt": consent_recorded.isoformat().replace("+00:00", "Z"),
+                "validUntil": consent_expires.isoformat().replace("+00:00", "Z"),
                 "scope": ["scan", "broker_removal"],
             },
         }), encoding="utf-8")
@@ -257,10 +272,12 @@ def main() -> None:
     tool = manifest.get("toolMetadata", {}).get("rightout_live_scan", {})
     removal_tool = manifest.get("toolMetadata", {}).get("rightout_submit_removal", {})
     purge_tool = manifest.get("toolMetadata", {}).get("rightout_purge_subject_state", {})
+    controller_outcome_tool = manifest.get("toolMetadata", {}).get("rightout_record_controller_outcome", {})
+    reconciliation_tool = manifest.get("toolMetadata", {}).get("rightout_reconcile_submission", {})
     expected_tools = [
         "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
         "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
-        "rightout_purge_subject_state",
+        "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
         "rightout_next_actions", "rightout_case_status", "rightout_due_rechecks",
     ]
     if manifest.get("contracts", {}).get("tools") != expected_tools:
@@ -271,6 +288,10 @@ def main() -> None:
         fail(errors, "removal tool must be optional and non-replay-safe")
     if purge_tool.get("optional") is not True or purge_tool.get("replaySafe") is not False:
         fail(errors, "subject purge tool must be optional and non-replay-safe")
+    if controller_outcome_tool.get("optional") is not True or controller_outcome_tool.get("replaySafe") is not False:
+        fail(errors, "controller outcome tool must be optional and non-replay-safe")
+    if reconciliation_tool.get("optional") is not True or reconciliation_tool.get("replaySafe") is not False:
+        fail(errors, "submission reconciliation tool must be optional and non-replay-safe")
     if set((purge_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey"}:
         fail(errors, "subject purge config signals are incomplete")
     secret_paths = {item.get("path") for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])}
@@ -484,12 +505,30 @@ def main() -> None:
         if required not in installer:
             fail(errors, f"installer concurrency invariant missing: {required}")
 
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow_paths = [ROOT / ".github/workflows/ci.yml", ROOT / ".github/workflows/release.yml"]
+    workflows = {path: path.read_text(encoding="utf-8") for path in workflow_paths}
+    workflow = workflows[workflow_paths[0]]
+    release_workflow = workflows[workflow_paths[1]]
     if "npm audit --omit=dev --audit-level=high" not in workflow:
         fail(errors, "CI must audit production dependencies at high severity")
-    action_uses = re.findall(r"uses:\s*([^\s#]+)", workflow)
-    if not action_uses or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in action_uses):
+    action_uses = [value for text in workflows.values() for value in re.findall(r"uses:\s*([^\s#]+)", text)]
+    external_uses = [value for value in action_uses if not value.startswith("./")]
+    local_uses = [value for value in action_uses if value.startswith("./")]
+    if (
+        not external_uses
+        or any(not re.fullmatch(r"[^@\s]+@[a-f0-9]{40}", value) for value in external_uses)
+        or any(not (ROOT / value.removeprefix("./")).is_file() for value in local_uses)
+    ):
         fail(errors, "CI actions must be pinned to full commit SHAs")
+    for invariant in [
+        "needs: [test-matrix, installer, openclaw-compatibility]",
+        "uses: ./.github/workflows/release.yml",
+    ]:
+        if invariant not in workflow:
+            fail(errors, f"tag release is not gated by the full CI matrix: {invariant}")
+    for invariant in ["workflow_call:", 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main', "actions/attest@"]:
+        if invariant not in release_workflow:
+            fail(errors, f"release workflow invariant missing: {invariant}")
 
     with tempfile.TemporaryDirectory(prefix="rightout-pack-content-check-") as tmp:
         proc = subprocess.run(

@@ -2,6 +2,17 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.6.0 - 2026-07-12
+
+- Added durable pre-write intent and `submission_uncertain`; possible SMTP/form effects never auto-retry.
+- Added separately approved, operator-reviewed `rightout_reconcile_submission` and `rightout_record_controller_outcome` workflows.
+- Closed the single-absence confirmation flaw: people-search confirmation now requires two time-separated direct absences, with the second after the durable recheck time.
+- Added finite consent expiry through required `consent.validUntil`, a 365-day maximum authorization horizon, and execute-time validation.
+- Persisted opaque listing handles in encrypted cases and added campaign resume/reconciliation summaries for OpenClaw Cron.
+- Expanded the clean-room catalog to 34 entries and nine current EU process targets, adding conservative human-portal classifications for Quantcast, Lotame/Epsilon, and ID5.
+- Added packaged isolated-installer staging, stable/beta OpenClaw compatibility jobs, Ubuntu/macOS and Node/Python CI coverage, adversarial property tests, catalog provenance digests, and tag-triggered Sigstore/GitHub build provenance.
+- Kept the honest breadth boundary: automated writes remain one US email, one US form, and two EU controller emails; CAPTCHA, identity, unclear forms, and portal/device context remain human work.
+
 ## 0.5.0 - 2026-07-12
 
 - Added two separately approved EU/EEA controller-email lanes: Adsquare with contact email/Mobile Advertising ID/country, and emetriq with contact email/country.

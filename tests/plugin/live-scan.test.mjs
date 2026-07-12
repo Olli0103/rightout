@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 import test from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +26,8 @@ const privateProfile = {
   country: "US",
   consent: {
     authorized: true,
-    recordedAt: "2026-07-12T08:00:00.000Z",
+    recordedAt: CONSENT_RECORDED_AT,
+    validUntil: CONSENT_VALID_UNTIL,
     scope: ["scan"],
   },
 };
@@ -159,6 +161,8 @@ test("input validation accepts only opaque refs and a private US profile", () =>
     { ...privateProfile.consent, authorized: false },
     { ...privateProfile.consent, scope: ["broker_removal"] },
     { ...privateProfile.consent, recordedAt: "2999-01-01T00:00:00.000Z" },
+    { ...privateProfile.consent, validUntil: "2000-01-01T00:00:00.000Z" },
+    { ...privateProfile.consent, validUntil: new Date(Date.parse(privateProfile.consent.recordedAt) + 366 * 24 * 60 * 60_000).toISOString() },
   ]) {
     assert.throws(
       () => validateLiveScanInput({ ...scanInput, subject: JSON.stringify({ ...privateProfile, consent }) }),
@@ -368,6 +372,8 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
     "rightout_poll_verification",
     "rightout_open_verification",
     "rightout_purge_subject_state",
+    "rightout_record_controller_outcome",
+    "rightout_reconcile_submission",
     "rightout_next_actions",
     "rightout_case_status",
     "rightout_due_rechecks",
@@ -379,7 +385,7 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
   assert.equal(manifest.toolMetadata.rightout_submit_removal.replaySafe, false);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.optional, true);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.replaySafe, false);
-  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state"]) {
+  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, false);
   }
@@ -458,7 +464,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       return value;
     },
   });
-  assert.equal(tools.length, 10);
+  assert.equal(tools.length, 12);
   assert.equal(tools[0].tool.name, "rightout_live_scan");
   assert.equal(tools[1].tool.name, "rightout_direct_rescan");
   assert.equal(tools[2].tool.name, "rightout_submit_removal");
@@ -467,6 +473,8 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
     "rightout_poll_verification",
     "rightout_open_verification",
     "rightout_purge_subject_state",
+    "rightout_record_controller_outcome",
+    "rightout_reconcile_submission",
     "rightout_next_actions",
     "rightout_case_status",
     "rightout_due_rechecks",
@@ -505,6 +513,8 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       "rightout_open_verification",
       "rightout_direct_rescan",
       "rightout_purge_subject_state",
+      "rightout_record_controller_outcome",
+      "rightout_reconcile_submission",
     ] } } },
     sourceConfig: {
       plugins: { entries: { rightout: { config: {

@@ -34,8 +34,10 @@ Email/form/verification implementations are independently catalog-locked. The br
 
 ## State and evidence
 
-The ledger supports `new`, `searching`, `inconclusive`, `not_found`, `found`, `indirect_exposure`, `action_selected`, `submitted`, `verification_pending`, `awaiting_processing`, `confirmed_removed`, `reappeared`, `human_task_queued`, and `blocked`.
+The ledger supports `new`, `searching`, `inconclusive`, `not_found`, `found`, `indirect_exposure`, `action_selected`, `submission_pending`, `submission_uncertain`, `submitted`, `verification_pending`, `awaiting_processing`, `identity_verification_required`, `partially_removed`, `request_rejected`, `confirmed_removed`, `reappeared`, `human_task_queued`, and `blocked`.
 
-Only trusted direct absence after a prior removal can produce `confirmed_removed`; the scope is the encrypted known listing set. Only trusted direct presence can turn it into `reappeared`. Brave observations never downgrade a confirmed state because search indexes can be stale.
+For people-search cases, only a second time-separated trusted direct absence after a prior removal and after the durable recheck time can produce `confirmed_removed`; the scope is the encrypted known listing set. A separately approved, operator-reviewed EU controller response can confirm only `controller_response_only`. Only trusted direct presence can turn a listing-set confirmation into `reappeared`. Brave observations never downgrade a confirmed state because search indexes can be stale.
+
+Every SMTP/form effect first commits an encrypted `submission_pending` intent. A possibly-effectful failure becomes `submission_uncertain`; the planner blocks new external writes until a separately approved human reconciliation records either `provider_write_not_started` or `provider_write_confirmed`. Opaque listing handles are retained in the encrypted case record so a later Cron turn can resume without raw URLs.
 
 The community plugin cannot use the bundled-only keyed-store or session-turn scheduler APIs. It uses only the public state-directory resolver with contained atomic encrypted files, and exposes deterministic replay-safe `rightout_due_rechecks` for official OpenClaw Cron. Cluster planning prefers an official parent request where registry evidence says one request covers related sites, while later verification remains per known site.

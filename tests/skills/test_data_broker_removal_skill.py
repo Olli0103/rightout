@@ -290,7 +290,7 @@ class ReportingAndStateTests(unittest.TestCase):
 class CatalogValidationTests(unittest.TestCase):
     def test_catalog_is_schema_v4_and_valid(self) -> None:
         catalog = load_catalog()
-        self.assertEqual(catalog["schema_version"], 4)
+        self.assertEqual(catalog["schema_version"], 5)
         self.assertEqual(rightout.validate_catalog_data(catalog), [])
 
     def test_email_removal_lane_is_catalog_locked_and_minimum_disclosure(self) -> None:
@@ -447,7 +447,7 @@ class InstallerTests(unittest.TestCase):
                 env_extra=env,
             )
             run(
-                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification","rightout_purge_subject_state"]', "--strict-json"],
+                [env["OPENCLAW_BIN"], "config", "set", "gateway.tools.deny", '["rightout_live_scan","rightout_direct_rescan","rightout_submit_removal","rightout_submit_form_removal","rightout_poll_verification","rightout_open_verification","rightout_purge_subject_state","rightout_record_controller_outcome","rightout_reconcile_submission"]', "--strict-json"],
                 env_extra=env,
             )
             validation = run([env["OPENCLAW_BIN"], "config", "validate"], env_extra=env)
@@ -498,7 +498,7 @@ class InstallerTests(unittest.TestCase):
             wrapper = tmp / "openclaw-fail-runtime-inspect"
             wrapper.write_text(
                 "#!/usr/bin/env bash\n"
-                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" ]]; then\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" && \"$OPENCLAW_STATE_DIR\" == \"$REAL_OPENCLAW_STATE_DIR\" ]]; then\n"
                 "  echo injected-runtime-inspection-failure >&2\n"
                 "  exit 70\n"
                 "fi\n"
@@ -510,6 +510,7 @@ class InstallerTests(unittest.TestCase):
                 **env,
                 "OPENCLAW_BIN": str(wrapper),
                 "REAL_OPENCLAW": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+                "REAL_OPENCLAW_STATE_DIR": env["OPENCLAW_STATE_DIR"],
             }
             failed = run([str(INSTALLER), "--force"], expect=70, env_extra=failed_env)
             self.assertIn("restoring the previous OpenClaw state", failed["stderr"])
@@ -539,7 +540,7 @@ class InstallerTests(unittest.TestCase):
                 "  printf '%s\\n' \"$FORGED_INSPECTION\"\n"
                 "  exit 0\n"
                 "fi\n"
-                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" ]]; then\n"
+                "if [[ \"$*\" == \"plugins inspect rightout --runtime --json\" && \"$OPENCLAW_STATE_DIR\" == \"$REAL_OPENCLAW_STATE_DIR\" ]]; then\n"
                 "  exit 70\n"
                 "fi\n"
                 "exec \"$REAL_OPENCLAW\" \"$@\"\n",
@@ -550,6 +551,7 @@ class InstallerTests(unittest.TestCase):
                 **env,
                 "OPENCLAW_BIN": str(wrapper),
                 "REAL_OPENCLAW": str(ROOT / "node_modules" / ".bin" / "openclaw"),
+                "REAL_OPENCLAW_STATE_DIR": env["OPENCLAW_STATE_DIR"],
                 "FORGED_INSPECTION": json.dumps({"install": {"installPath": str(forged_extension)}}),
             }
             run([str(INSTALLER)], expect=70, env_extra=failed_env)

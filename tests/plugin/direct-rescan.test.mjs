@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 import {
   __test,
@@ -18,7 +19,7 @@ const profilePayload = JSON.stringify({
   region: "CA",
   country: "US",
   contactEmail: "avery@example.invalid",
-  consent: { authorized: true, recordedAt: "2026-07-12T08:00:00.000Z", scope: ["scan"] },
+  consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["scan"] },
 });
 const input = { profileId, brokerId, listingHandle };
 const catalog = { brokers: [{
