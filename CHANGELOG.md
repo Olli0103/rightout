@@ -2,6 +2,18 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.4.0 - 2026-07-12
+
+- Added 22 clean-room people-search entries, 21 multi-vector Brave discovery lanes, ownership clusters, and deterministic parent-first planning.
+- Added durable PII-safe case tracking, next actions, status, due rechecks, and reappearance lifecycle.
+- Added a closed sandbox-browser form lane, read-only IMAP verification, separate confirmation-link opening, and restart-safe submission dedupe.
+- Added encrypted exact-listing handles and separately approved direct rechecks; confirmation is limited to the known listing set and requires prior removal.
+- Bound verification mail to a prior submitted case, recipient, post-submission time, and aligned DKIM; removed password-based Microsoft 365 IMAP.
+- Enforced discovery before every removal, moved all SecretRef/state reads after approval, hardened cross-process lock ownership, and persisted TTL pruning.
+- Added a separately approved local subject-state purge and expanded native approval/security audit/config contracts to ten tools total.
+- Added a complete 47-component production SBOM and npm shrinkwrap for reproducible dependency resolution.
+- Added the normative Unbroker parity contract, executable parity release gates, updated OpenClaw/installer documentation, and adversarial tests.
+
 ## 0.3.0 - 2026-07-12
 
 ### Live removal

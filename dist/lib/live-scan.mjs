@@ -6,6 +6,10 @@ const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const BRAVE_TERMS_VERSION = "2026-02-11";
 const SAFE_SHA256 = /^[a-f0-9]{64}$/;
+const SAFE_EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
+const SAFE_PHONE = /^\+?[0-9][0-9 .()-]{5,30}$/;
+const SAFE_JURISDICTION = /^(?:EU|EEA|[A-Z]{2}(?:-[A-Z0-9]{2,3})?)$/;
+const MAX_SEARCH_VECTORS = 12;
 function cleanInput(value, label, min, max) {
     if (typeof value !== "string") {
         throw new Error(`invalid_${label}`);
@@ -49,7 +53,7 @@ function cleanBrokerIds(values) {
     return ids;
 }
 function cleanAuthorizedBrokerIds(values) {
-    if (!Array.isArray(values) || values.length < 1 || values.length > 20) {
+    if (!Array.isArray(values) || values.length < 1 || values.length > 50) {
         throw new Error("rightout_operator_attestation_required");
     }
     const ids = [...new Set(values)];
@@ -108,7 +112,7 @@ function parseSubjectProfile(value) {
     if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
         throw new Error("profile_invalid");
     }
-    const allowedKeys = new Set(["fullName", "city", "region", "country", "contactEmail", "jurisdictions", "consent"]);
+    const allowedKeys = new Set(["fullName", "city", "region", "country", "contactEmail", "jurisdictions", "alsoKnownAs", "emails", "phones", "priorLocations", "currentAddress", "priorAddresses", "consent"]);
     if (Object.keys(profile).some((key) => !allowedKeys.has(key))) {
         throw new Error("profile_invalid");
     }
@@ -119,13 +123,163 @@ function parseSubjectProfile(value) {
     if (country !== "US") {
         throw new Error("unsupported_country");
     }
+    const alsoKnownAs = cleanOptionalStrings(profile.alsoKnownAs, "alias", 2, 120, 5);
+    const contactEmail = profile.contactEmail === undefined ? undefined : cleanInput(profile.contactEmail, "contact_email", 3, 254).toLowerCase();
+    if (contactEmail !== undefined && !SAFE_EMAIL.test(contactEmail))
+        throw new Error("invalid_contact_email");
+    const emails = cleanOptionalStrings(profile.emails, "email", 3, 254, 5).map((email) => {
+        if (!SAFE_EMAIL.test(email))
+            throw new Error("invalid_email");
+        return email.toLowerCase();
+    });
+    const phones = cleanOptionalStrings(profile.phones, "phone", 7, 32, 5).map((phone) => {
+        if (!SAFE_PHONE.test(phone))
+            throw new Error("invalid_phone");
+        return phone;
+    });
+    const priorLocations = cleanPriorLocations(profile.priorLocations);
+    const currentAddress = profile.currentAddress === undefined ? undefined : cleanAddress(profile.currentAddress);
+    const priorAddresses = cleanPriorAddresses(profile.priorAddresses);
+    const jurisdictions = cleanOptionalJurisdictions(profile.jurisdictions);
     const consent = cleanScanConsent(profile.consent);
-    return { fullName, city, region, country, consent };
+    return {
+        fullName,
+        city,
+        region,
+        country,
+        ...(contactEmail ? { contactEmail } : {}),
+        ...(jurisdictions.length ? { jurisdictions } : {}),
+        ...(alsoKnownAs.length ? { alsoKnownAs } : {}),
+        ...(emails.length ? { emails } : {}),
+        ...(phones.length ? { phones } : {}),
+        ...(priorLocations.length ? { priorLocations } : {}),
+        ...(currentAddress ? { currentAddress } : {}),
+        ...(priorAddresses.length ? { priorAddresses } : {}),
+        consent,
+    };
+}
+function cleanAddress(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("profile_invalid");
+    if (Object.keys(value).some((key) => !["line1", "line2", "city", "region", "postal", "country"].includes(key)))
+        throw new Error("profile_invalid");
+    const line1 = cleanInput(value.line1, "address_line1", 3, 120);
+    const line2 = value.line2 === undefined ? undefined : cleanInput(value.line2, "address_line2", 1, 80);
+    const city = cleanInput(value.city, "address_city", 1, 80);
+    const region = cleanInput(value.region, "address_region", 2, 40);
+    const postal = cleanInput(value.postal, "address_postal", 3, 16);
+    const country = cleanInput(value.country ?? "US", "address_country", 2, 2).toUpperCase();
+    if (country !== "US")
+        throw new Error("unsupported_country");
+    return { line1, ...(line2 ? { line2 } : {}), city, region, postal, country };
+}
+function cleanPriorAddresses(values) {
+    if (values === undefined)
+        return [];
+    if (!Array.isArray(values) || values.length > 5)
+        throw new Error("profile_invalid");
+    const out = values.map(cleanAddress);
+    const keys = out.map((value) => JSON.stringify(value));
+    if (new Set(keys).size !== keys.length)
+        throw new Error("profile_invalid");
+    return out;
+}
+function cleanOptionalJurisdictions(values) {
+    if (values === undefined)
+        return [];
+    if (!Array.isArray(values) || values.length < 1 || values.length > 12)
+        throw new Error("profile_invalid");
+    const out = [...new Set(values.map((value) => typeof value === "string" ? value.trim().toUpperCase() : ""))];
+    if (out.length !== values.length || !out.every((value) => SAFE_JURISDICTION.test(value)))
+        throw new Error("profile_invalid");
+    return out.sort();
+}
+function cleanOptionalStrings(values, label, min, max, maxItems) {
+    if (values === undefined)
+        return [];
+    if (!Array.isArray(values) || values.length > maxItems)
+        throw new Error("profile_invalid");
+    const cleaned = values.map((value) => cleanInput(value, label, min, max));
+    const deduped = [...new Set(cleaned.map((value) => value.toLowerCase()))];
+    if (deduped.length !== cleaned.length)
+        throw new Error("profile_invalid");
+    return cleaned;
+}
+function cleanPriorLocations(values) {
+    if (values === undefined)
+        return [];
+    if (!Array.isArray(values) || values.length > 5)
+        throw new Error("profile_invalid");
+    const out = values.map((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new Error("profile_invalid");
+        if (Object.keys(value).some((key) => !["city", "region", "country"].includes(key)))
+            throw new Error("profile_invalid");
+        const city = cleanInput(value.city, "prior_city", 1, 80);
+        const region = cleanInput(value.region, "prior_region", 2, 40);
+        const country = cleanInput(value.country ?? "US", "prior_country", 2, 2).toUpperCase();
+        if (country !== "US")
+            throw new Error("unsupported_country");
+        return { city, region, country };
+    });
+    const keys = out.map((value) => JSON.stringify([value.city.toLowerCase(), value.region.toLowerCase(), value.country]));
+    if (new Set(keys).size !== keys.length)
+        throw new Error("profile_invalid");
+    return out;
 }
 function normalizedSubjectDigest(subject) {
     return createHash("sha256")
-        .update(JSON.stringify([subject.fullName, subject.city, subject.region, subject.country, subject.consent]), "utf8")
+        .update(JSON.stringify([
+        subject.fullName,
+        subject.city,
+        subject.region,
+        subject.country,
+        subject.contactEmail ?? null,
+        subject.jurisdictions ?? [],
+        subject.alsoKnownAs ?? [],
+        subject.emails ?? [],
+        subject.phones ?? [],
+        subject.priorLocations ?? [],
+        subject.currentAddress ?? null,
+        subject.priorAddresses ?? [],
+        subject.consent,
+    ]), "utf8")
         .digest("hex");
+}
+export function buildSearchVectors(subject, officialDomain) {
+    const names = [subject.fullName, ...(subject.alsoKnownAs ?? [])];
+    const locations = [
+        { city: subject.city, region: subject.region, country: subject.country },
+        ...(subject.priorLocations ?? []),
+        ...[subject.currentAddress, ...(subject.priorAddresses ?? [])]
+            .filter(Boolean)
+            .map((address) => ({ city: address.city, region: address.region, country: address.country })),
+    ];
+    const vectors = [];
+    for (const name of names) {
+        for (const location of locations) {
+            vectors.push({ kind: "name_location", query: `site:${officialDomain} "${name}" "${location.city}" "${location.region}"` });
+        }
+    }
+    for (const email of [subject.contactEmail, ...(subject.emails ?? [])].filter(Boolean)) {
+        vectors.push({ kind: "email", query: `site:${officialDomain} "${email}"` });
+    }
+    for (const phone of subject.phones ?? [])
+        vectors.push({ kind: "phone", query: `site:${officialDomain} "${phone}"` });
+    for (const address of [subject.currentAddress, ...(subject.priorAddresses ?? [])].filter(Boolean)) {
+        vectors.push({ kind: "address", query: `site:${officialDomain} "${address.line1}" "${address.city}" "${address.region}" "${address.postal}"` });
+    }
+    const unique = [];
+    const seen = new Set();
+    for (const vector of vectors) {
+        if (seen.has(vector.query))
+            continue;
+        seen.add(vector.query);
+        unique.push(vector);
+        if (unique.length >= MAX_SEARCH_VECTORS)
+            break;
+    }
+    return unique;
 }
 export function scanProfileDigest(profilePayload) {
     return normalizedSubjectDigest(parseSubjectProfile(profilePayload));
@@ -147,11 +301,12 @@ function hostAllowed(host, domains) {
     const normalized = normalizeHost(host);
     return domains.some((domain) => normalized === domain || normalized.endsWith(`.${domain}`));
 }
-function hasIndexCandidate(payload, officialDomains) {
+function indexCandidateUrls(payload, officialDomains) {
     const results = payload?.web?.results;
     if (!Array.isArray(results)) {
-        return false;
+        return [];
     }
+    const urls = [];
     for (const item of results) {
         if (typeof item?.url !== "string" || item.url.length > 2_048) {
             continue;
@@ -164,13 +319,18 @@ function hasIndexCandidate(payload, officialDomains) {
                 || !hostAllowed(parsed.hostname, officialDomains)) {
                 continue;
             }
-            return true;
+            urls.push(parsed.toString());
+            if (urls.length >= 10)
+                break;
         }
         catch {
             continue;
         }
     }
-    return false;
+    return [...new Set(urls)];
+}
+function hasIndexCandidate(payload, officialDomains) {
+    return indexCandidateUrls(payload, officialDomains).length > 0;
 }
 async function readBoundedText(response, maxBytes = MAX_RESPONSE_BYTES, signal) {
     throwIfAborted(signal);
@@ -313,9 +473,9 @@ export function validateOperatorAttestations(input, value) {
 }
 export function approvalDescription(input) {
     const validated = validatePublicToolInput(input);
-    return `P ${validated.profileId}; B ${validated.brokerIds.join(",")}. Brave index (terms ${BRAVE_TERMS_VERSION}; consent+duties attested; logs <=90d/ZDR). Sends name+city+region+country. No broker request/write/email or RightOut storage.`;
+    return `P ${validated.profileId}; B ${validated.brokerIds.join(",")}. Brave index (terms ${BRAVE_TERMS_VERSION}; consent+duties; logs <=90d/ZDR). Configured names/aliases/addresses/emails/phones. No broker request/email/write.`;
 }
-export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal, operatorAttestations }) {
+export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal, operatorAttestations, storeCandidate = /** @type {undefined | ((candidate: any) => Promise<string>)} */ (undefined), }) {
     throwIfAborted(signal);
     const validated = validateLiveScanInput(input);
     const attestations = validateOperatorAttestations(validated, operatorAttestations);
@@ -339,30 +499,58 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
     for (const broker of selected) {
         throwIfAborted(signal);
         const officialDomains = cleanOfficialDomains(broker.official_domains);
-        const query = `site:${officialDomains[0]} "${subject.fullName}" "${subject.city}" "${subject.region}"`;
-        try {
-            const payload = await guardedJsonPost(guardedFetch, BRAVE_ENDPOINT, { q: query, country: "US", search_lang: "en", safesearch: "strict", count: 10 }, apiKey, signal);
-            if (hasIndexCandidate(payload, officialDomains)) {
-                results.push({
-                    broker_id: broker.id,
-                    state: "indirect_exposure",
-                    proof_references: [],
-                    reason: "search_index_candidate_observed",
-                });
+        const vectors = buildSearchVectors(subject, officialDomains[0]);
+        let candidate = false;
+        let candidateUrls = [];
+        let attempted = 0;
+        let failure;
+        for (const vector of vectors) {
+            try {
+                const payload = await guardedJsonPost(guardedFetch, BRAVE_ENDPOINT, { q: vector.query, country: "US", search_lang: "en", safesearch: "strict", count: 10 }, apiKey, signal);
+                attempted += 1;
+                const observedUrls = indexCandidateUrls(payload, officialDomains);
+                if (observedUrls.length) {
+                    candidate = true;
+                    candidateUrls = [...new Set([...candidateUrls, ...observedUrls])].slice(0, 10);
+                }
             }
-            else {
-                results.push({
-                    broker_id: broker.id,
-                    state: "inconclusive",
-                    proof_references: [],
-                    reason: "no_index_candidates_not_proof_of_absence",
-                });
+            catch (error) {
+                throwIfAborted(signal);
+                attempted += 1;
+                failure = safeFailureReason(error);
+                if (failure === "provider_auth_failed" || failure === "provider_rate_limited")
+                    break;
             }
         }
-        catch (error) {
-            throwIfAborted(signal);
-            results.push({ broker_id: broker.id, state: "inconclusive", proof_references: [], reason: safeFailureReason(error) });
+        let listingHandle;
+        if (candidate && typeof storeCandidate === "function") {
+            listingHandle = await storeCandidate({
+                profileId: validated.profileId,
+                brokerId: broker.id,
+                urls: candidateUrls,
+                officialDomains,
+                observedAt: new Date().toISOString(),
+            });
+            if (typeof listingHandle !== "string" || !/^listing_[a-f0-9]{24}$/.test(listingHandle)) {
+                throw new Error("candidate_store_failed");
+            }
         }
+        results.push(candidate ? {
+            broker_id: broker.id,
+            state: "indirect_exposure",
+            proof_references: [],
+            reason: "search_index_candidate_observed",
+            vectors_attempted: attempted,
+            vector_types: [...new Set(vectors.slice(0, attempted).map((vector) => vector.kind))],
+            ...(listingHandle ? { listing_handle: listingHandle } : {}),
+        } : {
+            broker_id: broker.id,
+            state: "inconclusive",
+            proof_references: [],
+            reason: failure ?? "no_index_candidates_not_proof_of_absence",
+            vectors_attempted: attempted,
+            vector_types: [...new Set(vectors.slice(0, attempted).map((vector) => vector.kind))],
+        });
     }
     return {
         report_version: 3,
@@ -380,7 +568,7 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
             raw_provider_results_included: false,
         },
         disclosures: {
-            to_search_provider: ["full_name", "city", "region", "country"],
+            to_search_provider: ["full_name", "aliases_if_configured", "current_and_prior_locations_and_addresses", "emails_if_configured", "phones_if_configured"],
             to_broker_pages: [],
             values_in_report: false,
         },
@@ -405,8 +593,9 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
             emails: 0,
             provider_writes: 0,
             publisher_requests: 0,
-            local_pii_storage: 0,
-            search_result_storage: 0,
+            local_plaintext_pii_storage: 0,
+            raw_search_result_storage: 0,
+            encrypted_candidate_url_tokens_created: results.filter((item) => "listing_handle" in item).length,
             raw_pii_in_report: false,
             raw_response_content_in_report: false,
             candidate_urls_in_report: false,
@@ -415,6 +604,7 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
 }
 export const __test = {
     hasIndexCandidate,
+    indexCandidateUrls,
     cleanOfficialDomains,
     readBoundedText,
     throwIfAborted,

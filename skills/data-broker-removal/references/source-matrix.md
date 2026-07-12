@@ -41,7 +41,7 @@ These remain human/reference-only.
 ## Product architecture and UX benchmark
 
 - `https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-unbroker`
-- `https://github.com/NousResearch/hermes-agent`, snapshot `7c14d2a046217c5ccbaa06a9449b0fcf329221f9`
+- `https://github.com/NousResearch/hermes-agent`, snapshot `2d9fd870b6d105e3b367aaa97477931b6671192e`
 - `https://incogni.com/features/remove-my-information-from-internet`
 - `https://support.incogni.com/hc/en-us/articles/4904721869458-What-do-the-data-removal-statuses-on-my-dashboard-mean`
 - `https://www.optery.com/`

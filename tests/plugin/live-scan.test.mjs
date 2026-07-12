@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   __test,
@@ -9,6 +12,11 @@ import {
   scanProfileDigest,
   validateLiveScanInput,
 } from "../../lib/live-scan.mjs";
+
+function fakeRuntime() {
+  const stateDir = mkdtempSync(join(tmpdir(), "rightout-live-runtime-"));
+  return { state: { resolveStateDir() { return stateDir; } } };
+}
 
 const privateProfile = {
   fullName: "Avery Example",
@@ -87,11 +95,11 @@ test("approval text names scope without exposing PII values", () => {
   const text = approvalDescription(toolInput);
   assert.match(text, new RegExp(toolInput.profileId));
   assert.match(text, /truepeoplesearch/);
-  assert.match(text, /name\+city\+region\+country/);
+  assert.match(text, /names\/aliases\/addresses\/emails\/phones/);
   assert.match(text, /logs <=90d\/ZDR/);
   assert.match(text, /terms 2026-02-11/);
-  assert.match(text, /consent\+duties attested/);
-  assert.match(text, /No broker request\/write\/email or RightOut storage/);
+  assert.match(text, /consent\+duties/);
+  assert.match(text, /No broker request\/email\/write/);
   assert.doesNotMatch(text, /Avery|Exampleville|CA/);
   assert.ok(text.length <= 256);
   const maximumScopeText = approvalDescription({
@@ -99,6 +107,36 @@ test("approval text names scope without exposing PII values", () => {
     brokerIds: ["a".repeat(24), "b".repeat(24)],
   });
   assert.ok(maximumScopeText.length <= 256, maximumScopeText);
+});
+
+test("configured aliases, prior locations, emails, and phones become bounded Brave vectors only", async () => {
+  const extended = {
+    ...privateProfile,
+    alsoKnownAs: ["Avery Prior"],
+    priorLocations: [{ city: "Oldtown", region: "WA", country: "US" }],
+    emails: ["avery.old@example.invalid"],
+    phones: ["+1 202 555 0100"],
+  };
+  const extendedPayload = JSON.stringify(extended);
+  const extendedInput = { ...toolInput, subject: extendedPayload };
+  const extendedAttestations = {
+    ...operatorAttestations,
+    authorizedProfileDigests: { [toolInput.profileId]: scanProfileDigest(extendedPayload) },
+  };
+  const guardedFetch = mockGuardedFetch(Array.from({ length: 6 }, () => ({
+    response: response(JSON.stringify({ web: { results: [] } }), { headers: { "content-type": "application/json" } }),
+  })));
+  const report = await runLiveScan({ input: extendedInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations: extendedAttestations });
+  assert.equal(guardedFetch.calls.length, 6);
+  assert.equal(report.results[0].vectors_attempted, 6);
+  assert.deepEqual(report.results[0].vector_types, ["name_location", "email", "phone"]);
+  const serialized = JSON.stringify(report);
+  for (const secret of ["Avery Prior", "Oldtown", "avery.old@example.invalid", "+1 202 555 0100"]) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
+  assert.deepEqual(report.disclosures.to_search_provider, [
+    "full_name", "aliases_if_configured", "current_and_prior_locations_and_addresses", "emails_if_configured", "phones_if_configured",
+  ]);
 });
 
 test("input validation accepts only opaque refs and a private US profile", () => {
@@ -172,12 +210,52 @@ test("same-domain Brave result yields only an indirect signal and no publisher r
     emails: 0,
     provider_writes: 0,
     publisher_requests: 0,
-    local_pii_storage: 0,
-    search_result_storage: 0,
+    local_plaintext_pii_storage: 0,
+    raw_search_result_storage: 0,
+    encrypted_candidate_url_tokens_created: 0,
     raw_pii_in_report: false,
     raw_response_content_in_report: false,
     candidate_urls_in_report: false,
   });
+});
+
+test("candidate URLs are passed only to the host vault and represented by an opaque handle", async () => {
+  const url = "https://www.truepeoplesearch.com/find/person/private-record";
+  const guardedFetch = mockGuardedFetch([{
+    response: response(JSON.stringify({ web: { results: [{ url }] } }), { headers: { "content-type": "application/json" } }),
+  }]);
+  let stored;
+  const report = await runLiveScan({
+    input: scanInput, catalog, apiKey: "dummy-test-key", guardedFetch, operatorAttestations,
+    async storeCandidate(value) { stored = value; return "listing_1234567890abcdef12345678"; },
+  });
+  assert.deepEqual(stored.urls, [url]);
+  assert.equal(report.results[0].listing_handle, "listing_1234567890abcdef12345678");
+  assert.equal(report.invariants.encrypted_candidate_url_tokens_created, 1);
+  assert.equal(JSON.stringify(report).includes("private-record"), false);
+  assert.equal(JSON.stringify(report).includes("https://"), false);
+});
+
+test("all configured vectors are evaluated and distinct candidate URLs share one encrypted handle", async () => {
+  const value = { ...privateProfile, emails: ["avery.old@example.invalid"] };
+  const payload = JSON.stringify(value);
+  const guardedFetch = mockGuardedFetch([
+    { response: response(JSON.stringify({ web: { results: [{ url: "https://www.truepeoplesearch.com/a/record-one" }] } })) },
+    { response: response(JSON.stringify({ web: { results: [{ url: "https://www.truepeoplesearch.com/b/record-two" }] } })) },
+  ]);
+  let stored;
+  const report = await runLiveScan({
+    input: { ...toolInput, subject: payload }, catalog, apiKey: "dummy-test-key", guardedFetch,
+    operatorAttestations: { ...operatorAttestations, authorizedProfileDigests: { [toolInput.profileId]: scanProfileDigest(payload) } },
+    async storeCandidate(candidate) { stored = candidate; return "listing_1234567890abcdef12345678"; },
+  });
+  assert.equal(guardedFetch.calls.length, 2);
+  assert.deepEqual(stored.urls, [
+    "https://www.truepeoplesearch.com/a/record-one",
+    "https://www.truepeoplesearch.com/b/record-two",
+  ]);
+  assert.equal(JSON.stringify(report).includes("record-one"), false);
+  assert.equal(JSON.stringify(report).includes("record-two"), false);
 });
 
 test("cross-domain candidates are discarded without fetching", async () => {
@@ -280,12 +358,33 @@ test("response reader enforces declared and streamed byte limits", async () => {
 
 test("plugin manifest declares separate optional non-replay-safe scan and removal tools", async () => {
   const manifest = JSON.parse(await readFile(new URL("../../openclaw.plugin.json", import.meta.url), "utf8"));
-  assert.deepEqual(manifest.contracts.tools, ["rightout_live_scan", "rightout_submit_removal"]);
+  assert.deepEqual(manifest.contracts.tools, [
+    "rightout_live_scan",
+    "rightout_direct_rescan",
+    "rightout_submit_removal",
+    "rightout_submit_form_removal",
+    "rightout_poll_verification",
+    "rightout_open_verification",
+    "rightout_purge_subject_state",
+    "rightout_next_actions",
+    "rightout_case_status",
+    "rightout_due_rechecks",
+  ]);
   assert.deepEqual(manifest.activation, { onStartup: false });
   assert.equal(manifest.toolMetadata.rightout_live_scan.optional, true);
   assert.equal(manifest.toolMetadata.rightout_live_scan.replaySafe, false);
   assert.equal(manifest.toolMetadata.rightout_submit_removal.optional, true);
   assert.equal(manifest.toolMetadata.rightout_submit_removal.replaySafe, false);
+  assert.equal(manifest.toolMetadata.rightout_submit_form_removal.optional, true);
+  assert.equal(manifest.toolMetadata.rightout_submit_form_removal.replaySafe, false);
+  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state"]) {
+    assert.equal(manifest.toolMetadata[name].optional, true);
+    assert.equal(manifest.toolMetadata[name].replaySafe, false);
+  }
+  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_due_rechecks"]) {
+    assert.equal(manifest.toolMetadata[name].optional, true);
+    assert.equal(manifest.toolMetadata[name].replaySafe, true);
+  }
   const secretPaths = manifest.configContracts.secretInputs.paths.map((item) => item.path);
   assert.deepEqual(secretPaths, [
     "braveApiKey",
@@ -293,10 +392,15 @@ test("plugin manifest declares separate optional non-replay-safe scan and remova
     "smtpTransport.username",
     "smtpTransport.password",
     "smtpTransport.fromAddress",
+    "imapTransport.username",
+    "imapTransport.password",
+    "imapTransport.address",
+    "stateEncryptionKey",
   ]);
   assert.ok(manifest.toolMetadata.rightout_live_scan.configSignals[0].required.includes("operatorAttestations"));
   assert.deepEqual(manifest.toolMetadata.rightout_submit_removal.configSignals[0].required, [
     "smtpTransport",
+    "stateEncryptionKey",
     "profiles",
     "removalAttestations",
   ]);
@@ -323,16 +427,21 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   const tools = [];
   let auditCollector;
   const configuredPluginConfig = {
+    stateEncryptionKey: "dummy-state-key-with-more-than-32-characters",
     braveApiKey: "dummy-test-key",
     profiles: { [toolInput.profileId]: { payload: profilePayload } },
     operatorAttestations: structuredClone(operatorAttestations),
   };
   plugin.register({
+    runtime: fakeRuntime(),
     on(name, handler) {
       hooks.set(name, handler);
     },
     registerTool(tool, options) {
-      tools.push({ tool, options });
+      const resolved = typeof tool === "function"
+        ? tool({ browser: { sandboxBridgeUrl: "http://127.0.0.1:3000/browser" } })
+        : tool;
+      tools.push({ tool: resolved, options });
     },
     registerSecurityAuditCollector(collector) {
       auditCollector = collector;
@@ -342,9 +451,19 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       return value;
     },
   });
-  assert.equal(tools.length, 2);
+  assert.equal(tools.length, 10);
   assert.equal(tools[0].tool.name, "rightout_live_scan");
-  assert.equal(tools[1].tool.name, "rightout_submit_removal");
+  assert.equal(tools[1].tool.name, "rightout_direct_rescan");
+  assert.equal(tools[2].tool.name, "rightout_submit_removal");
+  assert.deepEqual(tools.slice(3).map(({ tool }) => tool.name), [
+    "rightout_submit_form_removal",
+    "rightout_poll_verification",
+    "rightout_open_verification",
+    "rightout_purge_subject_state",
+    "rightout_next_actions",
+    "rightout_case_status",
+    "rightout_due_rechecks",
+  ]);
   assert.deepEqual(tools[0].options, { optional: true });
   const decision = await hooks.get("before_tool_call")({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-approved" });
   assert.deepEqual(decision.requireApproval.allowedDecisions, ["allow-once", "deny"]);
@@ -368,13 +487,22 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       } } } },
     },
   });
-  assert.deepEqual(unsafe.map((item) => item.severity), ["critical", "critical", "critical", "warn"]);
+  assert.deepEqual(unsafe.map((item) => item.severity), ["critical", "critical", "critical", "critical", "warn"]);
 
   const safe = await auditCollector({
-    config: { gateway: { tools: { deny: ["rightout_live_scan", "rightout_submit_removal"] } } },
+    config: { gateway: { tools: { deny: [
+      "rightout_live_scan",
+      "rightout_submit_removal",
+      "rightout_submit_form_removal",
+      "rightout_poll_verification",
+      "rightout_open_verification",
+      "rightout_direct_rescan",
+      "rightout_purge_subject_state",
+    ] } } },
     sourceConfig: {
       plugins: { entries: { rightout: { config: {
         braveApiKey: { source: "env", provider: "default", id: "RIGHTOUT_BRAVE_KEY" },
+        stateEncryptionKey: { source: "env", provider: "default", id: "RIGHTOUT_STATE_KEY" },
         profiles: { [toolInput.profileId]: { payload: { source: "file", provider: "profiles", id: "/subject" } } },
         operatorAttestations: structuredClone(operatorAttestations),
       } } } },
@@ -429,11 +557,13 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
 
   let unattestedHook;
   plugin.register({
+    runtime: fakeRuntime(),
     on(_name, handler) { unattestedHook = handler; },
     registerTool() {},
     registerSecurityAuditCollector() {},
     pluginConfig: {
       braveApiKey: "dummy-test-key",
+      stateEncryptionKey: "dummy-state-key-with-more-than-32-characters",
       profiles: { [toolInput.profileId]: { payload: JSON.stringify(privateProfile) } },
     },
     resolvePath(value) { return value; },
@@ -442,8 +572,25 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   assert.equal(unattested.block, true);
   assert.match(unattested.blockReason, /unattested/);
 
+  let missingStateHook;
+  plugin.register({
+    runtime: fakeRuntime(),
+    on(_name, handler) { missingStateHook = handler; },
+    registerTool() {}, registerSecurityAuditCollector() {},
+    pluginConfig: {
+      braveApiKey: "dummy-test-key",
+      profiles: { [toolInput.profileId]: { payload: profilePayload } },
+      operatorAttestations: structuredClone(operatorAttestations),
+    },
+    resolvePath(value) { return value; },
+  });
+  const missingState = await missingStateHook({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-missing-state" });
+  assert.ok(missingState.requireApproval, "state encryption secret must not be read before approval");
+  missingState.requireApproval.onResolution("allow-once");
+
   let unconfiguredTool;
   plugin.register({
+    runtime: fakeRuntime(),
     on() {},
     registerTool(tool) { if (tool.name === "rightout_live_scan") unconfiguredTool = tool; },
     registerSecurityAuditCollector() {},

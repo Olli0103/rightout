@@ -1,22 +1,9 @@
 # RightOut OpenClaw skill
 
-Version `0.3.0`. This skill ships inside the RightOut plugin.
+Version `0.4.0`. This skill ships inside the RightOut plugin.
 
-Live work uses two optional tools with separate native OpenClaw approvals:
+The plugin provides ten tools: approval-gated Brave discovery, exact-URL direct recheck, email and sandbox-browser removal, inbox polling, confirmation-link opening, local subject-state purge, plus read-only next-action, status, and due-recheck tools. Public arguments contain opaque references only; profiles, provider credentials, encryption keys, consent, and operator attestations remain SecretRef-backed.
 
-- `rightout_live_scan`: Brave index-only discovery for supported brokers;
-- `rightout_submit_removal`: one catalog-locked BeenVerified deletion/opt-out email for an attested `US-CA` profile.
+RightOut has durable PII-safe case tracking and never equates outbound acceptance, a form transition, or search-index absence with removal. `confirmed_removed` requires a prior removal and trusted direct absence across the encrypted known listing set; new/unindexed listings remain a stated coverage gap.
 
-Both accept opaque references only. Profiles, consent, provider credentials, and operator attestations stay in SecretRef-backed plugin config. A successful email result is only `submitted`; no current live path emits `confirmed_removed`.
-
-The Python runner is an offline dummy validation harness:
-
-```bash
-python3 scripts/validate_data_broker_removal.py --skill-dir .
-python3 scripts/data_broker_removal.py scan-only-dummy --workdir .tmp/rightout-scan-only
-python3 scripts/data_broker_removal.py e2e-dummy --workdir .tmp/rightout-e2e
-```
-
-Report v4 separates catalog coverage, live semantics, and synthetic state-machine coverage. `fixture_only` results are never real-person evidence.
-
-Catalog records are clean-room facts from official sources. Hermes Unbroker and commercial products are architecture/UX benchmarks only.
+The Python runner is an offline dummy validation harness. `fixture_only` results are never real-person evidence. Catalog records are clean-room facts from official sources; Hermes Unbroker and commercial products are product benchmarks only.

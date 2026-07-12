@@ -1,71 +1,41 @@
 # Architecture
 
-## Runtime
-
 ```text
-operator SecretRefs                         clean-room catalog schema v3
-  profile + consent                          scan policy + removal policy
-  Brave key                                  official recipient + fields
-  SMTP identity/credential                   jurisdiction + provenance
-          |                                             |
-          +---------------- OpenClaw plugin ------------+
-                               |
-            +------------------+------------------+
-            |                                     |
- rightout_live_scan                    rightout_submit_removal
- optional, replaySafe=false             optional, replaySafe=false
- opaque profile + broker IDs            opaque profile/broker + fixed kind
-            |                                     |
- separate before_tool_call approval     separate before_tool_call approval
-            |                                     |
- Brave guarded HTTPS POST               pinned SMTP TLS endpoint
-            |                                     |
- indirect/inconclusive report           submitted-only report
+opaque tool input
+      |
+before_tool_call: catalog scope + policy snapshot + native allow-once
+      |
+SecretRef resolution and post-approval digest/preflight checks
+      |
+      +-- Brave POST discovery ----------------> indirect signal
+      |       +-- exact official URL -> AES-GCM opaque listing handle
+      |
+      +-- encrypted exact URL direct read -----> present / absent-known-set / inconclusive
+      +-- pinned SMTP email -------------------> submitted
+      +-- sandbox browser recipe --------------> verification_pending / human task
+      +-- read-only pinned IMAP ----------------> opaque verification handle
+      +-- domain-bound confirmation GET --------> awaiting_processing
+      |
+durable encrypted PII-safe case ledger in the OpenClaw state directory
+      +-- next actions
+      +-- case status
+      +-- due rechecks for official OpenClaw Cron
 ```
 
-The tools share profiles and catalog data but no approval authority. Each execution validates and consumes a binding tagged with its exact tool name.
+## Trust boundaries
 
-## Live scan data flow
+The model sees only opaque profile/broker/handle references and sanitized reports. OpenClaw resolves SecretRefs inside trusted plugin execution. The plugin hook owns single-use approval bindings keyed to host tool-call IDs; caller JSON, HMAC receipts, prose consent, or a prior approval are never security boundaries.
 
-1. OpenClaw resolves the profile and Brave key from SecretRefs.
-2. The model sees only opaque IDs.
-3. RightOut validates supported broker scan policies, recorded scan consent, and current attestations including a normalized profile digest.
-4. OpenClaw presents a scan-specific allow-once prompt.
-5. After approval, RightOut rechecks the bound profile snapshot, then POSTs one site query per broker to `api.search.brave.com` using the Plugin SDK SSRF guard.
-6. It checks transiently for an HTTPS result on an official broker domain.
-7. It discards all result content and returns only sanitized states and coverage gaps.
+Brave discovery and every subsequent live step are separate tools. Exact candidate URLs are transiently inspected from Brave results, encrypted with AES-256-GCM under an operator SecretRef, and stored as ciphertext in RightOut's private OpenClaw state-directory store. The durable case ledger never stores them.
 
-Publisher requests, redirects, raw-result storage, and provider writes are absent.
+Direct publisher reads use only decrypted exact candidate URLs, official-domain SSRF policy, HTTPS, no credentials, no redirects, one-megabyte response limits, and no captured/raw output. A presence match requires the configured full name plus one configured location/address/email/phone corroborator. CAPTCHA, access denial, redirects, or partial absence are inconclusive.
 
-## Live removal data flow
+Email/form/verification implementations are independently catalog-locked. The browser lane uses only the host-supplied sandbox bridge and a closed ARIA recipe. IMAP opens INBOX read-only and returns an opaque handle only when both sender and HTTPS link domains match. SMTP has a provider/port/TLS allowlist and minimum-disclosure template.
 
-1. OpenClaw resolves profile/consent and SMTP values from SecretRefs.
-2. The model supplies only `profileId`, `brokerId`, and `delete_and_opt_out`.
-3. RightOut resolves the PII-free catalog lane and exact opaque-scope attestations, including operator-generated normalized profile/SMTP digests.
-4. OpenClaw presents a removal-specific allow-once prompt with broker, recipient, and field categories; the hook does not parse profile or SMTP secrets.
-5. After approval, RightOut resolves secrets and verifies both bound snapshots, consent, jurisdiction, SMTP endpoint, sender/profile equality, and minimum fields before opening a connection.
-6. RightOut renders the fixed request internally and sends one TLS-protected SMTP message.
-7. The result reports only `submitted`, an opaque proof reference, and explicit uncertainty.
+## State and evidence
 
-No request body, profile value, credential, or raw SMTP receipt is returned or persisted by RightOut. A 24-hour in-process cooldown blocks accidental duplicate scope during one Gateway lifetime; each post-restart send still requires a new approval.
+The ledger supports `new`, `searching`, `inconclusive`, `not_found`, `found`, `indirect_exposure`, `action_selected`, `submitted`, `verification_pending`, `awaiting_processing`, `confirmed_removed`, `reappeared`, `human_task_queued`, and `blocked`.
 
-## Reporting semantics
+Only trusted direct absence after a prior removal can produce `confirmed_removed`; the scope is the encrypted known listing set. Only trusted direct presence can turn it into `reappeared`. Brave observations never downgrade a confirmed state because search indexes can be stale.
 
-- `indirect_exposure`: Brave returned an HTTPS candidate on the selected official domain; identity and current content remain unverified.
-- `inconclusive`: index/provider evidence cannot prove presence or absence.
-- `submitted`: outbound SMTP accepted the message; broker receipt/removal remain unverified.
-- `confirmed_removed`: available only in the synthetic state machine because the current live plugin has no direct absence proof.
-- `reappeared`: modeled and tested synthetically; live detection can only show a later indirect signal.
-
-## Dummy runner
-
-The Python runner exposes only `doctor`, `validate`, `plan-dummy`, `scan-only-dummy`, `e2e-dummy`, and `verify-link`. It makes no network request, reads no live profile, and cannot transition a shipped catalog case. It retains opaque IDs, containment checks, symlink rejection, private permissions, atomic writes, locking, and revision conflict protection for synthetic artifacts.
-
-## Deliberate limits
-
-- no publisher fetch or browser automation;
-- no form/CAPTCHA/identity-document lane;
-- no inbound email or verification-link polling;
-- no durable live case database or scheduler;
-- no claim of commercial coverage/effectiveness parity;
-- no legal advice or certification.
+The community plugin cannot use the bundled-only keyed-store or session-turn scheduler APIs. It uses only the public state-directory resolver with contained atomic encrypted files, and exposes deterministic replay-safe `rightout_due_rechecks` for official OpenClaw Cron. Cluster planning prefers an official parent request where registry evidence says one request covers related sites, while later verification remains per known site.

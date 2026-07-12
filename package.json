@@ -1,6 +1,6 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Separately approval-gated data-broker scanning and removal requests for OpenClaw",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,7 @@
     "SECURITY.md",
     "CHANGELOG.md",
     "SBOM.spdx.json",
+    "npm-shrinkwrap.json",
     "docs/",
     "scripts/compute-removal-bindings.mjs",
     "VERSION"
@@ -27,10 +28,13 @@
     "prepack": "npm run check"
   },
   "dependencies": {
+    "imapflow": "1.4.7",
+    "mailparser": "3.9.14",
     "nodemailer": "9.0.3",
     "typebox": "1.3.6"
   },
   "devDependencies": {
+    "@types/mailparser": "3.4.6",
     "@types/node": "24.10.1",
     "@types/nodemailer": "^8.0.1",
     "openclaw": "2026.6.11",

@@ -1,6 +1,8 @@
 # Third-party notices
 
-The installed skill uses only Python standard-library code. The enclosing plugin depends on `typebox` 1.3.6 under MIT and `nodemailer` 9.0.3 under MIT-0, and imports OpenClaw's host-provided plugin SDK.
+The installed skill uses only Python standard-library code. The enclosing plugin directly depends on `typebox` 1.3.6 (MIT), `nodemailer` 9.0.3 (MIT-0), `imapflow` 1.4.7 (MIT), and `mailparser` 3.9.14 (MIT), and imports OpenClaw's host-provided plugin SDK.
+
+The complete production dependency closure, including all 42 transitive runtime packages, exact versions, integrity checksums, declared licenses, and package URLs, is recorded in the enclosing `SBOM.spdx.json` and the skill copy. `npm-shrinkwrap.json` pins the same install graph.
 
 Catalog and legal references use official factual URLs from California authorities, Google, EUR-Lex, TruePeopleSearch, BeenVerified, and Spokeo. No source prose, screenshots, proprietary reports, or commercial broker lists are copied.
 
