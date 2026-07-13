@@ -74,8 +74,8 @@ class PublicBoundaryTests(unittest.TestCase):
     def test_validator_and_doctor_prove_split_live_plugin_boundary(self) -> None:
         result = run([sys.executable, str(VALIDATOR), "--skill-dir", str(SKILL)])
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["doctor"]["capability_posture"], "minimum_unbroker_workflow_parity_with_separate_native_approvals")
-        self.assertEqual(result["doctor"]["live_approval_adapter"], "native_openclaw_plugin_permission_allow_once")
+        self.assertEqual(result["doctor"]["capability_posture"], "normalized_unbroker_contract_surface_provider_authorization_gated")
+        self.assertEqual(result["doctor"]["live_approval_adapter"], "native_openclaw_allow_once_or_bounded_campaign")
         self.assertEqual(result["doctor"]["live_pii_input"], "secretref_profile_not_tool_params")
         self.assertEqual(result["doctor"]["removal_tool"], "rightout_submit_removal")
         self.assertEqual(result["doctor"]["direct_rescan_tool"], "rightout_direct_rescan")

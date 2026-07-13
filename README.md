@@ -4,99 +4,183 @@
 [![Release](https://img.shields.io/github/v/release/Olli0103/rightout)](https://github.com/Olli0103/rightout/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Self-hosted, evidence-first data-broker removal for OpenClaw.** RightOut scans
-consented people-search exposure, submits supported US and EU/EEA requests,
-tracks ambiguous outcomes, and resumes due work—without giving the model raw
-PII or standing permission to contact providers.
+**Self-hosted, evidence-first data-broker removal for OpenClaw — autonomous where the operator and provider have actually authorized it.**
 
-RightOut `0.7.1` keeps every live disclosure, publisher read, inbox read,
-confirmation-link open, email, and form write behind a fresh native OpenClaw
-`allow-once`. The agent cannot create, persist, or reuse an approval.
+RightOut scans live people-search exposure, submits catalog-locked form and
+email requests, completes supported verification, tracks ambiguous writes, and
+rechecks listings. Subject data stays in OpenClaw SecretRefs and encrypted local
+state; tool inputs and reports use opaque references.
+
+## Release truth, without marketing math
+
+RightOut `0.8.0` clean-room represents the complete normalized contract surface
+from pinned Hermes Unbroker commit
+`e589b739ca70eba00aa90fd3d0228bada00dbf8f`: 22 exact broker IDs and their
+20-form/one-email/one-phone method, route, input, and verification metadata.
+It also implements campaign, verification, registry, reporting, and recheck
+workflow classes. That is not a claim that 20 provider-specific Unbroker
+playbooks were copied or independently replayed.
+
+That does **not** mean 20/20 forms may legally run unattended by default.
+The current primary-source review found:
+
+| Gate | Current evidence |
+| --- | ---: |
+| Pinned broker IDs and normalized method/route/input contracts | 22/22 |
+| Generic one-page synthetic form-contract tests | 20/20 |
+| Independently staged provider-specific multi-step E2E | PeopleConnect only |
+| Published terms explicitly allowing automation | 0/22 |
+| Published terms explicitly prohibiting automation | 8/22 |
+| Automation permission still `needs_evidence` | 14/22 |
+| Default autonomous form routes | 0/20 |
+
+RightOut therefore requires a current, separately obtained written provider
+authorization, bound to the exact reviewed terms contract, before a publisher
+form lane
+can even enter OpenClaw approval. Operator consent, subject consent, or a broad
+attestation cannot substitute for it. Without that evidence the route is a
+deterministic human handoff.
+
+So the precise answer to “100% Unbroker?” is:
+
+- **100% pinned broker/method/route/input contract coverage:** yes, 22/22;
+- **100% exact provider-specific playbook choreography:** no; the generic
+  bounded engine is synthetic-tested for all 20 form contracts, while only the
+  PeopleConnect multi-step flow has its own staged E2E;
+- **100% capability parity:** no; documented gaps include default full autonomy,
+  challenge clearance, browser-only authenticated inbox verification, and
+  retrievable screenshots;
+- **100% autonomous default against current public provider terms:** no, and no
+  compliant product can honestly promise that from the evidence currently
+  available.
+
+See the [machine parity evidence](docs/unbroker-parity-evidence.json),
+[provider-terms matrix](docs/provider-terms-review.md), and
+[feature benchmark](docs/feature-benchmark.md).
 
 ```mermaid
 flowchart LR
-    P["SecretRef profile + finite consent"] --> H["Catalog health"]
-    H --> S["Brave index discovery"]
-    S --> A["Per-effect OpenClaw approval"]
-    A --> R["Email or closed form lane"]
-    R --> L["Encrypted case ledger"]
-    L --> V["Human outcome or direct recheck"]
-    V --> Q["Cron due queue and safe resume"]
+    P["SecretRef profile + finite subject consent"] --> G["One bounded OpenClaw campaign approval"]
+    G --> S["Live Brave POST scan"]
+    S --> D{"Provider access authorized?"}
+    D -->|"written permission bound"| F["Browser form / direct read"]
+    D -->|"missing or prohibited"| H["Deterministic human handoff"]
+    G --> E["Catalog-locked SMTP / webmail send"]
+    F --> V["Authenticated IMAP verification"]
+    E --> V
+    V --> L["Encrypted case ledger + rechecks"]
+    H --> L
 ```
 
-## Coverage snapshot
+## What it can do
 
-| Capability | v0.7.1 |
-| --- | ---: |
-| Clean-room catalog entries | 56 |
-| Brave discovery lanes | 21 |
-| Executable targets | 28 |
-| EU/EEA controller-email targets | 18 |
-| US executable targets | 10 |
-| Direct known-listing rechecks | 2 |
-| Receiver-authenticated inbox flows | 1 |
+| Area | Capability |
+| --- | --- |
+| Live scan | Country-aware Brave Web Search POST discovery across all 59 policy-permitted catalog lanes: 30 people-search plus 29 EU/US controller/B2B domains. Campaigns drain deterministic four-broker batches; the pinned Unbroker subset remains 21/22 because Spokeo is a human gate under its published automation prohibition. Query/result bodies and result URLs are never persisted or returned |
+| Discovery | ISO-country profiles, Brave country/language targeting (for example `DE/de`) or explicit worldwide fallback, plus full name, aliases, current/prior locations, subject emails and phones; vectors stay within Brave's 400-character/50-word limits without truncating identity values |
+| Exact verification | A separate, provider-authorized direct read matches full name plus a strong configured corroborator before `found` |
+| Autonomous campaigns | One native `allow-once` creates a revocable grant for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 effects |
+| Form execution | Generic bounded ARIA-ref engine for 20 normalized contracts plus a staged PeopleConnect path; minimum disclosure, intent-before-click, semantic-state receipts, and provider-authorization default deny |
+| PeopleConnect flow | Email initiation, authenticated Gmail IMAP, same named browser profile, exact record selection, separate DOB approval, and suppression — only with current written PeopleConnect authorization |
+| Challenges | Bounded host-side arithmetic; CAPTCHA, static text challenge, OTP, security question, ID, phone, fax, mail, payment, and account gates stop for a human |
+| Email | Catalog-locked SMTP plus privacy-redacted Gmail compose; a rescue email is reported independently from an unavailable primary form |
+| Verification | Receiver-authenticated Gmail IMAP plus HTTPS/domain/credential/port phishing checks; browser-only inbox search is a zero-I/O human gate |
+| EU/EEA | 18 catalog-locked controller email lanes for evidenced GDPR erasure/objection channels, with minimum fields and human-reviewed outcomes |
+| US registries | Live California registry CSV, Vermont/Oregon/Texas portal routing, and human-filed California DROP tracking |
+| Rechecks | Encrypted exact-listing handles, timed absence confirmation, reappearance detection, and OpenClaw Cron handoff |
+| Reporting | PII-safe Markdown, structured JSON, consolidated digest, and Google Sheets-compatible rows |
+| Recovery | Encrypted campaign/case resume, intent-before-write, duplicate suppression, uncertain-write reconciliation, retention, purge, and key rotation; active browser sessions are memory-only and require manual tab/draft cleanup after an unclean Gateway stop |
 
-Twenty-seven executable targets are fixed-recipient email requests; one is a
-closed PeopleConnect browser-form initiation. This exceeds the raw target count
-of the pinned public Hermes Unbroker snapshot but is not equivalent to the much
-broader web-form mix or private inventory claimed by managed services. See
-[broker coverage](docs/broker-coverage.md) and the [feature benchmark](docs/feature-benchmark.md).
+The broader catalog contains 56 US/EU entries, 59 combined live-index scan
+lanes after the pinned reference overlay, and 28 independently locked executable
+email/removal targets, including 18 EU/EEA controller lanes. Those
+additional routes never substitute for a missing Unbroker reference contract or
+provider-specific playbook.
 
-## What a campaign does
+## What it intentionally cannot do
 
-1. Check catalog freshness without network access. A stale source disables live
-   provider I/O until official facts are reviewed and released.
-2. Build a deterministic plan across all 56 entries and resume pending or
-   ambiguous cases before starting new writes.
-3. Search at most two supported people-search brokers per approved Brave call.
-   Positive results are `indirect_exposure`; absence is `inconclusive`.
-4. Submit one catalog-locked, minimum-disclosure email or browser recipe after a
-   separate approval. SMTP acceptance is only `submitted`; a form transition is
-   only `verification_pending`.
-5. Poll the supported mailbox lane, open a broker-bound confirmation handle, or
-   recheck an encrypted exact URL only through separate approvals.
-6. Resume due work through official OpenClaw Cron. CAPTCHA, identity documents,
-   government verification, legal judgment, and unclear portals remain human.
+- bypass publisher terms, robots/access controls, CAPTCHA, OTP, identity checks,
+  or a provider's requirement for phone, fax, mail, payment, or an account;
+- automate a form from subject consent alone; every form needs a current written
+  provider authorization and matching contract digest;
+- prove that a broker received, honored, or completed a request merely because
+  SMTP or a browser click succeeded;
+- authenticate inbound mail from Gmail's normal browser UI; autonomous inbound
+  verification requires the pinned receiver-authenticated IMAP contract;
+- solve distorted static-text challenges; only strict arithmetic is computed
+  locally, while static text is human-only;
+- return retrievable screenshots. It records a reproducible commitment over a
+  PII-redacted semantic state plus exact direct-read evidence, not an image or
+  Optery/Kanary-style before/after proof;
+- discover private broker databases, guarantee deletion, prevent future
+  reappearance, or cover every controller/identifier on the internet;
+- provide a hosted dashboard, managed human specialist, family billing/admin,
+  custom arbitrary-URL takedowns, Google/social cleanup, dark-web monitoring, or
+  the proprietary 400–1,000+ inventories advertised by managed services;
+- self-schedule. Recurrence is an explicit OpenClaw Cron/operator deployment
+  responsibility.
 
-The encrypted ledger preserves intent before every write. A crash or uncertain
-provider result becomes `submission_uncertain` and cannot retry until the
-operator separately records whether the write started. Encrypted subject cases
-expire after 30-730 inactive days (365 by default), can be purged per subject,
-and support an approval-gated restart-safe key rotation.
+## Evidence semantics
 
-## Tools
+- `indirect_exposure`: an official-domain candidate appeared in Brave or a
+  separately authorized browser discovery; identity is not proven.
+- `found`: a separately authorized exact page matched full name plus a strong
+  corroborator.
+- `submitted`: transport or observed browser transition shows the request left
+  RightOut; broker receipt and deletion remain unproven.
+- `verification_pending`: a confirmation step is outstanding.
+- `submission_uncertain`: a provider write may have started; automatic retry is
+  blocked until separately approved reconciliation.
+- `confirmed_removed`: two time-separated direct absences across the complete
+  known encrypted listing set, or a human-reviewed controller response limited
+  to that controller.
+- `reappeared`: a trusted direct read found a previously confirmed listing.
 
-Provider I/O or critical local state, optional and non-replay-safe:
+## Approval and secret boundary
 
-- `rightout_live_scan`
-- `rightout_direct_rescan`
-- `rightout_submit_removal`
-- `rightout_submit_form_removal`
-- `rightout_poll_verification`
-- `rightout_open_verification`
-- `rightout_purge_subject_state`
-- `rightout_record_controller_outcome`
-- `rightout_reconcile_submission`
-- `rightout_rotate_state_key`
+OpenClaw resolves active SecretRefs eagerly during Gateway activation into an
+in-memory runtime snapshot. They are **not** first resolved after approval.
+RightOut's narrower guarantee is that no subject PII or provider credential is
+sent to an external provider until the exact native approval is satisfied or a
+matching finite campaign grant is validated. Local setup/status/export/doctor
+tools may read resolved configuration or the state key to validate/decrypt local
+state and probe the loopback browser service, but never return those values.
+Campaign preapproval binds only opaque scope and does not read those secrets.
+Installed plugins are trusted in-process code; approvals are operator guardrails,
+not hostile-plugin or multi-tenant isolation.
 
-Read-only and replay-safe:
+Campaign bindings include the immutable profile digest, combined core/parity/
+provider-terms catalog digest, browser and transport configuration, provider
+authorization records, expiry, and effect budget. Any mutation fails before
+provider I/O. DOB always needs its own exact critical `allow-once`.
+The campaign approval also discloses the possible subject-field classes,
+recipient/embedded-processor classes, selected browser backend, readable pinned
+canonical target labels or explicit short broker lists, concrete effect names,
+scope, lifetime, and effect budget.
 
-- `rightout_next_actions`
-- `rightout_case_status`
-- `rightout_catalog_health`
-- `rightout_due_rechecks`
+## Tool surface
 
-Every public argument is an opaque reference. Raw names, addresses, emails,
-phones, credentials, queries, listing URLs, messages, page bodies, and controller
-responses are excluded from tool results and the durable case ledger.
+RightOut declares 35 OpenClaw tools:
 
-## Install a verified stable release
+- planning and health: setup, doctor, catalog/parity health, campaign start/
+  status/next/revoke, next actions, due rechecks, case status, export;
+- discovery: live scan, publisher-browser session, direct rescan, registry
+  refresh/status/search;
+- removal: fixed email, parity rescue email, closed form, generic form session,
+  and redacted webmail compose;
+- verification/outcome: authenticated IMAP poll/link-open, browser-mail human
+  handoff, controller outcome, and uncertain-write reconciliation;
+- governance: DROP filing record, subject purge, and state-key rotation.
 
-Prerequisites: OpenClaw `2026.6.11+`, Node.js `22.19+`, Python `3.11+`, `gh`, and
-`shasum` (macOS) or `sha256sum` (Linux).
+The manifest is the canonical exact tool list.
+
+## Install
+
+For the tagged `0.8.0` release, install only the versioned GitHub artifact after
+verifying both its checksum and workflow attestation:
 
 ```bash
-VERSION=0.7.1
+VERSION=0.8.0
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 shasum -a 256 -c RELEASE-SHA256SUMS
@@ -111,12 +195,11 @@ openclaw plugins inspect rightout --runtime --json
 openclaw plugins doctor
 ```
 
-Use `sha256sum -c RELEASE-SHA256SUMS` on Linux. The release also publishes its
-SBOM, catalog provenance, and machine-readable workflow/source evidence. For
-SecretRefs, approvals, retention, key rotation, Cron, and the full readiness
-gate, follow [INSTALL.md](INSTALL.md).
+Use `sha256sum -c RELEASE-SHA256SUMS` on Linux. Then follow
+[INSTALL.md](INSTALL.md) for SecretRefs, provider authorization records,
+attestations, browser profiles, tool policy, Cron, and the authorized canary.
 
-For source development only:
+For development:
 
 ```bash
 git clone https://github.com/Olli0103/rightout.git
@@ -126,51 +209,22 @@ npm run check
 make test
 ```
 
-## Evidence semantics
-
-- `indirect_exposure`: Brave official-domain index signal, not identity proof.
-- `submitted`: outbound SMTP acceptance, not broker receipt or deletion.
-- `verification_pending`: form/mail step, not removal.
-- `submission_uncertain`: possible write; never retry automatically.
-- `confirmed_removed`: either two timed direct absences across the complete
-  encrypted known-listing set, or a human-reviewed controller response scoped
-  only to that controller.
-- `reappeared`: trusted direct presence after a prior narrow confirmation.
-
-New or unindexed URLs, other identifiers/controllers, private databases, legal
-exceptions, and future reappearance remain explicit coverage gaps. Browser or
-device advertising preferences never become controller-wide deletion proof.
-California DROP is a separate human government workflow.
-
-## Security and compliance boundary
+## Security and compliance
 
 RightOut is compliance-supporting software, not legal advice or certification.
-Operators remain responsible for subject authority, statutory eligibility,
-controller/processor roles, provider contracts, transparency, lawful basis,
-international transfers, retention, DPIA/TIA duties, publisher terms, and
-Gateway/OS isolation.
+Operators remain responsible for subject authority, applicable law, provider
+terms and agreements, controller/processor roles, transparency, lawful basis,
+international transfers, retention, DPIA/TIA duties, and Gateway/OS isolation.
 
-Start with [security](SECURITY.md), [privacy](docs/privacy-posture.md), the
-[deployment compliance gate](docs/deployment-compliance.md), and
-[OpenClaw conformance](docs/openclaw-conformance.md). Before a first real
-deployment, execute the [authorized canary protocol](docs/authorized-canary.md)
-under the operator's own authority; the repository test suite deliberately
-contains no real PII or broker traffic.
+Release validation uses only mocked providers and `.invalid` identities. It
+never runs a real-person scan, real mailbox, live form, or broker write. The
+first live action belongs in an authorized deployment under the
+[canary protocol](docs/authorized-canary.md).
 
-## Development
+Start with [SECURITY.md](SECURITY.md), [privacy posture](docs/privacy-posture.md),
+[approval boundary](docs/approval-boundary.md), [deployment compliance](docs/deployment-compliance.md),
+and [OpenClaw conformance](docs/openclaw-conformance.md).
 
-```bash
-npm ci --ignore-scripts
-npm run check
-npm run test:coverage
-make test
-make scan-only-dummy
-make e2e-dummy
-make installer-test
-```
-
-Use only synthetic `.invalid` identities and mocked or isolated providers.
-Never run a real scan, send an email, submit a form, open a broker link, or use
-real PII as a test. Catalog additions must come clean-room from official sources;
-commercial lists, privacy guides, BADBOOL material, copied templates, and copied
-prose are prohibited. See [CONTRIBUTING.md](CONTRIBUTING.md). License: MIT.
+Clean-room contributions must use official facts only. Commercial lists,
+copied playbooks/templates/prose, and BADBOOL-derived records are prohibited.
+See [CONTRIBUTING.md](CONTRIBUTING.md). License: MIT.

@@ -9,6 +9,7 @@ import plugin from "../../index.ts";
 import { createListingTokenVault } from "../../lib/listing-tokens.mjs";
 import { scanProfileDigest } from "../../lib/live-scan.mjs";
 import { createEncryptedFileKeyedStore } from "../../lib/file-keyed-store.mjs";
+import { publisherAutomationPermissions } from "./provider-terms-fixture.mjs";
 
 test("runtime direct rescan is exact-handle scoped and requires its own allow-once", async () => {
   const profileId = "profile_a1b2c3d4e5f60718";
@@ -21,23 +22,24 @@ test("runtime direct rescan is exact-handle scoped and requires its own allow-on
   const stateDir = await mkdtemp(join(tmpdir(), "rightout-direct-runtime-"));
   const hooks = new Map();
   const tools = new Map();
+  const config = {
+    stateEncryptionKey: key,
+    profiles: { [profileId]: { payload: profilePayload } },
+    directScanAttestations: {
+      rightoutDirectScanPolicyAccepted: true,
+      rightoutDirectScanPolicyVersion: "2026-07-12",
+      subjectConsentReviewed: true,
+      publisherAccessAuthorized: true,
+      publisherTermsReviewed: true,
+      authorizedProfileIds: [profileId],
+      authorizedProfileDigests: { [profileId]: scanProfileDigest(profilePayload) },
+      authorizedBrokerIds: [brokerId],
+    },
+  };
   const api = {
     runtime: { state: { resolveStateDir() { return stateDir; } } },
     logger: { error() {} },
-    pluginConfig: {
-      stateEncryptionKey: key,
-      profiles: { [profileId]: { payload: profilePayload } },
-      directScanAttestations: {
-        rightoutDirectScanPolicyAccepted: true,
-        rightoutDirectScanPolicyVersion: "2026-07-12",
-        subjectConsentReviewed: true,
-        publisherAccessAuthorized: true,
-        publisherTermsReviewed: true,
-        authorizedProfileIds: [profileId],
-        authorizedProfileDigests: { [profileId]: scanProfileDigest(profilePayload) },
-        authorizedBrokerIds: [brokerId],
-      },
-    },
+    pluginConfig: config,
     resolvePath(value) { return value; },
     on(name, handler) { hooks.set(name, handler); },
     registerSecurityAuditCollector() {},
@@ -59,6 +61,10 @@ test("runtime direct rescan is exact-handle scoped and requires its own allow-on
   });
   const input = { profileId, brokerId, listingHandle: handle };
   const hook = hooks.get("before_tool_call");
+  const permissionDenied = await hook({ toolName: "rightout_direct_rescan", params: input, toolCallId: "direct-no-provider-permission" });
+  assert.equal(permissionDenied.block, true);
+  assert.equal(permissionDenied.requireApproval, undefined);
+  config.publisherAutomationPermissions = publisherAutomationPermissions([brokerId]);
   const prompt = await hook({ toolName: "rightout_direct_rescan", params: input, toolCallId: "direct-denied" });
   assert.equal(prompt.requireApproval.severity, "critical");
   assert.deepEqual(prompt.requireApproval.allowedDecisions, ["allow-once", "deny"]);

@@ -128,8 +128,9 @@ test("public input is opaque and the private profile requires recorded removal c
     } })),
     /subject_consent_required/,
   );
+  assert.equal(parseRemovalProfile(JSON.stringify({ ...privateProfile, dateOfBirth: "2000-01-01" })).dateOfBirth, "2000-01-01");
   assert.throws(
-    () => parseRemovalProfile(JSON.stringify({ ...privateProfile, dateOfBirth: "2000-01-01" })),
+    () => parseRemovalProfile(JSON.stringify({ ...privateProfile, dateOfBirth: "2999-01-01" })),
     /profile_invalid/,
   );
 });
@@ -531,7 +532,7 @@ test("runtime uses a removal-specific allow-once binding that scan approval cann
   });
   assert.deepEqual(decision.requireApproval.allowedDecisions, ["allow-once", "deny"]);
   assert.equal(decision.requireApproval.timeoutMs, 120_000);
-  assert.equal(decision.requireApproval.timeoutBehavior, "deny");
+  assert.equal(Object.hasOwn(decision.requireApproval, "timeoutBehavior"), false);
   assert.match(decision.requireApproval.description, /privacy@beenverified\.com/);
   assert.doesNotMatch(decision.requireApproval.description, /Avery|avery@example/);
   decision.requireApproval.onResolution("deny");

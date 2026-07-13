@@ -102,9 +102,9 @@ def main() -> None:
 
     e2e_report = e2e["report"]
     scan_report = scan["report"]
-    if not doctor.get("ok") or doctor.get("capability_posture") != "minimum_unbroker_workflow_parity_with_separate_native_approvals":
+    if not doctor.get("ok") or doctor.get("capability_posture") != "normalized_unbroker_contract_surface_provider_authorization_gated":
         errors.append("doctor did not prove the split live-plugin/dummy-runner posture")
-    if doctor.get("live_approval_adapter") != "native_openclaw_plugin_permission_allow_once":
+    if doctor.get("live_approval_adapter") != "native_openclaw_allow_once_or_bounded_campaign":
         errors.append("doctor did not prove the native approval boundary")
     if doctor.get("live_pii_input") != "secretref_profile_not_tool_params":
         errors.append("doctor did not prove the private-profile boundary")

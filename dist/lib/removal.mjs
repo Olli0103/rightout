@@ -69,7 +69,7 @@ function cleanJurisdictions(values) {
 function cleanConsent(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("subject_consent_required");
-    const allowed = new Set(["authorized", "recordedAt", "validUntil", "scope"]);
+    const allowed = new Set(["authorized", "recordedAt", "validUntil", "scope", "method"]);
     if (Object.keys(value).some((key) => !allowed.has(key)) || value.authorized !== true) {
         throw new Error("subject_consent_required");
     }
@@ -91,7 +91,10 @@ function cleanConsent(value) {
     }
     if (!scope.includes("broker_removal"))
         throw new Error("subject_consent_required");
-    return { authorized: true, recordedAt: new Date(timestamp).toISOString(), validUntil: new Date(expiry).toISOString(), scope: scope.sort() };
+    const method = value.method === undefined ? "self" : cleanString(value.method, "consent_method", 3, 24);
+    if (!new Set(["self", "written_authorization", "poa"]).has(method))
+        throw new Error("subject_consent_required");
+    return { authorized: true, recordedAt: new Date(timestamp).toISOString(), validUntil: new Date(expiry).toISOString(), scope: scope.sort(), method };
 }
 export function validateRemovalPublicToolInput(input) {
     if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["profileId", "brokerId", "requestKind"].includes(key))) {
@@ -115,7 +118,7 @@ export function parseRemovalProfile(value) {
     }
     if (!profile || typeof profile !== "object" || Array.isArray(profile))
         throw new Error("profile_invalid");
-    const allowed = new Set(["fullName", "city", "region", "country", "contactEmail", "jurisdictions", "mobileAdvertisingId", "alsoKnownAs", "emails", "phones", "priorLocations", "currentAddress", "priorAddresses", "consent"]);
+    const allowed = new Set(["fullName", "city", "region", "country", "contactEmail", "jurisdictions", "mobileAdvertisingId", "dateOfBirth", "alsoKnownAs", "emails", "phones", "priorLocations", "currentAddress", "priorAddresses", "consent"]);
     if (Object.keys(profile).some((key) => !allowed.has(key)))
         throw new Error("profile_invalid");
     const fullName = cleanString(profile.fullName, "profile", 3, 120);
@@ -131,6 +134,13 @@ export function parseRemovalProfile(value) {
         : cleanString(profile.mobileAdvertisingId, "mobile_advertising_id", 36, 36).toLowerCase();
     if (mobileAdvertisingId !== undefined && !SAFE_MOBILE_ADVERTISING_ID.test(mobileAdvertisingId))
         throw new Error("profile_invalid");
+    const dateOfBirth = profile.dateOfBirth === undefined ? undefined : cleanString(profile.dateOfBirth, "date_of_birth", 10, 10);
+    if (dateOfBirth !== undefined) {
+        const timestamp = Date.parse(`${dateOfBirth}T00:00:00Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) || !Number.isFinite(timestamp) || timestamp >= Date.now() || timestamp < Date.parse("1900-01-01T00:00:00Z")) {
+            throw new Error("profile_invalid");
+        }
+    }
     const alsoKnownAs = cleanOptionalStrings(profile.alsoKnownAs, "alias", 2, 120, 5);
     const emails = cleanOptionalStrings(profile.emails, "email", 3, 254, 5).map((email) => cleanEmail(email));
     const phones = cleanOptionalStrings(profile.phones, "phone", 7, 32, 5);
@@ -148,6 +158,7 @@ export function parseRemovalProfile(value) {
         contactEmail,
         jurisdictions,
         ...(mobileAdvertisingId ? { mobileAdvertisingId } : {}),
+        ...(dateOfBirth ? { dateOfBirth } : {}),
         ...(alsoKnownAs.length ? { alsoKnownAs } : {}),
         ...(emails.length ? { emails } : {}),
         ...(phones.length ? { phones } : {}),
@@ -245,6 +256,7 @@ function normalizedProfileDigest(profile) {
         profile.contactEmail,
         profile.jurisdictions,
         profile.mobileAdvertisingId ?? null,
+        profile.dateOfBirth ?? null,
         profile.alsoKnownAs ?? [],
         profile.emails ?? [],
         profile.phones ?? [],
@@ -554,7 +566,9 @@ export function removalScopeBinding(input, attestations, broker) {
     const publicInput = validateRemovalPublicToolInput(input);
     return JSON.stringify(["removal", publicInput, attestations, broker]);
 }
-export async function runRemovalSubmission({ input, catalog, profilePayload, smtpConfig, operatorAttestations, sendMail, signal, now = () => new Date(), }) {
+export async function runRemovalSubmission({ input, catalog, profilePayload, smtpConfig, operatorAttestations, sendMail, signal, approvalBoundary = "assisted_allow_once", now = () => new Date(), }) {
+    if (!["assisted_allow_once", "finite_campaign_grant"].includes(approvalBoundary))
+        throw new Error("rightout_approval_boundary_invalid");
     throwIfAborted(signal);
     const { input: publicInput, profile, broker, attestations, smtp, } = validateRemovalPreflight({ input, catalog, profilePayload, smtpConfig, operatorAttestations });
     if (typeof sendMail !== "function")
@@ -601,7 +615,7 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
         discovery_requirement: broker.discoveryRequirement,
         state: "submitted",
         generated_at: now().toISOString(),
-        approval_boundary: "openclaw_plugin_permission_allow_once_separate_removal_tool",
+        approval_boundary: approvalBoundary,
         delivery: {
             channel: "smtp_email",
             recipient: broker.recipient,

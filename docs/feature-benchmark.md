@@ -1,49 +1,87 @@
-# Feature benchmark: RightOut, Hermes Unbroker, and managed services
+# Feature benchmark
 
-Review date: 2026-07-12.
+Review date: 2026-07-13. Unbroker reference: Hermes commit
+`e589b739ca70eba00aa90fd3d0228bada00dbf8f`. Comparisons use public product
+claims and clean-room facts; no competitor code, broker record, template,
+playbook, prose, or screenshot was copied.
 
-Primary product references:
+## Pinned Unbroker comparison
 
-- [Hermes Unbroker official skill at reviewed commit](https://github.com/NousResearch/hermes-agent/tree/2d9fd870b6d105e3b367aaa97477931b6671192e/optional-skills/security/unbroker)
-- [Incogni features](https://incogni.com/features/remove-my-information-from-internet) and [dashboard statuses](https://support.incogni.com/hc/en-us/articles/4904721869458-What-do-the-data-removal-statuses-on-my-dashboard-mean)
-- [Optery plans](https://www.optery.com/pricing/)
-- [DeleteMe features](https://joindeleteme.com/)
-- [Kanary features](https://www.kanary.com/)
+| Capability | RightOut 0.8.0 | Pinned Unbroker | Honest verdict |
+| --- | --- | --- | --- |
+| Broker IDs | exact 22 | 22 | exact |
+| Normalized method inventory | 20 form, one email, one phone handoff | 20 form, one email, one phone | exact inventory |
+| Form choreography | generic semantic engine synthetic-tested against 20 normalized route/input contracts; staged PeopleConnect E2E | provider-specific autonomous browser playbooks | gap: no claim of exact choreography for 19 form routes |
+| Standing autonomy | one revocable profile/broker/effect/time/budget grant | standing authorization | tighter RightOut scope |
+| Discovery | bounded Brave POST; optional separately permitted publisher browser | search/browser fanout | equivalent workflow class; RightOut keeps Brave results transient |
+| Identity confidence | indirect search candidate, then full name plus strong corroborator | parent verification | equivalent outcome with explicit confidence states |
+| Browser backends | managed, remote/cloud CDP, existing logged-in CDP; one distinct remote retry | local/raw CDP and Browserbase | equivalent backend classes; no claim that RightOut clears a challenge |
+| Arithmetic challenge | strict host-side add/subtract/multiply | static challenge handling | covered for arithmetic only |
+| Static distorted text | human gate | OCR/manual policy | gap: no local OCR |
+| Dynamic CAPTCHA/OTP/ID | human gate | human gate/retry | safe fallback equivalent |
+| Email send | pinned SMTP and redacted Gmail compose | SMTP and browser compose | equivalent outcome |
+| Inbound verification | authenticated Gmail IMAP | IMAP and browser mail | IMAP equivalent; browser-only path is a human gate |
+| Visual proof | commitment over PII-redacted semantic state plus exact direct-read evidence | screenshot/evidence workflow | weaker; not an image or before/after proof |
+| Registries and DROP | CA CSV, VT/OR/TX routing, human DROP filing | same classes | equivalent class |
+| Rechecks | exact known-listing set, timed absence, reappearance, Cron handoff | recurring rechecks/Cron | equivalent with narrower absence claim |
+| Reporting | Markdown, JSON, digest, Sheets-compatible rows | Markdown/digest/Sheets | equivalent plus structured JSON |
+| Ambiguous writes | durable intent, uncertain state, human reconciliation | durable ledger | stricter retry safety |
 
-Claims from commercial pages describe vendor offerings; RightOut does not independently verify their effectiveness or private-database coverage.
+The generic capability engine can attempt each normalized form contract when
+the provider supplies current written authorization and the live page matches
+the semantic contract. This does not prove exact provider choreography or live
+effectiveness. In the current public terms review, 8/22 routes
+explicitly prohibit automation and 14/22 remain `needs_evidence`; none publishes
+an automation permission. Therefore “100% Unbroker autonomy by default” is not a
+truthful or compliant release claim. The exact matrix is in
+[provider-terms-review.md](provider-terms-review.md).
 
-| Capability | RightOut 0.7.1 | Hermes Unbroker | Managed services | Result |
-|---|---|---|---|---|
-| Multiple subjects | Up to 20 opaque SecretRef profiles | consented dossiers | family/team tiers vary | minimum parity |
-| Discovery vectors | name/aliases, current/prior location/address, email, phone via Brave | dossier-driven search | broad scans claimed | minimum class parity; RightOut indirect |
-| Broker breadth | 56 catalog entries; 21 Brave lanes, 23 EU processes, and 28 executable targets | 22 reviewed executable broker entries | hundreds claimed by some vendors | RightOut exceeds reviewed public executable count; managed inventory not parity |
-| Deterministic ledger/queue | durable encrypted state-directory cases, due dates, clusters, proof refs | ledger and queue | dashboard/status tracking | minimum parity |
-| Email removal | 27 catalog-locked lanes: nine US and 18 EU | one email lane | broad | exceeds reviewed public count in this lane |
-| Browser form | one closed sandbox-browser recipe | 20 web-form lanes | broad/manual automation | capability parity, much narrower |
-| Phone lane | human task only | one phone lane | specialist handling varies | safe human parity only |
-| CAPTCHA/ID | fail closed to human task | human digest/manual work | human specialists | minimum parity |
-| Inbound verification | read-only IMAP plus opaque link handle for one lane | verification polling | tracked responses | capability parity, narrow |
-| Direct later check | encrypted exact URLs, name plus corroborator, no redirects | recurring rechecks | recurring scans claimed | minimum parity |
-| Reappearance | trusted direct presence changes confirmed case to `reappeared` | rechecks/requeue | monitoring claimed | minimum parity |
-| Scheduling | deterministic due tool for official OpenClaw Cron | recurring orchestration | managed scheduler | platform-equivalent; plugin cannot self-schedule |
-| Native per-action approval | every live read/write gets `allow-once` | standing authorization workflow | vendor consent | RightOut stricter |
-| Crash-safe submission intent | encrypted intent before SMTP/form; ambiguous outcome blocks retry until human reconciliation | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
-| Campaign resume | durable cases, due queue, opaque listing handles, deterministic resume mode, OpenClaw Cron handoff | queue and status loop | dashboards and managed operations | workflow parity, no hosted dashboard |
-| Catalog health | runtime freshness report plus approval/execute-time stale-lane kill switch | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
-| State lifecycle | finite inactive-case retention, subject purge, and restart-safe approved key rotation | not evidenced in reviewed public skill | vendor-internal | RightOut explicit |
-| EU/US controller outcomes | separately approved human-reviewed processing/partial/ID/rejection/controller-confirmed states | not evidenced in reviewed public skill | managed follow-up varies | RightOut explicit and scoped |
-| Dashboard/app | PII-safe reports and read tools only | CLI/agent workflow | usually yes | missing UI parity |
-| Custom removals/team service | human tasks only | human digest | offered by some vendors | not parity |
-| EU legal/process semantics | 18 fixed controller-email lanes, country consistency, 30-day reminder for the one-month response rule, controller-response review | no separate EU process taxonomy evidenced in reviewed skill | Incogni says it uses GDPR/CCPA requests and recurring follow-up | RightOut explicit and scoped |
-| US/CCPA semantics | ten executable targets, eight controller-email lanes with 45-day recheck, DROP human handoff, no automatic ID documents | no separate CCPA process taxonomy evidenced in reviewed skill | managed services abstract per-broker processes | RightOut explicit and scoped |
-| EU “one click” distinction | EDAA/emetriq preference controls separated from erasure; Criteo/Zeotap portals human-only | not evidenced in reviewed skill | managed services abstract per-broker processes | RightOut prevents false deletion claims |
+The pinned Unbroker evidence is internally contradictory for `clustrmaps` and
+`peekyou`: recipes remain recorded while a later operator pass reports dead/404
+and leaves `last_verified` unset. Current independent checks also find both
+primary hosts externally unavailable. RightOut preserves that contradiction,
+keeps the normalized contract evidence, reports the primary route unavailable, and treats a
+separately sourced rescue email as an independent method rather than fake form
+success.
 
-## Clean-room boundary
+## Managed-service comparison
 
-RightOut adopts product capability classes, not Unbroker implementation or broker data. It does not copy Hermes code, templates, prose, broker records, BADBOOL material, privacy-guide lists, or commercial inventories. RightOut catalog provenance is limited to official broker/government facts with original notes and semantic validation.
+The figures below are current vendor claims, not independently verified
+effectiveness. Counting methods also differ, so totals are not directly
+comparable with one another or with RightOut's catalog.
 
-The official Unbroker reference at the reviewed commit has 22 executable operations: 20 web-form, one email, and one phone lane. RightOut has 28 independently tested targets: 27 email and one browser-form initiation. RightOut therefore exceeds the reviewed public target count, while Unbroker retains a broader web-form/phone people-search mix. RightOut is also explicit about native per-effect approvals, durable ambiguous-write recovery, EU/US controller outcomes, encrypted restart-safe handles, and build provenance. Managed services additionally claim much broader inventories, hosted dashboards, recurring managed submissions, screenshot reports, compliance scoring, custom removals, and human escalation. The accurate claim is **reviewed public executable-count parity plus a stronger approval/safety boundary**, not removal-effectiveness, hosted-dashboard, or commercial-service parity.
+| Vendor | Current primary-source feature claim | Evidenced RightOut gap |
+| --- | --- | --- |
+| Incogni | [420+ automated brokers](https://incogni.com/features/remove-my-information-from-internet), continuous recurring removal, real-time request/broker-response tracking, exact-URL custom removals handled by specialists, Exposure Scanner, and a monthly downloadable Risk Assessment | 59 public-index scan lanes and 56 core catalog entries, finite campaigns plus operator-owned Cron, PII-safe reports, and no hosted dashboard, Exposure Scanner, arbitrary-URL specialist service, or downloadable risk product |
+| Optery | [630+ automated sites and 945+ total sites through custom requests](https://www.optery.com/pricing/), monthly scans/removals, before/after screenshots, human privacy agents, custom scans/removals, CAPTCHA solving, verification-link clicks, legal demands, and automated email replies; the same page advertises family plans, real-time dashboard, SSO/SCIM/SAML, Public API, Activity History, Limited Power of Attorney, and ID verification | no dynamic-CAPTCHA solving, broad private inventory, retrievable screenshots, arbitrary custom-removal service, public API/admin/SSO/SCIM/SAML product, ID/LPOA automation, family UX, or human privacy-agent service |
+| Privacy Bee | Its [current pricing matrix](https://privacybee.com/pricing/) lists 516 people-search sites for Essentials and advertises search monitoring, breach and paste monitoring, Google/Apple Maps blurring, PII threat hunting, dark-web/hacker-forum monitoring, social exposure monitoring, dedicated analysts, custom takedowns, and business SSO/SCIM; its help center separately claims [1,000+ continuously scanned broker/people-search sites plus 180,000+ researched custom sites](https://support.privacybee.com/getting-started/what-sites-does-privacy-bee-scan) across plans | no comparable private inventory, general search/social/dark-web/breach/paste monitoring, map-blur workflow, threat-hunting/red-team service, custom-site team, or enterprise identity/admin plane |
+| Kanary | [Google results, registries, court/doxxing sources and data brokers](https://www.kanary.com/remove-from-sites), threat-model prioritization, screenshots/links/reproducible steps, and legal/research/enforcement escalation; its [plans](https://www.kanary.com/) add 30-day or faster scans, progress reports, custom removals, privacy experts, and family options | no general Google/forum/court/social cleanup, personalized threat model, screenshot evidence, managed escalation network, hosted report/dashboard, custom specialist service, or family plan |
 
-## Approval difference
+RightOut is stronger in a different dimension: it is self-hosted, its public
+tool surface is opaque, approvals and provider permissions are scope-bound, and
+ambiguous writes cannot silently retry. Those controls do not erase the
+managed-service feature gaps above.
 
-Unbroker is designed for agent operation after standing authorization. RightOut deliberately requires a new host-authoritative approval for each live disclosure/read/write. This reduces unattended convenience but prevents a scan approval, model-generated receipt, or prior action from authorizing a broker write.
+## Where RightOut is stronger
+
+- self-hosted OpenClaw deployment with opaque public inputs;
+- explicit native approvals plus finite revocable campaign authority;
+- provider-terms contracts bound into the runtime/campaign digest;
+- no Brave query/result persistence and no raw candidate URL in reports;
+- intent-before-write, uncertain-submission lockout, and separate reconciliation;
+- confidence states that do not turn “email sent” into “record deleted”;
+- reproducible clean-room catalogs, tests, SBOMs, and package provenance.
+
+## Where RightOut is weaker
+
+- no proprietary hundreds/thousands-broker network or private-database access;
+- no hosted dashboard, managed specialists, billing/admin, or broad family UX;
+- no retrievable screenshots, static-text OCR, browser-only authenticated inbox
+  verification, arbitrary custom removals, or CAPTCHA service;
+- live effectiveness remains `needs_evidence` until an authorized deployment
+  uses real subject data; release tests intentionally make no broker write.
+
+The defensible release statement is: **RightOut covers the complete pinned
+22-broker normalized method/route/input contract surface and a broader, safer
+workflow. It does not have 100% exact provider-playbook or capability parity,
+and current provider terms prevent default autonomous publisher execution.**

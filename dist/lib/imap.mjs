@@ -38,6 +38,29 @@ function hostMatches(host, allowedDomains) {
     const clean = host.toLowerCase().replace(/^www\./, "");
     return allowedDomains.some((domain) => clean === domain || clean.endsWith(`.${domain}`));
 }
+export function scoreVerificationLink(value, allowedDomains) {
+    let url;
+    try {
+        url = new URL(value);
+    }
+    catch {
+        return { decision: "deny", score: 0, signals: ["malformed_url"] };
+    }
+    const signals = [];
+    if (url.protocol !== "https:")
+        signals.push("not_https");
+    if (url.username || url.password)
+        signals.push("embedded_credentials");
+    if (url.port && url.port !== "443")
+        signals.push("nonstandard_port");
+    if (!hostMatches(url.hostname, allowedDomains))
+        signals.push("outside_catalog_domain");
+    if (/\b(?:verify|confirm|remov|optout|opt-out|suppress|privacy|delete)\b/iu.test(`${url.pathname}${url.search}`))
+        signals.push("verification_intent_token");
+    const denied = signals.some((item) => ["not_https", "embedded_credentials", "nonstandard_port", "outside_catalog_domain"].includes(item));
+    const score = denied ? 0 : signals.includes("verification_intent_token") ? 100 : 80;
+    return { decision: denied ? "deny" : "allow", score, signals: signals.sort() };
+}
 function addressDomains(addresses) {
     const out = [];
     for (const address of addresses ?? []) {
@@ -93,7 +116,7 @@ export function extractBoundVerificationLink({ text, html, senderDomains, allowe
     for (const candidate of candidates) {
         try {
             const url = new URL(candidate.replace(/[.,;:!?]+$/u, ""));
-            if (url.protocol !== "https:" || url.username || url.password || !hostMatches(url.hostname, allowedLinkDomains))
+            if (scoreVerificationLink(url.toString(), allowedLinkDomains).decision !== "allow")
                 continue;
             const lower = `${url.pathname}${url.search}`.toLowerCase();
             const score = LINK_HINTS.reduce((total, hint) => total + (lower.includes(hint) ? 1 : 0), 0);
@@ -228,6 +251,7 @@ export function createImapPoller({ clientFactory = (options) => new ImapFlow(opt
                     message_reference: messageReference(message, broker.id),
                     link,
                     allowed_link_domains: lane.linkDomains,
+                    link_security: scoreVerificationLink(link, lane.linkDomains),
                 };
             }
             return { found: false, broker_id: broker.id };

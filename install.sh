@@ -267,7 +267,13 @@ required = {
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
     "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
     "rightout_rotate_state_key", "rightout_next_actions", "rightout_case_status",
-    "rightout_catalog_health", "rightout_due_rechecks",
+    "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks",
+    "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign",
+    "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
+    "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session",
+    "rightout_webmail_session_step", "rightout_begin_webmail_verification",
+    "rightout_begin_discovery_session", "rightout_discovery_session_step",
+    "rightout_begin_form_session", "rightout_form_session_step",
 }
 if plugin.get("status") != "loaded" or required - tools or "before_tool_call" not in typed_hooks:
     raise SystemExit("staged RightOut archive failed runtime contract validation")
@@ -298,7 +304,13 @@ required = {
     "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
     "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
     "rightout_rotate_state_key", "rightout_next_actions", "rightout_case_status",
-    "rightout_catalog_health", "rightout_due_rechecks",
+    "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks",
+    "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign",
+    "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
+    "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session",
+    "rightout_webmail_session_step", "rightout_begin_webmail_verification",
+    "rightout_begin_discovery_session", "rightout_discovery_session_step",
+    "rightout_begin_form_session", "rightout_form_session_step",
 }
 if required - tools or "before_tool_call" not in typed_hooks:
     raise SystemExit("RightOut tools or native approval hook are missing")
@@ -310,8 +322,8 @@ cat <<EOF
 RightOut plugin installed and runtime-validated.
 
 Version: $(tr -d '\n' < "$REPO_ROOT/VERSION")
-Tools: scan, direct rescan, email/form removal, inbox/link verification, controller outcomes, ambiguous-write reconciliation, purge/key rotation, catalog health, and durable campaign planning/status/due checks
-Approval: separate native OpenClaw allow-once/deny per live read, provider write, or critical local state change; fail closed
+Tools: 35-tool assisted/permission-gated autonomous scan, publisher/browser/email/webmail, verification, registry/DROP, source refresh, report, recheck, and encrypted-governance surface
+Approval: native OpenClaw allow-once/deny for assisted effects and finite campaign creation/revocation; exact campaign scope is revalidated and consumed per autonomous effect
 PII input: operator-configured SecretRef profile only
-Live readiness: install complete; provider/profile SecretRefs and exact attestations still required
+Live readiness: install complete; provider/profile SecretRefs, exact attestations, and current written provider authorization for every form/publisher route are still required
 EOF

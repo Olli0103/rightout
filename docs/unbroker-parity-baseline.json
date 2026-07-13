@@ -1,0 +1,523 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "repository": "https://github.com/NousResearch/hermes-agent",
+    "path": "optional-skills/security/unbroker",
+    "commit": "e589b739ca70eba00aa90fd3d0228bada00dbf8f",
+    "reviewed_at": "2026-07-13",
+    "refresh_before_release": true
+  },
+  "policy": {
+    "coverage_claim": "normalized_broker_method_route_input_contract",
+    "all_reference_contracts_required": true,
+    "capability_status_model": ["implemented", "conditional", "gap", "human_only"],
+    "capability_gaps_release_blocking": false,
+    "exact_provider_playbook_choreography_claimed": false,
+    "count_substitution_allowed": false,
+    "clean_room": true
+  },
+  "broker_ids": [
+    "addresses",
+    "advancedbackgroundchecks",
+    "beenverified",
+    "clustal",
+    "clustrmaps",
+    "cyberbackgroundchecks",
+    "familytreenow",
+    "fastpeoplesearch",
+    "intelius",
+    "mylife",
+    "nuwber",
+    "peekyou",
+    "peoplefinders",
+    "radaris",
+    "rehold",
+    "searchpeoplefree",
+    "socialcatfish",
+    "spokeo",
+    "thatsthem",
+    "truepeoplesearch",
+    "usphonebook",
+    "whitepages"
+  ],
+  "capabilities": [
+    {
+      "id": "auto_setup",
+      "required": true
+    },
+    {
+      "id": "capability_doctor",
+      "required": true
+    },
+    {
+      "id": "broker_catalog_inventory",
+      "required": true
+    },
+    {
+      "id": "multi_subject_dossiers",
+      "required": true
+    },
+    {
+      "id": "recorded_consent_methods",
+      "required": true
+    },
+    {
+      "id": "aliases_emails_phones_current_and_prior_locations",
+      "required": true
+    },
+    {
+      "id": "encrypted_private_dossier_storage",
+      "required": true
+    },
+    {
+      "id": "full_autonomy_default",
+      "required": true
+    },
+    {
+      "id": "assisted_autonomy_mode",
+      "required": true
+    },
+    {
+      "id": "bounded_standing_authorization",
+      "required": true
+    },
+    {
+      "id": "deterministic_next_loop",
+      "required": true
+    },
+    {
+      "id": "done_for_now_and_next_wake",
+      "required": true
+    },
+    {
+      "id": "single_consolidated_human_digest",
+      "required": true
+    },
+    {
+      "id": "two_phase_discover_then_delete",
+      "required": true
+    },
+    {
+      "id": "search_vector_generation",
+      "required": true
+    },
+    {
+      "id": "inline_and_parallel_scan_planning",
+      "required": true
+    },
+    {
+      "id": "publisher_browser_discovery_after_index_inconclusive",
+      "required": true
+    },
+    {
+      "id": "parent_reverification_of_found",
+      "required": true
+    },
+    {
+      "id": "ownership_cluster_parent_first",
+      "required": true
+    },
+    {
+      "id": "blind_optout_for_direct_channels",
+      "required": true
+    },
+    {
+      "id": "stealth_or_cloud_browser_retry",
+      "required": true
+    },
+    {
+      "id": "managed_openclaw_browser",
+      "required": true
+    },
+    {
+      "id": "remote_cloud_cdp_browser",
+      "required": true
+    },
+    {
+      "id": "logged_in_existing_browser_cdp",
+      "required": true
+    },
+    {
+      "id": "soft_managed_challenge_browser_clearance",
+      "required": true
+    },
+    {
+      "id": "hard_challenge_human_fallback",
+      "required": true
+    },
+    {
+      "id": "static_text_or_arithmetic_challenge_policy",
+      "required": true
+    },
+    {
+      "id": "twenty_reference_web_form_lanes",
+      "required": true
+    },
+    {
+      "id": "reference_email_lane",
+      "required": true
+    },
+    {
+      "id": "reference_phone_lane",
+      "required": true
+    },
+    {
+      "id": "browser_webmail_send",
+      "required": true
+    },
+    {
+      "id": "smtp_send",
+      "required": true
+    },
+    {
+      "id": "browser_webmail_verification",
+      "required": true
+    },
+    {
+      "id": "imap_verification",
+      "required": true
+    },
+    {
+      "id": "anti_phishing_link_scoring",
+      "required": true
+    },
+    {
+      "id": "screenshot_or_opaque_visual_evidence",
+      "required": true
+    },
+    {
+      "id": "deletion_vs_suppression_policy",
+      "required": true
+    },
+    {
+      "id": "email_rescue_lane",
+      "required": true
+    },
+    {
+      "id": "indirect_exposure_legal_request",
+      "required": true
+    },
+    {
+      "id": "ccpa_gdpr_and_authorized_agent_requests",
+      "required": true
+    },
+    {
+      "id": "california_drop_one_shot",
+      "required": true
+    },
+    {
+      "id": "california_registry_ingestion",
+      "required": true
+    },
+    {
+      "id": "multi_state_registry_portals",
+      "required": true
+    },
+    {
+      "id": "live_broker_source_refresh",
+      "required": true
+    },
+    {
+      "id": "refresh_quarantine_and_provenance",
+      "required": true
+    },
+    {
+      "id": "durable_state_machine_and_disclosure_log",
+      "required": true
+    },
+    {
+      "id": "verification_and_processing_lifecycle",
+      "required": true
+    },
+    {
+      "id": "scheduled_rechecks_and_reappearance",
+      "required": true
+    },
+    {
+      "id": "cron_handoff",
+      "required": true
+    },
+    {
+      "id": "case_show_and_due_queue",
+      "required": true
+    },
+    {
+      "id": "markdown_status_report",
+      "required": true
+    },
+    {
+      "id": "structured_report_export",
+      "required": true
+    },
+    {
+      "id": "google_sheets_compatible_rows",
+      "required": true
+    },
+    {
+      "id": "restart_resume_and_idempotency",
+      "required": true
+    },
+    {
+      "id": "minimum_disclosure",
+      "required": true
+    },
+    {
+      "id": "human_only_id_phone_fax_mail_payment_account",
+      "required": true
+    }
+  ],
+  "broker_contracts": {
+    "addresses": {
+      "method": "web_form",
+      "action_url": "https://suppression.peopleconnect.us/login",
+      "inputs": [
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "advancedbackgroundchecks": {
+      "method": "web_form",
+      "action_url": "https://www.advancedbackgroundchecks.com/opt-out",
+      "inputs": [
+        "full_name",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": true
+    },
+    "beenverified": {
+      "method": "web_form",
+      "action_url": "https://www.beenverified.com/svc/optout/search/optouts",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "clustal": {
+      "method": "web_form",
+      "action_url": "https://www.clustal.org/privacy-control/",
+      "inputs": [
+        "profile_url",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "clustrmaps": {
+      "method": "web_form",
+      "action_url": "https://clustrmaps.com/bl/opt-out",
+      "inputs": [
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "cyberbackgroundchecks": {
+      "method": "web_form",
+      "action_url": "https://www.cyberbackgroundchecks.com/removal",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "familytreenow": {
+      "method": "web_form",
+      "action_url": "https://www.familytreenow.com/optout",
+      "inputs": [
+        "full_name"
+      ],
+      "email_verification": false,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "fastpeoplesearch": {
+      "method": "web_form",
+      "action_url": "https://www.fastpeoplesearch.com/removal",
+      "inputs": [
+        "full_name",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": true
+    },
+    "intelius": {
+      "method": "web_form",
+      "action_url": "https://suppression.peopleconnect.us/login",
+      "inputs": [
+        "contact_email",
+        "full_name",
+        "date_of_birth"
+      ],
+      "email_verification": true,
+      "requires_dob": true,
+      "requires_captcha": false
+    },
+    "mylife": {
+      "method": "phone",
+      "action_url": "https://www.mylife.com/privacyrequest",
+      "inputs": [
+        "full_name",
+        "profile_url"
+      ],
+      "email_verification": false,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "nuwber": {
+      "method": "web_form",
+      "action_url": "https://nuwber.com/removal/link",
+      "inputs": [
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "peekyou": {
+      "method": "web_form",
+      "action_url": "https://www.peekyou.com/about/contact/optout",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "peoplefinders": {
+      "method": "web_form",
+      "action_url": "https://www.peoplefinders.com/opt-out",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "radaris": {
+      "method": "web_form",
+      "action_url": "https://radaris.com/control-privacy",
+      "inputs": [
+        "profile_url",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": true
+    },
+    "rehold": {
+      "method": "web_form",
+      "action_url": "https://rehold.com/optout",
+      "inputs": [
+        "profile_url"
+      ],
+      "email_verification": false,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "searchpeoplefree": {
+      "method": "web_form",
+      "action_url": "https://www.searchpeoplefree.com/opt-out",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "socialcatfish": {
+      "method": "web_form",
+      "action_url": "https://socialcatfish.com/opt-out/",
+      "inputs": [
+        "full_name",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": true
+    },
+    "spokeo": {
+      "method": "web_form",
+      "action_url": "https://www.spokeo.com/optout",
+      "inputs": [
+        "profile_url",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "thatsthem": {
+      "method": "web_form",
+      "action_url": "https://thatsthem.com/optout",
+      "inputs": [
+        "full_name",
+        "street",
+        "city",
+        "state",
+        "postal",
+        "contact_email",
+        "phone"
+      ],
+      "email_verification": false,
+      "requires_dob": false,
+      "requires_captcha": true
+    },
+    "truepeoplesearch": {
+      "method": "web_form",
+      "action_url": "https://www.truepeoplesearch.com/removal",
+      "inputs": [
+        "full_name",
+        "contact_email"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": true
+    },
+    "usphonebook": {
+      "method": "web_form",
+      "action_url": "https://www.usphonebook.com/opt-out",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    },
+    "whitepages": {
+      "method": "email",
+      "action_url": "https://www.whitepages.com/suppression_requests",
+      "inputs": [
+        "full_name",
+        "contact_email",
+        "profile_url"
+      ],
+      "email_verification": true,
+      "requires_dob": false,
+      "requires_captcha": false
+    }
+  }
+}

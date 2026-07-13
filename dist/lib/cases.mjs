@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_BROKER_ID = /^[a-z0-9_]{2,24}$/;
-const SAFE_PROOF_REF = /^(?:scan|intent|smtp|form|mail|verify|direct|controller|reconcile)_[a-f0-9]{16,64}$/;
+const SAFE_PROOF_REF = /^(?:scan|intent|smtp|webmail|form|receipt|mail|verify|direct|controller|reconcile|drop)_[a-f0-9]{16,64}$/;
 const SAFE_LISTING_HANDLE = /^listing_[a-f0-9]{24}$/;
 const MAX_HISTORY = 100;
 const DEFAULT_PROCESSING_DAYS = 14;
@@ -28,23 +28,23 @@ export const CASE_STATES = Object.freeze([
     "blocked",
 ]);
 const TRANSITIONS = new Map([
-    ["new", new Set(["searching", "inconclusive", "not_found", "found", "indirect_exposure", "action_selected", "human_task_queued", "blocked"])],
-    ["searching", new Set(["inconclusive", "not_found", "found", "indirect_exposure", "human_task_queued", "blocked"])],
-    ["inconclusive", new Set(["searching", "inconclusive", "not_found", "found", "indirect_exposure", "human_task_queued", "blocked"])],
-    ["not_found", new Set(["searching", "inconclusive", "found", "indirect_exposure", "human_task_queued", "blocked"])],
-    ["found", new Set(["action_selected", "submission_pending", "inconclusive", "not_found", "indirect_exposure", "human_task_queued", "blocked"])],
-    ["indirect_exposure", new Set(["action_selected", "submission_pending", "inconclusive", "not_found", "found", "human_task_queued", "blocked"])],
-    ["action_selected", new Set(["submission_pending", "inconclusive", "not_found", "found", "human_task_queued", "blocked"])],
+    ["new", new Set(["searching", "inconclusive", "not_found", "found", "indirect_exposure", "action_selected", "verification_pending", "human_task_queued", "blocked"])],
+    ["searching", new Set(["inconclusive", "not_found", "found", "indirect_exposure", "verification_pending", "human_task_queued", "blocked"])],
+    ["inconclusive", new Set(["searching", "inconclusive", "not_found", "found", "indirect_exposure", "verification_pending", "human_task_queued", "blocked"])],
+    ["not_found", new Set(["searching", "inconclusive", "found", "indirect_exposure", "verification_pending", "human_task_queued", "blocked"])],
+    ["found", new Set(["action_selected", "submission_pending", "verification_pending", "inconclusive", "not_found", "indirect_exposure", "human_task_queued", "blocked"])],
+    ["indirect_exposure", new Set(["action_selected", "submission_pending", "verification_pending", "inconclusive", "not_found", "found", "human_task_queued", "blocked"])],
+    ["action_selected", new Set(["submission_pending", "verification_pending", "inconclusive", "not_found", "found", "human_task_queued", "blocked"])],
     ["submission_pending", new Set(["submitted", "submission_uncertain", "action_selected", "human_task_queued", "blocked"])],
     ["submission_uncertain", new Set(["submitted", "action_selected", "human_task_queued", "blocked"])],
     ["submitted", new Set(["verification_pending", "awaiting_processing", "identity_verification_required", "partially_removed", "request_rejected", "confirmed_removed", "found", "human_task_queued", "blocked"])],
-    ["verification_pending", new Set(["awaiting_processing", "identity_verification_required", "partially_removed", "request_rejected", "confirmed_removed", "found", "human_task_queued", "blocked"])],
+    ["verification_pending", new Set(["submission_pending", "awaiting_processing", "identity_verification_required", "partially_removed", "request_rejected", "confirmed_removed", "found", "human_task_queued", "blocked"])],
     ["awaiting_processing", new Set(["identity_verification_required", "partially_removed", "request_rejected", "confirmed_removed", "found", "human_task_queued", "blocked"])],
     ["identity_verification_required", new Set(["submitted", "awaiting_processing", "partially_removed", "request_rejected", "confirmed_removed", "human_task_queued", "blocked"])],
     ["partially_removed", new Set(["action_selected", "submission_pending", "awaiting_processing", "identity_verification_required", "request_rejected", "confirmed_removed", "reappeared", "human_task_queued", "blocked"])],
     ["request_rejected", new Set(["action_selected", "submission_pending", "human_task_queued", "blocked"])],
     ["confirmed_removed", new Set(["confirmed_removed", "reappeared"])],
-    ["reappeared", new Set(["found", "inconclusive", "not_found", "indirect_exposure", "action_selected", "submission_pending", "human_task_queued", "blocked"])],
+    ["reappeared", new Set(["found", "inconclusive", "not_found", "indirect_exposure", "action_selected", "submission_pending", "verification_pending", "human_task_queued", "blocked"])],
     ["human_task_queued", new Set(["searching", "inconclusive", "not_found", "found", "indirect_exposure", "action_selected", "submission_pending", "submission_uncertain", "submitted", "verification_pending", "awaiting_processing", "identity_verification_required", "partially_removed", "request_rejected", "confirmed_removed", "blocked"])],
     ["blocked", new Set(["searching", "inconclusive", "not_found", "found", "indirect_exposure", "action_selected", "human_task_queued"])],
 ]);
@@ -295,8 +295,36 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
             }
         });
     }
+    async function recordBrowserDiscovery(report) {
+        if (!report || report.mode !== "operator_authorized_browser_discovery"
+            || report.state !== "indirect_exposure" || typeof report.listing_handle !== "string"
+            || !SAFE_LISTING_HANDLE.test(report.listing_handle))
+            throw new Error("invalid_browser_discovery_report");
+        const profileId = safeProfileId(report.subject_ref);
+        const brokerId = safeBrokerId(report.broker_id);
+        const observedAt = safeDate(report.generated_at, "scan_timestamp");
+        const proofs = safeStringArray(report.proof_references ?? [], SAFE_PROOF_REF, 12);
+        return withProfile(profileId, (profile) => {
+            const brokerCase = profile.brokers[brokerId] ?? newBrokerCase(brokerId, observedAt);
+            brokerCase.last_observation = {
+                at: observedAt,
+                kind: "operator_authorized_browser_candidate",
+                state: "indirect_exposure",
+                reason: "publisher_browser_candidate_observed",
+            };
+            brokerCase.listing_handle = report.listing_handle;
+            brokerCase.proof_references = [...new Set([...brokerCase.proof_references, ...proofs])].slice(-24);
+            if (brokerCase.state === "confirmed_removed") {
+                transition(brokerCase, "confirmed_removed", observedAt, "browser_candidate_requires_direct_reappearance_confirmation");
+            }
+            else if (!["submitted", "verification_pending", "awaiting_processing"].includes(brokerCase.state)) {
+                transition(brokerCase, "indirect_exposure", observedAt, "publisher_browser_candidate_observed");
+            }
+            profile.brokers[brokerId] = brokerCase;
+        });
+    }
     async function recordRemoval(report, processingDays = DEFAULT_PROCESSING_DAYS) {
-        if (!report || report.state !== "submitted" || report.delivery?.accepted_by_outbound_smtp !== true) {
+        if (!report || report.state !== "submitted" || !(report.delivery?.accepted_by_outbound_smtp === true || report.delivery?.webmail_sent === true)) {
             throw new Error("invalid_removal_report");
         }
         const profileId = safeProfileId(report.subject_ref);
@@ -310,8 +338,9 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
             const brokerCase = profile.brokers[brokerId] ?? newBrokerCase(brokerId, at);
             if (brokerCase.state !== "submission_pending")
                 throw new Error("submission_intent_required");
-            transition(brokerCase, "submitted", at, "approved_email_submission");
-            brokerCase.submission_outcome = "accepted_by_outbound_smtp";
+            const webmail = report.delivery?.webmail_sent === true;
+            transition(brokerCase, "submitted", at, webmail ? "approved_browser_webmail_submission" : "approved_email_submission");
+            brokerCase.submission_outcome = webmail ? "browser_webmail_sent_evidence_observed" : "accepted_by_outbound_smtp";
             brokerCase.proof_references = [...new Set([...brokerCase.proof_references, ...proof])].slice(-24);
             brokerCase.disclosure_fields = disclosures;
             brokerCase.next_recheck_at = addDays(at, processingDays);
@@ -337,6 +366,68 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
             brokerCase.proof_references = [...new Set([...brokerCase.proof_references, ...proof])].slice(-24);
             brokerCase.disclosure_fields = disclosures;
             brokerCase.next_recheck_at = addDays(at, 1);
+            profile.brokers[brokerId] = brokerCase;
+        });
+    }
+    async function recordVerificationRequested(report) {
+        if (!report || report.state !== "verification_pending" || report.delivery?.verification_email_requested !== true) {
+            throw new Error("invalid_verification_request_report");
+        }
+        const profileId = safeProfileId(report.subject_ref);
+        const brokerId = safeBrokerId(report.broker_id);
+        const at = safeDate(report.generated_at, "verification_request_timestamp");
+        const proof = safeStringArray(report.proof_references ?? [], SAFE_PROOF_REF, 12);
+        return withProfile(profileId, (profile) => {
+            const brokerCase = profile.brokers[brokerId] ?? newBrokerCase(brokerId, at);
+            if (brokerCase.state !== "submission_pending" || brokerCase.submission_channel !== "browser_form") {
+                throw new Error("verification_request_not_ready");
+            }
+            transition(brokerCase, "submitted", at, "identity_portal_verification_request_confirmed");
+            transition(brokerCase, "verification_pending", at, "identity_portal_verification_email_requested");
+            brokerCase.submission_channel = "browser_form";
+            brokerCase.submission_outcome = "identity_portal_verification_requested";
+            brokerCase.proof_references = [...new Set([...brokerCase.proof_references, ...proof])].slice(-24);
+            brokerCase.disclosure_fields = ["contact_email"];
+            brokerCase.next_recheck_at = at;
+            profile.brokers[brokerId] = brokerCase;
+        });
+    }
+    async function reserveVerifiedPortalSubmission(profileId, brokerId) {
+        const cleanProfile = safeProfileId(profileId);
+        const cleanBroker = safeBrokerId(brokerId);
+        return withProfile(cleanProfile, (profile, at) => {
+            const brokerCase = profile.brokers[cleanBroker] ?? newBrokerCase(cleanBroker, at);
+            if (brokerCase.state !== "verification_pending" || brokerCase.submission_outcome !== "identity_portal_verification_requested") {
+                throw new Error("verified_portal_submission_not_ready");
+            }
+            transition(brokerCase, "submission_pending", at, "durable_verified_portal_suppression_intent");
+            brokerCase.submission_started_at = at;
+            brokerCase.submission_outcome = "pending";
+            const proof = opaqueEvidence("intent", [cleanProfile, cleanBroker, "verified_portal_suppression", at]);
+            brokerCase.proof_references = [...new Set([...brokerCase.proof_references, proof])].slice(-24);
+            profile.brokers[cleanBroker] = brokerCase;
+            return { state: brokerCase.state, proof_reference: proof, started_at: at };
+        });
+    }
+    async function recordSuppressionSubmission(report, processingDays = DEFAULT_PROCESSING_DAYS) {
+        if (!report || report.state !== "awaiting_processing" || report.delivery?.form_submitted !== true
+            || report.delivery?.suppression_selected !== true)
+            throw new Error("invalid_suppression_submission_report");
+        const profileId = safeProfileId(report.subject_ref);
+        const brokerId = safeBrokerId(report.broker_id);
+        const at = safeDate(report.generated_at, "suppression_submission_timestamp");
+        const proof = safeStringArray(report.proof_references ?? [], SAFE_PROOF_REF, 12);
+        const disclosures = safeStringArray(report.disclosures?.to_broker ?? [], /^[a-z_]{2,32}$/, 24);
+        return withProfile(profileId, (profile) => {
+            const brokerCase = profile.brokers[brokerId] ?? newBrokerCase(brokerId, at);
+            if (brokerCase.state !== "submission_pending")
+                throw new Error("submission_intent_required");
+            transition(brokerCase, "submitted", at, "verified_portal_suppression_submitted");
+            transition(brokerCase, "awaiting_processing", at, "suppression_confirmation_observed");
+            brokerCase.submission_outcome = "suppression_selected_and_submitted";
+            brokerCase.proof_references = [...new Set([...brokerCase.proof_references, ...proof])].slice(-24);
+            brokerCase.disclosure_fields = disclosures;
+            brokerCase.next_recheck_at = addDays(at, processingDays);
             profile.brokers[brokerId] = brokerCase;
         });
     }
@@ -408,14 +499,36 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
             }
             else if (!["submitted", "verification_pending", "awaiting_processing", "confirmed_removed"].includes(brokerCase.state)) {
                 transition(brokerCase, "inconclusive", at, "direct_rescan_inconclusive");
+                brokerCase.next_recheck_at = addDays(at, 1);
+            }
+            else {
+                transition(brokerCase, brokerCase.state, at, "direct_rescan_inconclusive_deferred");
+                brokerCase.next_recheck_at = addDays(at, 1);
             }
             profile.brokers[brokerId] = brokerCase;
+        });
+    }
+    /** @param {string} profileId @param {string} brokerId @param {{reason?:string, days?:number}} [options] */
+    async function deferRecheck(profileId, brokerId, { reason, days = 1 } = {}) {
+        const cleanProfile = safeProfileId(profileId);
+        const cleanBroker = safeBrokerId(brokerId);
+        const cleanReason = safeMetadataToken(reason, "recheck_deferred_without_conclusive_evidence");
+        if (!Number.isInteger(days) || days < 1 || days > 30)
+            throw new Error("invalid_recheck_window");
+        return withProfile(cleanProfile, (profile, at) => {
+            const brokerCase = profile.brokers[cleanBroker];
+            if (!brokerCase)
+                throw new Error("case_not_found");
+            transition(brokerCase, brokerCase.state, at, cleanReason);
+            brokerCase.last_observation = { at, kind: "scheduled_recheck", state: "not_observed", reason: cleanReason };
+            brokerCase.next_recheck_at = addDays(at, days);
+            return { state: brokerCase.state, next_recheck_at: brokerCase.next_recheck_at };
         });
     }
     async function reserveSubmission(profileId, brokerId, { channel, discoveryRequirement } = {}) {
         const cleanProfile = safeProfileId(profileId);
         const cleanBroker = safeBrokerId(brokerId);
-        if (!["smtp_email", "browser_form"].includes(channel))
+        if (!["smtp_email", "browser_webmail", "browser_form"].includes(channel))
             throw new Error("invalid_submission_channel");
         if (!["prior_discovery_required", "not_required_for_data_subject_request"].includes(discoveryRequirement)) {
             throw new Error("invalid_discovery_requirement");
@@ -454,7 +567,7 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
     async function recordSubmissionUncertain(profileId, brokerId, { channel, reason } = {}) {
         const cleanProfile = safeProfileId(profileId);
         const cleanBroker = safeBrokerId(brokerId);
-        if (!["smtp_email", "browser_form"].includes(channel))
+        if (!["smtp_email", "browser_webmail", "browser_form"].includes(channel))
             throw new Error("invalid_submission_channel");
         return withProfile(cleanProfile, (profile, at) => {
             const brokerCase = profile.brokers[cleanBroker];
@@ -537,7 +650,7 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
                 throw new Error('rightout_submission_reconciliation_not_ready');
             }
             const channel = brokerCase.submission_channel;
-            if (!['smtp_email', 'browser_form'].includes(channel))
+            if (!['smtp_email', 'browser_webmail', 'browser_form'].includes(channel))
                 throw new Error('invalid_submission_channel');
             const proof = opaqueEvidence('reconcile', [cleanProfile, cleanBroker, channel, outcome, at]);
             brokerCase.proof_references = [...new Set([...brokerCase.proof_references, proof])].slice(-24);
@@ -579,13 +692,41 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
                 brokerCase.next_recheck_at = addDays(at, 1);
             if (state === "awaiting_processing")
                 brokerCase.next_recheck_at = addDays(at, options.processingDays ?? DEFAULT_PROCESSING_DAYS);
-            if (state === "human_task_queued")
+            if (state === "human_task_queued" || state === "blocked") {
                 brokerCase.human_task_reason = String(options.reason ?? "manual_step_required").slice(0, 80);
+                brokerCase.next_recheck_at = null;
+            }
             if (typeof options.proofReference === "string") {
                 const proof = safeStringArray([options.proofReference], SAFE_PROOF_REF, 1);
                 brokerCase.proof_references = [...new Set([...brokerCase.proof_references, ...proof])].slice(-24);
             }
             profile.brokers[cleanBroker] = brokerCase;
+        });
+    }
+    async function recordDropFiled(profileId, { registryCount, processingStart }) {
+        const cleanProfile = safeProfileId(profileId);
+        if (!Number.isInteger(registryCount) || registryCount < 1 || registryCount > 10_000)
+            throw new Error("rightout_drop_registry_invalid");
+        const start = safeDate(processingStart, "drop_processing_start");
+        return withProfile(cleanProfile, (profile, at) => {
+            const brokerId = "ca_drop";
+            const existing = profile.brokers[brokerId];
+            if (existing && ["submitted", "awaiting_processing", "confirmed_removed"].includes(existing.state))
+                throw new Error("rightout_drop_already_recorded");
+            const brokerCase = existing ?? newBrokerCase(brokerId, at);
+            transition(brokerCase, "action_selected", at, "human_verified_california_drop_eligibility");
+            transition(brokerCase, "submission_pending", at, "durable_human_drop_filing_intent");
+            transition(brokerCase, "submitted", at, "operator_attested_drop_filed");
+            transition(brokerCase, "awaiting_processing", at, "california_drop_processing_schedule");
+            const proof = opaqueEvidence("drop", [cleanProfile, registryCount, start, at]);
+            brokerCase.proof_references = [...new Set([...brokerCase.proof_references, proof])].slice(-24);
+            brokerCase.submission_channel = "california_drop_human_portal";
+            brokerCase.submission_outcome = "operator_attested_filed";
+            brokerCase.disclosure_fields = ["state_verified_identity"];
+            brokerCase.next_recheck_at = Date.parse(start) > Date.parse(at) ? start : addDays(at, 45);
+            brokerCase.coverage_gap = "nonregistered_brokers_and_fcra_exceptions_not_covered";
+            profile.brokers[brokerId] = brokerCase;
+            return { state: brokerCase.state, proof_reference: proof, next_recheck_at: brokerCase.next_recheck_at };
         });
     }
     async function removalContext(profileId, brokerId) {
@@ -612,12 +753,14 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
         if (!brokerCase || !allowedStates.includes(brokerCase.state))
             throw new Error("rightout_verification_case_not_ready");
         const submitted = [...brokerCase.history].reverse().find((entry) => entry.to === "submitted");
-        const submissionProof = [...brokerCase.proof_references].reverse().find((value) => /^(?:smtp|form)_/.test(value));
-        if (!submitted || !submissionProof)
+        const submissionProof = [...brokerCase.proof_references].reverse().find((value) => /^(?:smtp|webmail|form)_/.test(value));
+        const identityPortalRequest = brokerCase.submission_outcome === "identity_portal_verification_requested"
+            && typeof brokerCase.submission_started_at === "string";
+        if ((!submitted && !identityPortalRequest) || !submissionProof)
             throw new Error("rightout_verification_case_not_ready");
         return {
             state: brokerCase.state,
-            submitted_at: submitted.at,
+            submitted_at: submitted?.at ?? brokerCase.submission_started_at,
             submission_proof_reference: submissionProof,
         };
     }
@@ -778,6 +921,6 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
         const key = safeProfileId(profileId);
         return store.delete(key);
     }
-    return { load, ensure, reserveSubmission, releaseSubmission, recordSubmissionUncertain, reconcileSubmission, recordControllerOutcome, recordScan, recordRemoval, recordFormSubmission, recordDirectRescan, recordLifecycle, removalContext, verificationContext, purge, plan, due, status };
+    return { load, ensure, reserveSubmission, reserveVerifiedPortalSubmission, releaseSubmission, recordSubmissionUncertain, reconcileSubmission, recordControllerOutcome, recordScan, recordBrowserDiscovery, recordRemoval, recordFormSubmission, recordVerificationRequested, recordSuppressionSubmission, recordDirectRescan, deferRecheck, recordLifecycle, recordDropFiled, removalContext, verificationContext, purge, plan, due, status };
 }
 export const __test = { transition, laneFor, tierFor, nextActionFor, opaqueEvidence };

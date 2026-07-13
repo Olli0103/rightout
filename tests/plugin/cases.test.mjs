@@ -107,6 +107,24 @@ test("opaque listing handles persist for later campaign resumption", async () =>
   assert.equal(plan.campaign.autonomous_after_exact_approvals, true);
 });
 
+test("operator-authorized browser discovery records only an opaque candidate for later direct verification", async () => {
+  const store = memoryStore();
+  const ledger = createCaseLedger(store, { now: () => new Date("2026-07-13T10:00:00Z") });
+  await ledger.recordBrowserDiscovery({
+    mode: "operator_authorized_browser_discovery",
+    subject_ref: PROFILE,
+    broker_id: "familytreenow",
+    state: "indirect_exposure",
+    listing_handle: "listing_0123456789abcdef01234567",
+    generated_at: "2026-07-13T10:00:00Z",
+    proof_references: ["receipt_0123456789abcdef01234567"],
+  });
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.cases[0].state, "indirect_exposure");
+  assert.equal(status.cases[0].listing_handle, "listing_0123456789abcdef01234567");
+  assert.equal(JSON.stringify(store.values.get(PROFILE)).includes("https://"), false);
+});
+
 test("approved removal records submission, field names, proof, and due date", async () => {
   const store = memoryStore();
   const ledger = createCaseLedger(store, { now: clock("2026-07-12T10:00:00Z", "2026-07-12T10:00:01Z") });
@@ -366,6 +384,28 @@ test("direct-rescan report confirms a submitted known listing set and later dete
   assert.equal((await ledger.status(PROFILE)).counts.reappeared, 1);
 });
 
+test("an inconclusive direct recheck preserves evidence state and defers the next attempt", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-20T10:00:00Z") });
+  await recordDiscovery(ledger);
+  await ledger.reserveSubmission(PROFILE, "beenverified", { channel: "smtp_email", discoveryRequirement: "prior_discovery_required" });
+  await ledger.recordRemoval({
+    state: "submitted", subject_ref: PROFILE, broker_id: "beenverified",
+    generated_at: "2026-07-19T10:00:00Z", delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_0123456789abcdef01234567"], disclosures: { to_broker: ["contact_email"] },
+  });
+  await ledger.recordDirectRescan({
+    subject_ref: PROFILE, broker_id: "beenverified", observation: "inconclusive",
+    removal_confirmation_scope: "known_listing_set_only", generated_at: "2026-07-20T10:00:00Z",
+    proof_references: ["direct_0123456789abcdef01234567"],
+  });
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.cases[0].state, "submitted");
+  assert.equal(status.cases[0].next_recheck_at, "2026-07-21T10:00:00.000Z");
+  const stored = (await ledger.load(PROFILE)).brokers.beenverified;
+  assert.equal(stored.last_observation.state, "inconclusive");
+  assert.match(stored.history.at(-1).reason, /inconclusive_deferred/);
+});
+
 test("direct absence without a prior removal is not reported as confirmed removal", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await ledger.recordDirectRescan({
@@ -509,6 +549,19 @@ test("due returns only elapsed rechecks", async () => {
   }, 2);
   assert.equal((await ledger.due(PROFILE, "2026-07-13T10:00:00Z")).due.length, 0);
   assert.equal((await ledger.due(PROFILE, "2026-07-14T10:00:00Z")).due.length, 1);
+});
+
+test("human-verified California DROP filing becomes one durable registry-wide case", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-13T10:00:00Z") });
+  const filed = await ledger.recordDropFiled(PROFILE, { registryCount: 545, processingStart: "2026-08-01T00:00:00Z" });
+  assert.equal(filed.state, "awaiting_processing");
+  assert.match(filed.proof_reference, /^drop_[a-f0-9]{24}$/);
+  assert.equal(filed.next_recheck_at, "2026-08-01T00:00:00.000Z");
+  const status = await ledger.status(PROFILE);
+  const drop = status.cases.find((item) => item.broker_id === "ca_drop");
+  assert.equal(drop.submission_channel, "california_drop_human_portal");
+  assert.equal(drop.coverage_gap, "nonregistered_brokers_and_fcra_exceptions_not_covered");
+  await assert.rejects(ledger.recordDropFiled(PROFILE, { registryCount: 545, processingStart: "2026-08-01T00:00:00Z" }), /already_recorded/);
 });
 
 test("removal and form submission require prior discovery evidence", async () => {

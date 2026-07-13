@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
+import { publisherAutomationPermissions } from "./provider-terms-fixture.mjs";
 
 import { removalProfileDigest } from "../../lib/removal.mjs";
 import { createCaseLedger } from "../../lib/cases.mjs";
@@ -27,7 +28,7 @@ function json(value) { return new Response(JSON.stringify(value), { status: 200,
 test("runtime form lane uses sandbox bridge behind its own allow-once binding", async () => {
   const originalFetch = globalThis.fetch;
   const responses = [
-    json({ ok: true, targetId: "tab-1" }),
+    json({ targetId: "tab-1", title: "Suppression", url: "https://suppression.peopleconnect.us/" }),
     json({ ok: true, format: "ai", targetId: "tab-1", snapshot: "Email Agree Continue", refs: {
       e1: { role: "textbox", name: "Email" }, e2: { role: "checkbox", name: "Agree to Terms" }, e3: { role: "button", name: "Continue" },
     } }),
@@ -52,6 +53,7 @@ test("runtime form lane uses sandbox bridge behind its own allow-once binding", 
       authorizedBrokerIds: ["intelius"],
     };
     const runtime = fakeRuntime();
+    const pluginConfig = { stateEncryptionKey: "dummy-state-key-with-more-than-32-characters", profiles: { [profileId]: { payload } }, formAttestations, publisherAutomationPermissions: publisherAutomationPermissions(["intelius"]) };
     plugin.register({
       runtime,
       on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
@@ -60,7 +62,7 @@ test("runtime form lane uses sandbox bridge behind its own allow-once binding", 
         tools.set(resolved.name, resolved);
       },
       registerSecurityAuditCollector() {},
-      pluginConfig: { stateEncryptionKey: "dummy-state-key-with-more-than-32-characters", profiles: { [profileId]: { payload } }, formAttestations },
+      pluginConfig,
       resolvePath(value) { return value; },
       logger: { info() {}, warn() {}, error() {}, debug() {} },
     });
@@ -77,10 +79,18 @@ test("runtime form lane uses sandbox bridge behind its own allow-once binding", 
     });
     const input = { profileId, brokerId: "intelius", requestKind: "delete_and_opt_out" };
     const denied = await beforeToolCall({ toolName: "rightout_submit_form_removal", params: input, toolCallId: "form-denied" });
-    assert.match(denied.requireApproval.description, /External write/);
+    assert.match(denied.requireApproval.description, /external write/);
     assert.doesNotMatch(denied.requireApproval.description, /Avery|avery@example/);
     denied.requireApproval.onResolution("deny");
     await assert.rejects(tools.get("rightout_submit_form_removal").execute("form-denied", input), /rightout_approval_binding_failed/);
+
+    const mutationApproval = await beforeToolCall({ toolName: "rightout_submit_form_removal", params: input, toolCallId: "form-mutated" });
+    mutationApproval.requireApproval.onResolution("allow-once");
+    const callsBeforeMutation = calls.length;
+    pluginConfig.browserProfile = "changed-after-approval";
+    await assert.rejects(tools.get("rightout_submit_form_removal").execute("form-mutated", input), /rightout_approval_binding_failed/);
+    assert.equal(calls.length, callsBeforeMutation, "routing mutation must fail before browser I/O");
+    delete pluginConfig.browserProfile;
 
     const approved = await beforeToolCall({ toolName: "rightout_submit_form_removal", params: input, toolCallId: "form-approved" });
     approved.requireApproval.onResolution("allow-once");
@@ -96,7 +106,7 @@ test("runtime form lane uses sandbox bridge behind its own allow-once binding", 
       runtime,
       on(name, handler) { if (name === "before_tool_call") restartedBeforeToolCall = handler; },
       registerTool() {}, registerSecurityAuditCollector() {},
-      pluginConfig: { stateEncryptionKey: "dummy-state-key-with-more-than-32-characters", profiles: { [profileId]: { payload } }, formAttestations },
+      pluginConfig: { stateEncryptionKey: "dummy-state-key-with-more-than-32-characters", profiles: { [profileId]: { payload } }, formAttestations, publisherAutomationPermissions: publisherAutomationPermissions(["intelius"]) },
       resolvePath(value) { return value; }, logger: { info() {}, warn() {}, error() {}, debug() {} },
     });
     const duplicate = await restartedBeforeToolCall({ toolName: "rightout_submit_form_removal", params: input, toolCallId: "form-after-restart" });
@@ -111,7 +121,7 @@ test("runtime form lane uses sandbox bridge behind its own allow-once binding", 
         restartedTools.set(resolved.name, resolved);
       },
       registerSecurityAuditCollector() {},
-      pluginConfig: { stateEncryptionKey: "dummy-state-key-with-more-than-32-characters", profiles: { [profileId]: { payload } }, formAttestations },
+      pluginConfig: { stateEncryptionKey: "dummy-state-key-with-more-than-32-characters", profiles: { [profileId]: { payload } }, formAttestations, publisherAutomationPermissions: publisherAutomationPermissions(["intelius"]) },
       resolvePath(value) { return value; }, logger: { info() {}, warn() {}, error() {}, debug() {} },
     });
     const duplicateExecutionApproval = await restartedHook({ toolName: "rightout_submit_form_removal", params: input, toolCallId: "form-after-restart-execute" });

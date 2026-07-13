@@ -1,26 +1,239 @@
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Type } from "typebox";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { buildHostnameAllowlistPolicyFromSuffixAllowlist, fetchWithSsrFGuard, } from "openclaw/plugin-sdk/ssrf-runtime";
-import { BRAVE_TERMS_VERSION, approvalDescription, runLiveScan, validateOperatorAttestations, validatePublicToolInput, } from "./lib/live-scan.mjs";
-import { RIGHTOUT_REMOVAL_POLICY_VERSION, removalApprovalDescription, removalScopeBinding, resolveRemovalCatalogEntry, runRemovalSubmission, validateRemovalOperatorAttestations, validateRemovalPreflight, validateRemovalPublicToolInput, } from "./lib/removal.mjs";
+import { BRAVE_TERMS_VERSION, approvalDescription, runLiveScan, scanProfileDigest, validateOperatorAttestations, validatePublicToolInput, } from "./lib/live-scan.mjs";
+import { RIGHTOUT_REMOVAL_POLICY_VERSION, removalApprovalDescription, removalScopeBinding, resolveRemovalCatalogEntry, runRemovalSubmission, parseRemovalProfile, removalProfileDigest, validateRemovalOperatorAttestations, validateRemovalPreflight, validateRemovalPublicToolInput, } from "./lib/removal.mjs";
 import { createSmtpSender } from "./lib/smtp.mjs";
 import { createCaseLedger } from "./lib/cases.mjs";
-import { createBrowserFormSubmitter } from "./lib/browser-form.mjs";
+import { createBrowserFormSubmitter, createBrowserSessionDriver } from "./lib/browser-form.mjs";
 import { createImapPoller, newVerificationHandle } from "./lib/imap.mjs";
 import { createListingTokenVault } from "./lib/listing-tokens.mjs";
 import { createEncryptedFileKeyedStore } from "./lib/file-keyed-store.mjs";
 import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
-import { RIGHTOUT_DIRECT_SCAN_POLICY_VERSION, directScanApprovalDescription, directScanScopeBinding, resolveDirectScanCatalogEntry, runDirectRescan, validateDirectScanAttestations, validateDirectScanInput, } from "./lib/direct-rescan.mjs";
+import { RIGHTOUT_DIRECT_SCAN_POLICY_VERSION, directScanApprovalDescription, directScanScopeBinding, resolveDirectScanCatalogEntry, runDirectRescan, validateDirectScanAttestations, validateDirectScanInput, validatePublisherAccessAttestations, } from "./lib/direct-rescan.mjs";
 import { RIGHTOUT_VERIFICATION_POLICY_VERSION, resolveVerificationCatalogEntry, validateVerificationAttestations, validateVerificationOpenInput, validateVerificationPollInput, validateVerificationPreflight, verificationOpenApprovalDescription, verificationOpenScopeBinding, verificationPollApprovalDescription, verificationPollScopeBinding, } from "./lib/verification.mjs";
 import { RIGHTOUT_FORM_POLICY_VERSION, formApprovalDescription, formScopeBinding, resolveFormCatalogEntry, runFormRemoval, validateFormAttestations, validateFormPreflight, validateFormRemovalInput, } from "./lib/form-removal.mjs";
+import { CAMPAIGN_EFFECTS, campaignApprovalDescription, campaignRevokeScopeBinding, campaignScopeBinding, createCampaignLedger, validateCampaignRef, validateCampaignStartInput, } from "./lib/campaigns.mjs";
+import { parseCaliforniaRegistryCsv, readBoundedText, REGISTRY_PORTALS, registrySummary, } from "./lib/registry.mjs";
+import { assertParityCatalogFresh, assertParityCatalogRouteFresh, parityCatalogHealth, resolveParityBroker, validateParityCatalog, } from "./lib/parity-catalog.mjs";
+import { buildParityMessage, runParityEmail } from "./lib/parity-email.mjs";
+import { planGlobalScanCampaignNext, planParityCampaignNext } from "./lib/parity-autopilot.mjs";
+import { assertPublisherAutomationPermission, providerTermsHealth, validateProviderTermsCatalog, } from "./lib/provider-terms.mjs";
+import { createReportExport } from "./lib/report-export.mjs";
+import { refreshParitySources } from "./lib/parity-source-refresh.mjs";
+function canonicalJson(value) {
+    if (Array.isArray(value))
+        return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+    if (value && typeof value === "object") {
+        return `{${Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "null";
+}
+function digestJson(value) {
+    return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+function resolveBrowserControl(toolContext, config, backendOverride) {
+    const explicit = config?.browserControlBaseUrl;
+    if (explicit !== undefined && config?.browserBackendMode === undefined) {
+        throw new Error("rightout_browser_backend_invalid");
+    }
+    if (explicit !== undefined && typeof config?.browserControlToken !== "string") {
+        throw new Error("rightout_browser_control_token_required");
+    }
+    if (explicit === undefined && config?.browserBackendMode !== undefined && config.browserBackendMode !== "managed_openclaw") {
+        throw new Error("rightout_browser_backend_invalid");
+    }
+    if (explicit !== undefined) {
+        let url;
+        try {
+            url = new URL(explicit);
+        }
+        catch {
+            throw new Error("rightout_browser_bridge_unavailable");
+        }
+        if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+            || url.username || url.password || url.search || url.hash)
+            throw new Error("rightout_browser_bridge_unavailable");
+    }
+    if (config?.browserProfile !== undefined && !/^[A-Za-z0-9._-]{1,64}$/.test(config.browserProfile)) {
+        throw new Error("rightout_browser_profile_invalid");
+    }
+    if (config?.remoteCloudBrowserProfile !== undefined && !/^[A-Za-z0-9._-]{1,64}$/.test(config.remoteCloudBrowserProfile)) {
+        throw new Error("rightout_browser_profile_invalid");
+    }
+    if (config?.browserBackendMode !== undefined && !["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"].includes(config.browserBackendMode)) {
+        throw new Error("rightout_browser_backend_invalid");
+    }
+    if (backendOverride === "remote_cloud_cdp"
+        && typeof config?.remoteCloudBrowserProfile === "string"
+        && config.remoteCloudBrowserProfile === config.browserProfile)
+        throw new Error("rightout_remote_cloud_profile_not_distinct");
+    return {
+        bridgeUrl: explicit ?? toolContext.browser?.sandboxBridgeUrl,
+        browserProfile: backendOverride === "remote_cloud_cdp" ? config?.remoteCloudBrowserProfile : config?.browserProfile,
+        browserAuthToken: config?.browserControlToken,
+    };
+}
+function resolveBrowserBackend(toolContext, config) {
+    if (config?.browserControlBaseUrl && config.browserBackendMode === undefined) {
+        return {
+            bridgeUrl: config.browserControlBaseUrl,
+            browserProfile: config.browserProfile,
+            browserAuthToken: config.browserControlToken,
+            selected: "backend_mode_required",
+            configured: false,
+            supported: ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"],
+            webmail_ready: false,
+            remote_cloud_fallback_ready: false,
+        };
+    }
+    if (config?.browserControlBaseUrl && typeof config.browserControlToken !== "string") {
+        return {
+            bridgeUrl: config.browserControlBaseUrl,
+            browserProfile: config.browserProfile,
+            selected: "browser_control_token_required",
+            configured: false,
+            supported: ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"],
+            webmail_ready: false,
+            remote_cloud_fallback_ready: false,
+        };
+    }
+    if (!config?.browserControlBaseUrl && config?.browserBackendMode !== undefined && config.browserBackendMode !== "managed_openclaw") {
+        return {
+            selected: "standalone_loopback_required_for_non_managed_backend",
+            configured: false,
+            supported: ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"],
+            webmail_ready: false,
+            remote_cloud_fallback_ready: false,
+        };
+    }
+    const control = resolveBrowserControl(toolContext, config);
+    const hasBridge = typeof control.bridgeUrl === "string";
+    const selected = !hasBridge
+        ? "unavailable"
+        : config?.browserBackendMode
+            ?? (config?.browserControlBaseUrl ? "named_profile_unspecified" : "managed_openclaw");
+    const needsNamedProfile = ["remote_cloud_cdp", "existing_logged_in_cdp", "named_profile_unspecified"].includes(selected);
+    return {
+        ...control,
+        selected,
+        configured: hasBridge && (!needsNamedProfile || typeof control.browserProfile === "string"),
+        supported: ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"],
+        webmail_ready: hasBridge && selected === "existing_logged_in_cdp" && typeof control.browserProfile === "string",
+        remote_cloud_fallback_ready: Boolean(config?.browserControlBaseUrl) && hasBridge && selected !== "remote_cloud_cdp"
+            && typeof config?.remoteCloudBrowserProfile === "string"
+            && config.remoteCloudBrowserProfile !== config.browserProfile,
+    };
+}
+function resolveBrowserControlTransport(toolContext, config) {
+    if (config?.browserControlBaseUrl)
+        return "standalone_loopback_http_opt_in";
+    if (typeof toolContext.browser?.sandboxBridgeUrl === "string")
+        return "openclaw_sandbox_browser_bridge";
+    return "unavailable";
+}
+function browserApprovalRoutingScope(config, { browserRequired, effects = [] }) {
+    const publisherEffects = effects.some((effect) => ["publisher_discover", "submit_form", "open_verification", "direct_recheck"].includes(effect));
+    if (!browserRequired) {
+        return {
+            browserBackendMode: "not_required",
+            browserControlTransport: "not_required",
+            remoteCloudFallback: false,
+            routingDigest: digestJson({
+                version: 1,
+                browser: "not_required",
+                smtpTransportDigest: effects.includes("submit_email") ? config?.removalAttestations?.smtpTransportDigest ?? null : null,
+                imapTransportDigest: effects.includes("poll_verification") ? config?.verificationAttestations?.imapTransportDigest ?? null : null,
+                publisherPermissionsDigest: publisherEffects ? digestJson(config?.publisherAutomationPermissions ?? null) : null,
+            }),
+        };
+    }
+    // Validate the same configuration contract used immediately before browser I/O.
+    resolveBrowserControl({}, config);
+    const browserBackendMode = config?.browserBackendMode ?? "managed_openclaw";
+    const browserControlTransport = config?.browserControlBaseUrl
+        ? "standalone_loopback_http_opt_in"
+        : "openclaw_sandbox_browser_bridge";
+    const remoteCloudFallback = Boolean(config?.browserControlBaseUrl
+        && browserBackendMode !== "remote_cloud_cdp"
+        && typeof config.remoteCloudBrowserProfile === "string"
+        && config.remoteCloudBrowserProfile !== config.browserProfile);
+    return {
+        browserBackendMode,
+        browserControlTransport,
+        remoteCloudFallback,
+        routingDigest: digestJson({
+            version: 1,
+            browserControlBaseUrl: config?.browserControlBaseUrl ?? null,
+            browserProfile: config?.browserProfile ?? null,
+            browserBackendMode,
+            remoteCloudBrowserProfile: remoteCloudFallback ? config?.remoteCloudBrowserProfile ?? null : null,
+            smtpTransportDigest: effects.includes("submit_email") ? config?.removalAttestations?.smtpTransportDigest ?? null : null,
+            imapTransportDigest: effects.includes("poll_verification") ? config?.verificationAttestations?.imapTransportDigest ?? null : null,
+            publisherPermissionsDigest: publisherEffects ? digestJson(config?.publisherAutomationPermissions ?? null) : null,
+        }),
+    };
+}
+async function probeBrowserBackend(control) {
+    if (typeof control.bridgeUrl !== "string")
+        return { reachable: false, operational: false, deep_snapshot: false };
+    const url = new URL(control.bridgeUrl);
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/doctor`;
+    url.search = "";
+    url.searchParams.set("deep", "true");
+    if (control.browserProfile)
+        url.searchParams.set("profile", control.browserProfile);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 12_000);
+    try {
+        const response = await globalThis.fetch(url, {
+            method: "GET",
+            redirect: "error",
+            signal: abort.signal,
+            headers: {
+                Accept: "application/json",
+                ...(control.browserAuthToken ? { Authorization: `Bearer ${control.browserAuthToken}` } : {}),
+            },
+        });
+        if (!response.ok)
+            return { reachable: true, operational: false, deep_snapshot: false };
+        const declared = Number(response.headers.get("content-length") || "0");
+        if (declared > 128_000)
+            return { reachable: true, operational: false, deep_snapshot: false };
+        const body = await response.text();
+        if (Buffer.byteLength(body, "utf8") > 128_000)
+            return { reachable: true, operational: false, deep_snapshot: false };
+        const report = JSON.parse(body);
+        const checks = Array.isArray(report.checks) ? report.checks : [];
+        const deep = checks.find((item) => item?.id === "live-snapshot");
+        return {
+            reachable: true,
+            operational: report.ok === true && checks.every((item) => item?.status !== "fail"),
+            deep_snapshot: deep?.status === "pass",
+        };
+    }
+    catch {
+        return { reachable: false, operational: false, deep_snapshot: false };
+    }
+    finally {
+        clearTimeout(timer);
+    }
+}
+const CampaignIdParameter = Type.Optional(Type.String({
+    pattern: "^campaign_[a-f0-9]{32}$",
+    description: "Optional bounded standing-authorization reference. When valid, this exact in-scope provider effect runs without another approval prompt.",
+}));
 const LiveScanParameters = Type.Object({
     profileId: Type.String({
         pattern: "^profile_[a-f0-9]{16,32}$",
         description: "Opaque operator-configured profile reference. Contains no personal data.",
     }),
-    brokerIds: Type.Array(Type.String({ pattern: "^[a-z0-9_]{2,24}$" }), { minItems: 1, maxItems: 2, uniqueItems: true }),
+    brokerIds: Type.Array(Type.String({ pattern: "^[a-z0-9_]{2,24}$" }), { minItems: 1, maxItems: 100, uniqueItems: true }),
+    campaignId: CampaignIdParameter,
 }, { additionalProperties: false });
 const RemovalParameters = Type.Object({
     profileId: Type.String({
@@ -37,6 +250,7 @@ const RemovalParameters = Type.Object({
     ], {
         description: "Catalog-validated US delete/opt-out or EU GDPR erasure/objection request.",
     }),
+    campaignId: CampaignIdParameter,
 }, { additionalProperties: false });
 const CaseParameters = Type.Object({
     profileId: Type.String({
@@ -69,20 +283,291 @@ const SubmissionReconciliationParameters = Type.Object({
 const VerificationPollParameters = Type.Object({
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
     brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog broker with a verified IMAP lane." }),
+    campaignId: CampaignIdParameter,
 }, { additionalProperties: false });
 const VerificationOpenParameters = Type.Object({
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
     brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog broker bound to the verification handle." }),
     verificationHandle: Type.String({ pattern: "^verify_[a-f0-9]{24}$", description: "Opaque short-lived handle returned by RightOut inbox polling." }),
+    campaignId: CampaignIdParameter,
 }, { additionalProperties: false });
 const DirectScanParameters = Type.Object({
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
     brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog broker bound to the encrypted listing handle." }),
     listingHandle: Type.String({ pattern: "^listing_[a-f0-9]{24}$", description: "Opaque encrypted candidate handle returned by a RightOut live scan." }),
+    campaignId: CampaignIdParameter,
+}, { additionalProperties: false });
+const CampaignStartParameters = Type.Object({
+    profileId: Type.String({
+        pattern: "^profile_[a-f0-9]{16,32}$",
+        description: "Opaque operator-configured profile reference. Contains no personal data.",
+    }),
+    brokerIds: Type.Array(Type.String({ pattern: "^[a-z0-9_]{2,80}$" }), {
+        minItems: 1,
+        maxItems: 200,
+        uniqueItems: true,
+        description: "Exact catalog broker set covered by this autonomous campaign grant.",
+    }),
+    effects: Type.Array(Type.Union(CAMPAIGN_EFFECTS.map((value) => Type.Literal(value))), {
+        minItems: 1,
+        maxItems: CAMPAIGN_EFFECTS.length,
+        uniqueItems: true,
+        description: "Exact provider-effect classes authorized for autonomous execution.",
+    }),
+    durationHours: Type.Integer({ minimum: 1, maximum: 720, description: "Standing-authorization lifetime in hours." }),
+    maxEffects: Type.Integer({ minimum: 1, maximum: 2000, description: "Hard cap in broker-effect authorization units. One unit authorizes one broker/effect session, which may contain multiple bounded protocol interactions." }),
+}, { additionalProperties: false });
+const CampaignRefParameters = Type.Object({
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$", description: "Opaque durable autonomous-campaign reference." }),
+}, { additionalProperties: false });
+const CampaignNextParameters = Type.Object({
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$", description: "Active bounded campaign to advance by one deterministic step." }),
+}, { additionalProperties: false });
+const RegistrySearchParameters = Type.Object({
+    query: Type.String({ minLength: 2, maxLength: 80, pattern: "^[A-Za-z0-9 .&'_-]+$", description: "Public broker/company name or domain fragment." }),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, default: 20 })),
+}, { additionalProperties: false });
+const FormSessionBeginParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,80}$" }),
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$" }),
+    listingHandle: Type.Optional(Type.String({ pattern: "^listing_[a-f0-9]{24}$" })),
+}, { additionalProperties: false });
+const DiscoverySessionBeginParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,80}$" }),
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$" }),
+    browserBackend: Type.Optional(Type.Literal("remote_cloud_cdp")),
+}, { additionalProperties: false });
+const FormSessionField = Type.Object({
+    ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
+    profile_field: Type.String({ pattern: "^[a-z_]{2,32}$" }),
+    type: Type.Union([Type.Literal("text"), Type.Literal("email"), Type.Literal("tel"), Type.Literal("url"), Type.Literal("date")]),
+}, { additionalProperties: false });
+const FormSessionAction = Type.Union([
+    Type.Object({ kind: Type.Literal("inspect") }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("fill"), fields: Type.Array(FormSessionField, { minItems: 1, maxItems: 12 }) }, { additionalProperties: false }),
+    Type.Object({
+        kind: Type.Literal("fill_challenge"),
+        ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
+    }, { additionalProperties: false }),
+    Type.Object({
+        kind: Type.Literal("click"),
+        ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
+        purpose: Type.Union([
+            Type.Literal("continue"), Type.Literal("agree"), Type.Literal("select_record"), Type.Literal("submit"), Type.Literal("suppress"), Type.Literal("confirm"),
+        ]),
+    }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("record_redacted_state_receipt") }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("close") }, { additionalProperties: false }),
+]);
+const FormSessionStepParameters = Type.Object({
+    sessionId: Type.String({ pattern: "^formsession_[a-f0-9]{24}$" }),
+    action: FormSessionAction,
+}, { additionalProperties: false });
+const DiscoverySessionAction = Type.Union([
+    Type.Object({ kind: Type.Literal("inspect") }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("fill"), fields: Type.Array(FormSessionField, { minItems: 1, maxItems: 12 }) }, { additionalProperties: false }),
+    Type.Object({
+        kind: Type.Literal("click"),
+        ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
+        purpose: Type.Union([Type.Literal("continue"), Type.Literal("agree"), Type.Literal("select_record")]),
+    }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("record_redacted_state_receipt") }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("capture_candidate") }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal("close") }, { additionalProperties: false }),
+]);
+const DiscoverySessionStepParameters = Type.Object({
+    sessionId: Type.String({ pattern: "^discoverysession_[a-f0-9]{24}$" }),
+    action: DiscoverySessionAction,
+}, { additionalProperties: false });
+const ParityEmailParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,80}$" }),
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$" }),
+    listingHandle: Type.Optional(Type.String({ pattern: "^listing_[a-f0-9]{24}$" })),
+}, { additionalProperties: false });
+const WebmailSessionStepParameters = Type.Object({
+    sessionId: Type.String({ pattern: "^webmailsession_[a-f0-9]{24}$" }),
+    action: Type.Union([
+        Type.Object({ kind: Type.Literal("inspect") }, { additionalProperties: false }),
+        Type.Object({ kind: Type.Literal("fill"), fields: Type.Array(FormSessionField, { minItems: 1, maxItems: 3 }) }, { additionalProperties: false }),
+        Type.Object({
+            kind: Type.Literal("click"),
+            ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
+            purpose: Type.Literal("send"),
+        }, { additionalProperties: false }),
+        Type.Object({ kind: Type.Literal("record_redacted_state_receipt") }, { additionalProperties: false }),
+        Type.Object({ kind: Type.Literal("close") }, { additionalProperties: false }),
+    ]),
+}, { additionalProperties: false });
+const WebmailVerificationBeginParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,80}$" }),
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$" }),
 }, { additionalProperties: false });
 async function loadCatalog(path) {
     const text = await readFile(path, { encoding: "utf-8" });
     return JSON.parse(text);
+}
+function catalogDigest(catalog) {
+    return createHash("sha256").update(JSON.stringify(catalog)).digest("hex");
+}
+function assertCampaignCatalogScope(catalog, input) {
+    const rows = Array.isArray(catalog.brokers) ? catalog.brokers : [];
+    const known = new Set(rows.flatMap((row) => (row && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string"
+        ? [row.id]
+        : [])));
+    if (input.brokerIds.some((brokerId) => !known.has(brokerId)))
+        throw new Error("rightout_campaign_scope_invalid");
+}
+function splitCampaignParams(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_campaign_effect_invalid");
+    const record = value;
+    const { campaignId, ...params } = record;
+    if (campaignId === undefined)
+        return { params };
+    if (typeof campaignId !== "string" || !/^campaign_[a-f0-9]{32}$/.test(campaignId)) {
+        throw new Error("rightout_campaign_effect_invalid");
+    }
+    return { campaignId, params };
+}
+function assertSessionActionShape(action, mode) {
+    const fail = () => { throw new Error(`rightout_${mode}_session_input_invalid`); };
+    if (!action || typeof action !== "object" || Array.isArray(action))
+        fail();
+    const value = action;
+    if (typeof value.kind !== "string")
+        fail();
+    if (["inspect", "record_redacted_state_receipt", "close"].includes(value.kind)) {
+        if (Object.keys(value).length !== 1)
+            fail();
+        return;
+    }
+    if (mode === "discovery" && value.kind === "capture_candidate") {
+        if (Object.keys(value).length !== 1)
+            fail();
+        return;
+    }
+    if (value.kind === "fill") {
+        if (Object.keys(value).length !== 2 || !Array.isArray(value.fields) || value.fields.length < 1 || value.fields.length > (mode === "webmail" ? 3 : 12))
+            fail();
+        const refs = new Set();
+        const profileFields = new Set();
+        for (const field of value.fields) {
+            if (!field || typeof field !== "object" || Array.isArray(field)
+                || Object.keys(field).length !== 3 || Object.keys(field).some((key) => !["ref", "profile_field", "type"].includes(key))
+                || typeof field.ref !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(field.ref)
+                || typeof field.profile_field !== "string" || !/^[a-z_]{2,32}$/.test(field.profile_field)
+                || !["text", "email", "tel", "url", "date"].includes(field.type)
+                || refs.has(field.ref) || profileFields.has(field.profile_field))
+                fail();
+            refs.add(field.ref);
+            profileFields.add(field.profile_field);
+        }
+        return;
+    }
+    if (mode === "form" && value.kind === "fill_challenge") {
+        if (Object.keys(value).length !== 2 || typeof value.ref !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(value.ref))
+            fail();
+        return;
+    }
+    if (value.kind === "click") {
+        const purposes = mode === "webmail" ? ["send"]
+            : mode === "discovery" ? ["continue", "agree", "select_record"]
+                : ["continue", "agree", "select_record", "submit", "suppress", "confirm"];
+        if (Object.keys(value).length !== 3 || typeof value.ref !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(value.ref)
+            || typeof value.purpose !== "string" || !purposes.includes(value.purpose))
+            fail();
+        return;
+    }
+    fail();
+}
+function validateFormSessionBeginInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_form_session_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "campaignId", "listingHandle"].includes(key))) {
+        throw new Error("rightout_form_session_input_invalid");
+    }
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_form_session_input_invalid");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,80}$/.test(input.brokerId))
+        throw new Error("rightout_form_session_input_invalid");
+    if (typeof input.campaignId !== "string" || !/^campaign_[a-f0-9]{32}$/.test(input.campaignId))
+        throw new Error("rightout_form_session_input_invalid");
+    if (input.listingHandle !== undefined && (typeof input.listingHandle !== "string" || !/^listing_[a-f0-9]{24}$/.test(input.listingHandle))) {
+        throw new Error("rightout_form_session_input_invalid");
+    }
+    return input;
+}
+function validateFormSessionStepInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_form_session_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["sessionId", "action"].includes(key)) || Object.keys(input).length !== 2) {
+        throw new Error("rightout_form_session_input_invalid");
+    }
+    if (typeof input.sessionId !== "string" || !/^formsession_[a-f0-9]{24}$/.test(input.sessionId))
+        throw new Error("rightout_form_session_input_invalid");
+    assertSessionActionShape(input.action, "form");
+    return { sessionId: input.sessionId, action: input.action };
+}
+function validateDiscoverySessionBeginInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_discovery_session_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "campaignId", "browserBackend"].includes(key)) || ![3, 4].includes(Object.keys(input).length)) {
+        throw new Error("rightout_discovery_session_input_invalid");
+    }
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_discovery_session_input_invalid");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,80}$/.test(input.brokerId))
+        throw new Error("rightout_discovery_session_input_invalid");
+    if (typeof input.campaignId !== "string" || !/^campaign_[a-f0-9]{32}$/.test(input.campaignId))
+        throw new Error("rightout_discovery_session_input_invalid");
+    if (input.browserBackend !== undefined && input.browserBackend !== "remote_cloud_cdp")
+        throw new Error("rightout_discovery_session_input_invalid");
+    return input;
+}
+function validateDiscoverySessionStepInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_discovery_session_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["sessionId", "action"].includes(key)) || Object.keys(input).length !== 2) {
+        throw new Error("rightout_discovery_session_input_invalid");
+    }
+    if (typeof input.sessionId !== "string" || !/^discoverysession_[a-f0-9]{24}$/.test(input.sessionId))
+        throw new Error("rightout_discovery_session_input_invalid");
+    assertSessionActionShape(input.action, "discovery");
+    return { sessionId: input.sessionId, action: input.action };
+}
+function validateWebmailSessionStepInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_webmail_session_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["sessionId", "action"].includes(key)) || Object.keys(input).length !== 2) {
+        throw new Error("rightout_webmail_session_input_invalid");
+    }
+    if (typeof input.sessionId !== "string" || !/^webmailsession_[a-f0-9]{24}$/.test(input.sessionId))
+        throw new Error("rightout_webmail_session_input_invalid");
+    assertSessionActionShape(input.action, "webmail");
+    return { sessionId: input.sessionId, action: input.action };
+}
+function validateWebmailVerificationBeginInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_webmail_verification_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "campaignId"].includes(key)) || Object.keys(input).length !== 3)
+        throw new Error("rightout_webmail_verification_input_invalid");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_webmail_verification_input_invalid");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,80}$/.test(input.brokerId))
+        throw new Error("rightout_webmail_verification_input_invalid");
+    if (typeof input.campaignId !== "string" || !/^campaign_[a-f0-9]{32}$/.test(input.campaignId))
+        throw new Error("rightout_webmail_verification_input_invalid");
+    return input;
 }
 function scanScopeBinding(input, attestations) {
     return JSON.stringify(["scan", input.profileId, input.brokerIds, attestations]);
@@ -105,6 +590,28 @@ function purgeScopeBinding(input) {
 function rotationScopeBinding() {
     return JSON.stringify(["rotate_state_key", "all_rightout_encrypted_state"]);
 }
+function sensitiveFormStepScopeBinding(session, input) {
+    const fields = Array.isArray(input.action?.fields)
+        ? input.action.fields.map((field) => session.fieldDisclosureMap?.[field.profile_field]).filter(Boolean).sort()
+        : [];
+    if (!fields.includes("date_of_birth"))
+        throw new Error("rightout_sensitive_form_gate_not_required");
+    return JSON.stringify([
+        "sensitive_form_disclosure_v2",
+        input.sessionId,
+        session.profileId,
+        session.brokerId,
+        session.campaignId,
+        session.stage ?? "generic",
+        session.broker.action_url,
+        fields,
+    ]);
+}
+function dropFiledScopeBinding(profileId, registryCount) {
+    if (!/^profile_[a-f0-9]{16,32}$/.test(profileId) || !Number.isInteger(registryCount) || registryCount < 1)
+        throw new Error("rightout_drop_attestation_invalid");
+    return JSON.stringify(["california_drop_filed_v1", profileId, registryCount, "2026-08-01"]);
+}
 function assertSupportedBrokerScope(catalog, input) {
     const brokers = Array.isArray(catalog.brokers) ? catalog.brokers : [];
     for (const brokerId of input.brokerIds) {
@@ -114,7 +621,7 @@ function assertSupportedBrokerScope(catalog, input) {
             const entry = value;
             const scan = entry.scan;
             return entry.id === brokerId
-                && entry.category === "people_search"
+                && ["people_search", "data_broker"].includes(String(entry.category))
                 && scan?.supported === true
                 && scan.automated_access_policy === "search_index_only_no_publisher_access";
         });
@@ -211,6 +718,15 @@ function resolveControllerOutcomeBroker(catalog, input) {
 function submissionReconciliationScopeBinding(input, broker) {
     return JSON.stringify(["submission-reconciliation", input, broker]);
 }
+function paritySourceRefreshScopeBinding(routeIds, permissionDigest) {
+    if (!Array.isArray(routeIds) || routeIds.length < 1 || routeIds.some((id) => !/^[a-z0-9_]{2,80}$/.test(id))
+        || typeof permissionDigest !== "string" || !/^[a-f0-9]{64}$/.test(permissionDigest))
+        throw new Error("rightout_parity_source_refresh_scope_invalid");
+    return JSON.stringify(["parity-source-refresh-v2", routeIds, permissionDigest, "bounded_https_get", "pii_free_local_health_write"]);
+}
+function registryRefreshScopeBinding() {
+    return JSON.stringify(["registry-refresh-v1", "cppa.ca.gov", "bounded_https_get", 2025, new Date().getUTCFullYear(), "encrypted_local_snapshot_write"]);
+}
 function secretFinding(rightout, path, title) {
     const parts = path.split(".");
     let value = rightout;
@@ -229,7 +745,7 @@ function secretFinding(rightout, path, title) {
 export default definePluginEntry({
     id: "rightout",
     name: "RightOut",
-    description: "Separately approval-gated live data-broker scans and broker removal requests",
+    description: "Bounded autonomous and assisted data-broker discovery, removal, verification, registry, and recheck campaigns",
     register(api) {
         const approvalBindings = new Map();
         const submittedScopes = new Map();
@@ -237,9 +753,285 @@ export default definePluginEntry({
         const duplicateCooldownMs = 24 * 60 * 60_000;
         const catalogPath = api.resolvePath("skills/data-broker-removal/references/brokers/core.json");
         const catalogPromise = loadCatalog(catalogPath);
+        const parityCatalogPath = api.resolvePath("skills/data-broker-removal/references/brokers/unbroker-parity.json");
+        const parityCatalogPromise = loadCatalog(parityCatalogPath).then((value) => validateParityCatalog(value));
+        const providerTermsPath = api.resolvePath("skills/data-broker-removal/references/brokers/provider-terms.json");
+        const providerTermsPromise = loadCatalog(providerTermsPath).then((value) => validateProviderTermsCatalog(value));
+        const campaignCatalogDigestPromise = Promise.all([catalogPromise, parityCatalogPromise, providerTermsPromise])
+            .then(([core, parity, providerTerms]) => createHash("sha256").update(JSON.stringify([core, parity, providerTerms])).digest("hex"));
+        async function assertCampaignPublisherPermissions(input, routingScope) {
+            const publisherAccessEffects = new Set(["publisher_discover", "submit_form", "open_verification", "direct_recheck"]);
+            const requestedPublisherEffects = input.effects.filter((effect) => publisherAccessEffects.has(effect));
+            if (!requestedPublisherEffects.length)
+                return;
+            const [parity, providerTerms] = await Promise.all([parityCatalogPromise, providerTermsPromise]);
+            const config = api.pluginConfig;
+            for (const brokerId of input.brokerIds) {
+                const broker = resolveParityBroker(parity, brokerId);
+                for (const effect of requestedPublisherEffects) {
+                    const browserEffect = ["publisher_discover", "submit_form"].includes(effect)
+                        || (effect === "open_verification" && broker.id === "intelius");
+                    if (browserEffect) {
+                        if (routingScope.browserBackendMode === "not_required")
+                            throw new Error("rightout_browser_backend_invalid");
+                        assertPublisherAutomationPermission(config, broker, providerTerms, effect, { browserBackend: routingScope.browserBackendMode });
+                        if (routingScope.remoteCloudFallback && routingScope.browserBackendMode !== "remote_cloud_cdp") {
+                            assertPublisherAutomationPermission(config, broker, providerTerms, effect, { browserBackend: "remote_cloud_cdp" });
+                        }
+                    }
+                    else {
+                        assertPublisherAutomationPermission(config, broker, providerTerms, effect);
+                    }
+                }
+            }
+        }
+        async function paritySourceApprovalScope(config) {
+            const [parity, providerTerms] = await Promise.all([parityCatalogPromise, providerTermsPromise]);
+            const grants = [];
+            for (const route of parity.brokers) {
+                try {
+                    grants.push(assertPublisherAutomationPermission(config, route, providerTerms, "source_refresh"));
+                }
+                catch { /* unpermitted routes remain skipped */ }
+            }
+            const routeIds = grants.map((grant) => grant.broker_id).sort();
+            if (!routeIds.length)
+                throw new Error("rightout_publisher_automation_not_authorized");
+            return { routeIds, permissionDigest: digestJson(grants.sort((a, b) => a.broker_id.localeCompare(b.broker_id))) };
+        }
+        async function providerAuthorizationHealth(config) {
+            const [parity, providerTerms] = await Promise.all([parityCatalogPromise, providerTermsPromise]);
+            let routingScope;
+            try {
+                routingScope = browserApprovalRoutingScope(config, {
+                    browserRequired: true,
+                    effects: ["publisher_discover", "submit_form", "open_verification"],
+                });
+            }
+            catch { /* invalid browser routing leaves browser effects closed */ }
+            const effects = ["source_refresh", "publisher_discover", "direct_recheck", "submit_form", "open_verification"];
+            const brokerIdsByEffect = Object.fromEntries(effects.map((effect) => [effect, []]));
+            for (const route of parity.brokers) {
+                for (const effect of effects) {
+                    const sourceExecutable = !String(route.source_status).startsWith("needs_evidence")
+                        && route.source_status !== "observed_official_archive_external_unavailable";
+                    const applicable = effect === "source_refresh"
+                        || (effect === "submit_form" && route.method === "web_form" && sourceExecutable)
+                        || (effect === "publisher_discover" && sourceExecutable)
+                        || (effect === "direct_recheck" && sourceExecutable)
+                        || (effect === "open_verification" && route.verification === "email" && sourceExecutable);
+                    if (!applicable)
+                        continue;
+                    try {
+                        const browserEffect = ["publisher_discover", "submit_form"].includes(effect)
+                            || (effect === "open_verification" && route.id === "intelius");
+                        if (browserEffect) {
+                            if (!routingScope || routingScope.browserBackendMode === "not_required")
+                                throw new Error("rightout_browser_backend_invalid");
+                            assertPublisherAutomationPermission(config, route, providerTerms, effect, { browserBackend: routingScope.browserBackendMode });
+                            if (routingScope.remoteCloudFallback && routingScope.browserBackendMode !== "remote_cloud_cdp") {
+                                assertPublisherAutomationPermission(config, route, providerTerms, effect, { browserBackend: "remote_cloud_cdp" });
+                            }
+                        }
+                        else {
+                            assertPublisherAutomationPermission(config, route, providerTerms, effect);
+                        }
+                        brokerIdsByEffect[effect].push(route.id);
+                    }
+                    catch { /* closed lane */ }
+                }
+            }
+            const authorizedRouteCounts = Object.fromEntries(effects.map((effect) => [effect, brokerIdsByEffect[effect].length]));
+            return {
+                selected_browser_backend: routingScope?.browserBackendMode ?? "invalid_or_unconfigured",
+                remote_cloud_fallback_bound: routingScope?.remoteCloudFallback ?? false,
+                authorized_route_counts: authorizedRouteCounts,
+                authorized_broker_ids_by_effect: brokerIdsByEffect,
+                any_publisher_lane_authorized: Object.values(authorizedRouteCounts).some((count) => count > 0),
+                public_provider_authorizations_bundled: 0,
+                subject_consent_is_not_provider_authorization: true,
+            };
+        }
+        function paritySourceApprovalDescription(scope) {
+            const prefix = "GET public publisher pages for source_refresh only: ";
+            const suffix = ". No subject data/body capture/write; store PII-free health. Permission-set changes require new approval.";
+            const explicitTargets = scope.routeIds.join(",");
+            const compactTargets = scope.routeIds.length === 22
+                ? "all 22 pinned routes"
+                : `${scope.routeIds.length} pinned routes@${scope.permissionDigest.slice(0, 12)}`;
+            const targets = `${prefix}${explicitTargets}${suffix}`.length <= 256 ? explicitTargets : compactTargets;
+            const text = `${prefix}${targets}${suffix}`;
+            if (text.length > 256)
+                throw new Error("rightout_parity_source_refresh_scope_invalid");
+            return text;
+        }
+        async function combinedScanCatalog() {
+            const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
+            const rows = new Map();
+            for (const row of Array.isArray(core.brokers) ? core.brokers : []) {
+                if (row && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string") {
+                    const entry = row;
+                    if (entry.category === "data_broker" && entry.scan?.supported !== true) {
+                        rows.set(entry.id, {
+                            ...entry,
+                            scan: {
+                                supported: true,
+                                automated_access_policy: "search_index_only_no_publisher_access",
+                                provider: "brave_search_api",
+                                visibility_semantics: "public_index_signal_only_not_controller_inventory",
+                            },
+                        });
+                    }
+                    else
+                        rows.set(entry.id, entry);
+                }
+            }
+            for (const route of parity.brokers) {
+                const existing = rows.get(route.id);
+                if (existing?.scan?.supported === true)
+                    continue;
+                if (existing?.human_only === true
+                    || existing?.scan?.manual_only === true
+                    || existing?.scan?.automated_access_policy === "prohibited_by_published_terms")
+                    continue;
+                rows.set(route.id, {
+                    id: route.id,
+                    name: route.name,
+                    category: "people_search",
+                    official_domains: route.official_domains,
+                    scan: {
+                        supported: true,
+                        automated_access_policy: "search_index_only_no_publisher_access",
+                        provider: "brave_search_api",
+                    },
+                });
+            }
+            return { schema_version: 1, brokers: [...rows.values()] };
+        }
+        async function assertAutonomousCampaignScope(input) {
+            if (input.effects.length === 1 && input.effects[0] === "discover") {
+                assertCampaignCatalogScope(await combinedScanCatalog(), input);
+                return;
+            }
+            assertCampaignCatalogScope(await parityCatalogPromise, input);
+        }
+        async function combinedVerificationCatalog() {
+            const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
+            const rows = new Map();
+            for (const row of Array.isArray(core.brokers) ? core.brokers : []) {
+                if (row && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string") {
+                    rows.set(row.id, row);
+                }
+            }
+            for (const route of parity.brokers) {
+                if (route.verification !== "email")
+                    continue;
+                const existing = rows.get(route.id);
+                if (existing?.verification?.supported === true)
+                    continue;
+                const providerOpenRestricted = route.source_status === "observed_official_archive_external_unavailable"
+                    || String(route.source_status).startsWith("needs_evidence");
+                rows.set(route.id, {
+                    id: route.id,
+                    name: route.name,
+                    category: "people_search",
+                    official_domains: route.official_domains,
+                    verification: {
+                        supported: true,
+                        channel: "imap",
+                        sender_domains: route.official_domains,
+                        link_domains: route.official_domains,
+                        processing_days: 14,
+                        open_link: route.id === "intelius"
+                            ? "browser_same_profile_required"
+                            : providerOpenRestricted ? "human_only" : "approval_gated_https_get",
+                    },
+                });
+            }
+            return { schema_version: 1, brokers: [...rows.values()] };
+        }
+        async function combinedDirectCatalog() {
+            const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
+            const rows = new Map();
+            for (const row of Array.isArray(core.brokers) ? core.brokers : []) {
+                if (row && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string") {
+                    rows.set(row.id, row);
+                }
+            }
+            for (const route of parity.brokers) {
+                if (String(route.source_status).startsWith("needs_evidence")
+                    || route.source_status === "observed_official_archive_external_unavailable")
+                    continue;
+                const existing = rows.get(route.id);
+                if (existing?.direct_rescan?.supported === true)
+                    continue;
+                rows.set(route.id, {
+                    id: route.id,
+                    name: route.name,
+                    category: "people_search",
+                    official_domains: route.official_domains,
+                    direct_rescan: {
+                        supported: true,
+                        strategy: "exact_encrypted_index_candidate_urls",
+                        publisher_terms_gate: "current_written_provider_authorization",
+                    },
+                });
+            }
+            return { schema_version: 1, brokers: [...rows.values()] };
+        }
+        async function assertScanScopeFresh(input) {
+            const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
+            const coreIds = new Set((Array.isArray(core.brokers) ? core.brokers : []).map((row) => row?.id).filter(Boolean));
+            const firstCoreId = input.brokerIds.find((id) => coreIds.has(id));
+            if (firstCoreId)
+                assertFreshCatalogEntries(core, [firstCoreId]);
+            assertParityCatalogFresh(parity);
+        }
+        async function assertParityRouteFresh(brokerId) {
+            const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
+            const coreEntry = (Array.isArray(core.brokers) ? core.brokers : []).find((row) => row?.id === brokerId);
+            if (coreEntry)
+                assertFreshCatalogEntries(core, [brokerId]);
+            assertParityCatalogRouteFresh(parity, brokerId);
+        }
+        async function assertParityRescueFresh(brokerId) {
+            const parity = await parityCatalogPromise;
+            const route = parity.brokers.find((row) => row.id === brokerId);
+            const checked = Date.parse(`${route?.rescue_last_checked ?? ""}T00:00:00Z`);
+            if (!route || typeof route.rescue_email !== "string" || typeof route.rescue_source_url !== "string"
+                || !Array.isArray(route.rescue_disclosure_fields) || !Number.isFinite(checked)
+                || checked > Date.now()
+                || Date.now() - checked > 180 * 24 * 60 * 60_000)
+                throw new Error("rightout_catalog_lane_stale");
+        }
         const sendSmtpMail = createSmtpSender();
         const pollImapVerification = createImapPoller();
         const submitBrowserForm = createBrowserFormSubmitter();
+        const browserSessionDriver = createBrowserSessionDriver();
+        const browserSessions = new Map();
+        const browserSessionTimers = new Map();
+        function deleteBrowserSession(sessionId) {
+            const timer = browserSessionTimers.get(sessionId);
+            if (timer)
+                clearTimeout(timer);
+            browserSessionTimers.delete(sessionId);
+            return Map.prototype.delete.call(browserSessions, sessionId);
+        }
+        function storeBrowserSession(sessionId, session) {
+            deleteBrowserSession(sessionId);
+            Map.prototype.set.call(browserSessions, sessionId, session);
+            const delay = Math.max(0, Math.min(2_147_483_647, Number(session.expiresAt) - Date.now()));
+            const timer = setTimeout(() => {
+                const current = browserSessions.get(sessionId);
+                if (current !== session)
+                    return;
+                void invalidateBrowserSession(sessionId, session, "verified_portal_session_expired").catch(() => {
+                    api.logger.warn("RightOut timed browser-session cleanup failed; manual browser cleanup may be required");
+                });
+            }, delay);
+            timer.unref?.();
+            browserSessionTimers.set(sessionId, timer);
+        }
         const stateDir = api.runtime.state.resolveStateDir(process.env);
         const configuredRetentionDays = api.pluginConfig?.stateRetentionDays;
         const stateRetentionDays = Number.isInteger(configuredRetentionDays) && configuredRetentionDays >= 30 && configuredRetentionDays <= 730
@@ -256,11 +1048,21 @@ export default definePluginEntry({
             maxEntries: 100,
             defaultTtlMs: stateRetentionDays * 24 * 60 * 60_000,
         });
+        const profileSnapshotStore = openRightOutStore({
+            namespace: "rightout-profile-snapshots-v1",
+            maxEntries: 100,
+            defaultTtlMs: stateRetentionDays * 24 * 60 * 60_000,
+        });
         const caseLedger = createCaseLedger(caseStore);
         const verificationTokens = openRightOutStore({
             namespace: "rightout-verification-tokens-v1",
             maxEntries: 200,
             defaultTtlMs: 7 * 24 * 60 * 60_000,
+        });
+        const verificationOpenDedupe = openRightOutStore({
+            namespace: "rightout-verification-open-dedupe-v1",
+            maxEntries: 200,
+            defaultTtlMs: 30 * 24 * 60 * 60_000,
         });
         const submissionDedupe = openRightOutStore({
             namespace: "rightout-submission-dedupe-v1",
@@ -272,6 +1074,331 @@ export default definePluginEntry({
             maxEntries: 500,
             defaultTtlMs: 180 * 24 * 60 * 60_000,
         });
+        const campaignStore = openRightOutStore({
+            namespace: "rightout-campaigns-v1",
+            maxEntries: 100,
+            defaultTtlMs: 30 * 24 * 60 * 60_000,
+        });
+        const campaignLedger = createCampaignLedger(campaignStore);
+        const registryStore = openRightOutStore({
+            namespace: "rightout-registry-v1",
+            maxEntries: 20,
+            defaultTtlMs: 45 * 24 * 60 * 60_000,
+        });
+        const paritySourceStore = openRightOutStore({
+            namespace: "rightout-parity-source-health-v1",
+            maxEntries: 2,
+            defaultTtlMs: 30 * 24 * 60 * 60_000,
+        });
+        const portalFlowStore = openRightOutStore({
+            namespace: "rightout-verified-portal-flows-v1",
+            maxEntries: 100,
+            defaultTtlMs: 24 * 60 * 60_000,
+        });
+        function portalFlowKey(profileId, brokerId) {
+            return `portal_${createHash("sha256").update(JSON.stringify([profileId, brokerId])).digest("hex")}`;
+        }
+        function configuredProfileDigest(profileId) {
+            const config = api.pluginConfig;
+            const payload = config?.profiles?.[profileId]?.payload;
+            if (!stateEncryptionReady(config) || typeof payload !== "string")
+                throw new Error("rightout_not_configured");
+            let profile;
+            try {
+                profile = JSON.parse(payload);
+            }
+            catch {
+                throw new Error("invalid_profile");
+            }
+            if (!profile || typeof profile !== "object" || Array.isArray(profile))
+                throw new Error("invalid_profile");
+            return digestJson(profile);
+        }
+        function configuredRuntimeScopeDigest() {
+            const config = api.pluginConfig;
+            return digestJson({
+                smtpTransport: config?.smtpTransport ?? null,
+                imapTransport: config?.imapTransport ?? null,
+                browserControlBaseUrl: config?.browserControlBaseUrl ?? null,
+                browserProfile: config?.browserProfile ?? null,
+                browserBackendMode: config?.browserBackendMode ?? "managed_openclaw",
+                remoteCloudBrowserProfile: config?.remoteCloudBrowserProfile ?? null,
+                browserControlToken: config?.browserControlToken ?? null,
+                publisherAutomationPermissions: config?.publisherAutomationPermissions ?? null,
+                operatorAttestations: config?.operatorAttestations ?? null,
+                removalAttestations: config?.removalAttestations ?? null,
+                verificationAttestations: config?.verificationAttestations ?? null,
+                formAttestations: config?.formAttestations ?? null,
+                directScanAttestations: config?.directScanAttestations ?? null,
+            });
+        }
+        async function ensureImmutableProfileSnapshot(profileId) {
+            const digest = configuredProfileDigest(profileId);
+            const record = { profileId, digest, createdAt: new Date().toISOString() };
+            if (!await profileSnapshotStore.registerIfAbsent(profileId, record)) {
+                const existing = await profileSnapshotStore.lookup(profileId);
+                if (!existing || existing.profileId !== profileId || existing.digest !== digest) {
+                    throw new Error("rightout_profile_snapshot_changed");
+                }
+            }
+            return digest;
+        }
+        async function saveRegistrySnapshot(snapshot) {
+            const records = Array.isArray(snapshot.records) ? snapshot.records : [];
+            const chunks = [];
+            for (let index = 0; index < records.length; index += 100)
+                chunks.push(records.slice(index, index + 100));
+            await registryStore.clear();
+            for (let index = 0; index < chunks.length; index += 1) {
+                await registryStore.register(`registry_chunk_${String(index).padStart(3, "0")}`, { records: chunks[index] });
+            }
+            await registryStore.register("registry_meta", {
+                ...registrySummary(snapshot),
+                state: "registry_ready",
+                chunk_count: chunks.length,
+            });
+        }
+        async function registryMeta() {
+            const meta = await registryStore.lookup("registry_meta");
+            if (!meta || !Number.isInteger(meta.chunk_count) || meta.chunk_count < 1 || meta.chunk_count > 10) {
+                return {
+                    report_version: 1,
+                    state: "registry_not_initialized",
+                    record_count: 0,
+                    portals: REGISTRY_PORTALS,
+                    next_action: "call_rightout_refresh_registries",
+                    raw_contact_addresses_in_report: false,
+                };
+            }
+            return meta;
+        }
+        async function registryRecords() {
+            const meta = await registryMeta();
+            if (meta.state !== "registry_ready")
+                throw new Error("rightout_registry_not_refreshed");
+            const records = [];
+            for (let index = 0; index < meta.chunk_count; index += 1) {
+                const chunk = await registryStore.lookup(`registry_chunk_${String(index).padStart(3, "0")}`);
+                if (!chunk || !Array.isArray(chunk.records))
+                    throw new Error("rightout_registry_state_invalid");
+                records.push(...chunk.records);
+            }
+            if (records.length !== meta.record_count)
+                throw new Error("rightout_registry_state_invalid");
+            return records;
+        }
+        function formProfileValues(profile, listingUrl) {
+            const fullName = String(profile.fullName ?? "").trim();
+            const nameParts = fullName.split(/\s+/u).filter(Boolean);
+            const listingPathParts = listingUrl
+                ? new URL(listingUrl).pathname.split("/").filter(Boolean)
+                : [];
+            const listingId = listingPathParts.at(-1);
+            const values = {
+                full_name: profile.fullName,
+                contact_email: profile.contactEmail,
+                contact_email_confirm: profile.contactEmail,
+                ...(nameParts[0] ? { first_name: nameParts[0] } : {}),
+                ...(nameParts.length > 1 ? { last_name: nameParts.slice(1).join(" ") } : {}),
+                ...(profile.dateOfBirth ? { date_of_birth: profile.dateOfBirth } : {}),
+                ...(profile.currentAddress?.line1 ? { street: profile.currentAddress.line1 } : {}),
+                city: profile.currentAddress?.city ?? profile.city,
+                region: profile.currentAddress?.region ?? profile.region,
+                ...(profile.currentAddress?.postal ? { postal: profile.currentAddress.postal } : {}),
+                ...(profile.phones?.[0] ? { phone: profile.phones[0] } : {}),
+                ...(listingUrl ? { listing_url: listingUrl } : {}),
+                ...(listingId && /^[A-Za-z0-9_-]{1,160}$/.test(listingId) ? { listing_id: listingId } : {}),
+            };
+            return Object.fromEntries(Object.entries(values).filter(([, value]) => typeof value === "string" && value.length > 0));
+        }
+        function formFieldDisclosureMap(disclosureFields, values) {
+            const aliases = {
+                first_name: "full_name",
+                last_name: "full_name",
+                contact_email_confirm: "contact_email",
+                listing_id: "listing_url",
+            };
+            const permitted = new Set(disclosureFields);
+            return Object.fromEntries(Object.keys(values)
+                .map((field) => [field, aliases[field] ?? field])
+                .filter(([, disclosure]) => permitted.has(disclosure)));
+        }
+        function discoveryProfileValues(profile) {
+            const values = formProfileValues(profile);
+            return Object.fromEntries(["full_name", "contact_email", "street", "city", "region", "postal", "phone"]
+                .filter((field) => typeof values[field] === "string" && values[field].length > 0)
+                .map((field) => [field, values[field]]));
+        }
+        function activeFormSession(sessionId) {
+            const session = browserSessions.get(sessionId);
+            if (!session || session.sessionType !== "form")
+                throw new Error("rightout_form_session_expired");
+            return session;
+        }
+        function activeWebmailSession(sessionId) {
+            const session = browserSessions.get(sessionId);
+            if (!session || session.sessionType !== "webmail")
+                throw new Error("rightout_webmail_session_expired");
+            return session;
+        }
+        function activeDiscoverySession(sessionId) {
+            const session = browserSessions.get(sessionId);
+            if (!session || session.kind !== "publisher_discovery")
+                throw new Error("rightout_discovery_session_expired");
+            return session;
+        }
+        async function authorizeCampaignEffects(campaignId, profileId, effects, catalog, consume) {
+            const profileDigest = await ensureImmutableProfileSnapshot(profileId);
+            const runtimeScopeDigest = configuredRuntimeScopeDigest();
+            if (!campaignId)
+                return false;
+            if (consume) {
+                await campaignLedger.consume(campaignId, {
+                    profileId, effects, catalogDigest: await campaignCatalogDigestPromise, profileDigest, runtimeScopeDigest,
+                });
+                return true;
+            }
+            const status = await campaignLedger.assertScope(campaignId, { profileId, profileDigest, runtimeScopeDigest });
+            if (status.status !== "active" || status.subject_ref !== profileId
+                || effects.some((item) => !status.broker_ids.includes(item.brokerId) || !status.effects.includes(item.effect)))
+                throw new Error("rightout_campaign_scope_mismatch");
+            return true;
+        }
+        async function revalidateConsumedSessionEffect(session, effect) {
+            const profileDigest = await ensureImmutableProfileSnapshot(session.profileId);
+            const runtimeScopeDigest = configuredRuntimeScopeDigest();
+            const status = await campaignLedger.assertScope(session.campaignId, {
+                profileId: session.profileId, profileDigest, runtimeScopeDigest,
+            });
+            if (!["active", "completed"].includes(status.status)
+                || Date.parse(status.expires_at) <= Date.now()
+                || status.subject_ref !== session.profileId
+                || !status.broker_ids.includes(session.brokerId)
+                || !status.effects.includes(effect))
+                throw new Error("rightout_campaign_not_active");
+        }
+        async function cleanupAndCloseBrowserSession(session) {
+            let draftCleanup = "not_applicable";
+            let providerIntentCleanup = "not_applicable";
+            let tabCleanup = "closed";
+            if (session.sessionType === "webmail"
+                && (session.draftMayContainPii === true || (Array.isArray(session.filledFields) && session.filledFields.length > 0))
+                && !session.sendCompleted) {
+                try {
+                    const result = await browserSessionDriver.discardDraft({
+                        ...session.browserControl,
+                        targetId: session.targetId,
+                        allowedDomains: ["mail.google.com"],
+                        allowedFields: Object.keys(session.values ?? {}),
+                        values: session.values ?? {},
+                        privacyMode: "webmail",
+                    });
+                    draftCleanup = result.discarded === true ? "discard_control_activated" : "needs_manual_cleanup";
+                }
+                catch {
+                    draftCleanup = "needs_manual_cleanup";
+                }
+            }
+            if (session.sessionType === "form" && session.submissionIntentReserved === true) {
+                providerIntentCleanup = "submission_uncertain_recorded";
+                await caseLedger.recordSubmissionUncertain(session.profileId, session.brokerId, {
+                    channel: "browser_form", reason: "form_session_invalidated_with_pending_provider_intent",
+                }).catch(() => { providerIntentCleanup = "needs_manual_reconciliation"; });
+            }
+            if (session.stage === "peopleconnect_guided_identity") {
+                await portalFlowStore.delete(portalFlowKey(session.profileId, session.brokerId)).catch(() => undefined);
+            }
+            try {
+                await browserSessionDriver.closeSession({ ...session.browserControl, targetId: session.targetId });
+            }
+            catch {
+                tabCleanup = "needs_manual_cleanup";
+            }
+            if (draftCleanup === "needs_manual_cleanup" || tabCleanup === "needs_manual_cleanup") {
+                await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                    evidenceKind: "human_task",
+                    reason: draftCleanup === "needs_manual_cleanup"
+                        ? "webmail_draft_cleanup_required"
+                        : "browser_tab_cleanup_required",
+                }).catch(() => undefined);
+            }
+            return { draft_cleanup: draftCleanup, provider_intent_cleanup: providerIntentCleanup, tab_cleanup: tabCleanup };
+        }
+        async function invalidateBrowserSession(sessionId, session, humanTaskReason) {
+            deleteBrowserSession(sessionId);
+            const cleanup = await cleanupAndCloseBrowserSession(session);
+            if (humanTaskReason && session.stage === "peopleconnect_guided_identity") {
+                await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                    evidenceKind: "human_task", reason: humanTaskReason,
+                }).catch(() => undefined);
+            }
+            return cleanup;
+        }
+        async function revalidatePublisherBrowserSession(sessionId, session, effect) {
+            try {
+                if (effect === "submit_form") {
+                    parityFormAttestationSnapshot(api.pluginConfig, session.profileId, session.brokerId);
+                }
+                if (effect === "publisher_discover") {
+                    const config = api.pluginConfig;
+                    const attestations = validatePublisherAccessAttestations({ profileId: session.profileId, brokerId: session.brokerId }, config?.directScanAttestations);
+                    const payload = config?.profiles?.[session.profileId]?.payload;
+                    if (typeof payload !== "string" || scanProfileDigest(payload) !== attestations.authorizedProfileDigests[session.profileId]) {
+                        throw new Error("rightout_direct_scan_profile_snapshot_changed");
+                    }
+                }
+                assertPublisherAutomationPermission(api.pluginConfig, session.broker, await providerTermsPromise, effect, { browserBackend: session.browserBackend });
+                await revalidateConsumedSessionEffect(session, effect);
+            }
+            catch (error) {
+                await invalidateBrowserSession(sessionId, session);
+                throw error;
+            }
+        }
+        async function invalidateBrowserSessions(predicate) {
+            const closing = [];
+            let invalidated = 0;
+            for (const [sessionId, session] of browserSessions) {
+                if (!predicate(session))
+                    continue;
+                deleteBrowserSession(sessionId);
+                invalidated += 1;
+                closing.push(cleanupAndCloseBrowserSession(session));
+            }
+            const cleanup = await Promise.all(closing);
+            return {
+                invalidated,
+                drafts_discarded: cleanup.filter((item) => item.draft_cleanup === "discard_control_activated").length,
+                drafts_needing_manual_cleanup: cleanup.filter((item) => item.draft_cleanup === "needs_manual_cleanup").length,
+                provider_intents_marked_uncertain: cleanup.filter((item) => item.provider_intent_cleanup === "submission_uncertain_recorded").length,
+                provider_intents_needing_manual_reconciliation: cleanup.filter((item) => item.provider_intent_cleanup === "needs_manual_reconciliation").length,
+                tabs_closed: cleanup.filter((item) => item.tab_cleanup === "closed").length,
+                tabs_needing_manual_cleanup: cleanup.filter((item) => item.tab_cleanup === "needs_manual_cleanup").length,
+            };
+        }
+        async function invalidatePortalFlows(predicate, humanTaskReason) {
+            let invalidated = 0;
+            for (const entry of await portalFlowStore.entries()) {
+                const flow = entry?.value;
+                if (!flow || !predicate(flow))
+                    continue;
+                await portalFlowStore.delete(entry.key);
+                invalidated += 1;
+                if (typeof flow.bridgeUrl === "string" && typeof flow.targetId === "string") {
+                    await browserSessionDriver.closeSession({
+                        bridgeUrl: flow.bridgeUrl, targetId: flow.targetId,
+                        browserProfile: flow.browserProfile ?? undefined,
+                        browserAuthToken: api.pluginConfig?.browserControlToken,
+                    }).catch(() => undefined);
+                }
+                if (humanTaskReason && typeof flow.profileId === "string" && typeof flow.brokerId === "string") {
+                    await caseLedger.recordLifecycle(flow.profileId, flow.brokerId, "human_task_queued", {
+                        evidenceKind: "human_task", reason: humanTaskReason,
+                    }).catch(() => undefined);
+                }
+            }
+            return invalidated;
+        }
         async function purgeProfileEntries(store, profileId) {
             let deleted = 0;
             for (const entry of await store.entries()) {
@@ -279,6 +1406,9 @@ export default definePluginEntry({
                     deleted += 1;
             }
             return deleted;
+        }
+        function verificationOpenDedupeKey(profileId, brokerId, submissionReference) {
+            return `verification_${createHash("sha256").update(JSON.stringify([profileId, brokerId, submissionReference])).digest("hex")}`;
         }
         async function acquireSubmissionDedupe(dedupeKey, input, channel) {
             const record = {
@@ -333,10 +1463,18 @@ export default definePluginEntry({
         function formAttestationSnapshot(config, input) {
             return validateFormAttestations(input, config?.formAttestations);
         }
+        function parityFormAttestationSnapshot(config, profileId, brokerId) {
+            const payload = config?.profiles?.[profileId]?.payload;
+            const attestations = formAttestationSnapshot(config, { profileId, brokerId, requestKind: "delete_and_opt_out" });
+            if (typeof payload !== "string" || removalProfileDigest(payload) !== attestations.authorizedProfileDigests[profileId]) {
+                throw new Error("rightout_form_snapshot_changed");
+            }
+            return attestations;
+        }
         function directScanAttestationSnapshot(config, input) {
             return validateDirectScanAttestations(input, config?.directScanAttestations);
         }
-        function pruneTransientState(now = Date.now()) {
+        function pruneApprovalState(now = Date.now()) {
             for (const [toolCallId, approval] of approvalBindings) {
                 if (approval.expiresAt <= now)
                     approvalBindings.delete(toolCallId);
@@ -344,6 +1482,19 @@ export default definePluginEntry({
             for (const [scope, expiresAt] of submittedScopes) {
                 if (expiresAt <= now)
                     submittedScopes.delete(scope);
+            }
+        }
+        async function pruneTransientState(now = Date.now()) {
+            pruneApprovalState(now);
+            for (const [sessionId, session] of browserSessions) {
+                if (session.expiresAt <= now) {
+                    const cleanup = await invalidateBrowserSession(sessionId, session, "verified_portal_session_expired");
+                    if (cleanup.draft_cleanup === "needs_manual_cleanup")
+                        api.logger.warn("RightOut expired webmail draft needs manual cleanup");
+                }
+            }
+            if (stateEncryptionReady(api.pluginConfig)) {
+                await invalidatePortalFlows((flow) => Number.isFinite(flow.expiresAt) && flow.expiresAt <= now, "verified_portal_flow_expired_after_restart");
             }
         }
         api.registerSecurityAuditCollector(({ config, sourceConfig }) => {
@@ -359,6 +1510,7 @@ export default definePluginEntry({
                 secretFinding(rightout, "imapTransport.password", "RightOut IMAP password is stored as plaintext"),
                 secretFinding(rightout, "imapTransport.address", "RightOut IMAP mailbox address is stored as plaintext"),
                 secretFinding(rightout, "stateEncryptionKey", "RightOut durable-state encryption key is stored as plaintext"),
+                secretFinding(rightout, "browserControlToken", "RightOut browser-control token is stored as plaintext"),
             ]) {
                 if (candidate)
                     findings.push(candidate);
@@ -517,6 +1669,18 @@ export default definePluginEntry({
                 "rightout_record_controller_outcome",
                 "rightout_reconcile_submission",
                 "rightout_rotate_state_key",
+                "rightout_start_campaign",
+                "rightout_revoke_campaign",
+                "rightout_refresh_registries",
+                "rightout_refresh_parity_sources",
+                "rightout_record_drop_filed",
+                "rightout_submit_parity_email",
+                "rightout_begin_webmail_session",
+                "rightout_webmail_session_step",
+                "rightout_begin_discovery_session",
+                "rightout_discovery_session_step",
+                "rightout_begin_form_session",
+                "rightout_form_session_step",
             ].filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
             if (missingDeny.length) {
                 findings.push({
@@ -541,6 +1705,12 @@ export default definePluginEntry({
                 "rightout_record_controller_outcome",
                 "rightout_reconcile_submission",
                 "rightout_rotate_state_key",
+                "rightout_start_campaign",
+                "rightout_revoke_campaign",
+                "rightout_refresh_registries",
+                "rightout_refresh_parity_sources",
+                "rightout_record_drop_filed",
+                "rightout_form_session_step",
             ]);
             if (!approvalTools.has(event.toolName))
                 return;
@@ -548,8 +1718,135 @@ export default definePluginEntry({
                 return { block: true, blockReason: "RightOut requires a host-authoritative tool call ID" };
             const config = api.pluginConfig;
             const catalog = await catalogPromise;
-            pruneTransientState();
+            pruneApprovalState();
             approvalBindings.delete(event.toolCallId);
+            if (event.toolName === "rightout_form_session_step") {
+                try {
+                    const input = validateFormSessionStepInput(event.params);
+                    await pruneTransientState();
+                    const session = activeFormSession(input.sessionId);
+                    if (input.action.kind !== "fill")
+                        return;
+                    const fields = input.action.fields.map((field) => session.fieldDisclosureMap?.[field.profile_field]).filter(Boolean);
+                    if (!fields.includes("date_of_birth"))
+                        return;
+                    await revalidatePublisherBrowserSession(input.sessionId, session, "submit_form");
+                    const binding = sensitiveFormStepScopeBinding(session, input);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Authorize sensitive DOB disclosure",
+                            description: `P ${session.profileId}; ${session.broker.id} (${session.broker.name}); host ${new URL(session.broker.action_url).hostname}; fields ${[...new Set(fields)].sort().join(",")}; campaign ${session.campaignId}; allow once.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "Sensitive form disclosure requires an exact active session, immutable subject snapshot, and native human allow-once approval" };
+                }
+            }
+            if (event.toolName === "rightout_start_campaign") {
+                try {
+                    const input = validateCampaignStartInput(event.params);
+                    await assertAutonomousCampaignScope(input);
+                    const routingScope = browserApprovalRoutingScope(config, {
+                        browserRequired: input.effects.some((effect) => ["publisher_discover", "submit_form"].includes(effect))
+                            || (input.effects.includes("open_verification") && input.brokerIds.includes("intelius")),
+                        effects: input.effects,
+                    });
+                    await assertCampaignPublisherPermissions(input, routingScope);
+                    const digest = await campaignCatalogDigestPromise;
+                    const binding = campaignScopeBinding(input, digest, routingScope.routingDigest);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Authorize autonomous RightOut campaign",
+                            description: campaignApprovalDescription(input, routingScope),
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "invalid, unconfigured, or unsupported RightOut autonomous campaign scope" };
+                }
+            }
+            if (event.toolName === "rightout_revoke_campaign") {
+                try {
+                    const input = validateCampaignRef(event.params);
+                    const binding = campaignRevokeScopeBinding(input);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Revoke autonomous RightOut campaign",
+                            description: `Permanently revoke ${input.campaignId}. No further autonomous provider effect can use this standing authorization.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "invalid RightOut campaign revocation scope" };
+                }
+            }
+            if (event.toolName === "rightout_record_drop_filed") {
+                try {
+                    const input = validateCaseInput(event.params);
+                    assertConfiguredProfile(input.profileId);
+                    const profile = parseRemovalProfile(config?.profiles?.[input.profileId]?.payload);
+                    if (!profile.jurisdictions.includes("US-CA"))
+                        throw new Error("rightout_drop_ineligible");
+                    const registry = await registryMeta();
+                    if (registry.state !== "registry_ready" || !Number.isInteger(registry.record_count) || registry.record_count < 1)
+                        throw new Error("rightout_drop_registry_invalid");
+                    const binding = dropFiledScopeBinding(input.profileId, registry.record_count);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Record California DROP filing",
+                            description: `P ${input.profileId}; attest the human-verified DROP request was filed for the current ${registry.record_count}-broker official registry snapshot. No provider write.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "California DROP filing requires an eligible profile, current official registry snapshot, and operator attestation" };
+                }
+            }
             if (event.toolName === "rightout_rotate_state_key") {
                 try {
                     if (!event.params || typeof event.params !== "object" || Array.isArray(event.params) || Object.keys(event.params).length !== 0) {
@@ -565,7 +1862,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -592,7 +1888,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -623,7 +1918,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -651,7 +1945,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -665,12 +1958,54 @@ export default definePluginEntry({
                     return { block: true, blockReason: "invalid, unsupported, or unreviewed RightOut submission reconciliation" };
                 }
             }
+            if (event.toolName === "rightout_refresh_parity_sources" || event.toolName === "rightout_refresh_registries") {
+                try {
+                    if (!event.params || typeof event.params !== "object" || Array.isArray(event.params) || Object.keys(event.params).length !== 0) {
+                        throw new Error("invalid_refresh_scope");
+                    }
+                    const parityRefresh = event.toolName === "rightout_refresh_parity_sources";
+                    const parityScope = parityRefresh ? await paritySourceApprovalScope(config) : undefined;
+                    const binding = parityScope
+                        ? paritySourceRefreshScopeBinding(parityScope.routeIds, parityScope.permissionDigest)
+                        : registryRefreshScopeBinding();
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: {},
+                        requireApproval: {
+                            title: parityRefresh ? "Refresh broker source health" : "Refresh official registry snapshot",
+                            description: parityRefresh
+                                ? paritySourceApprovalDescription(parityScope)
+                                : "Read the newest available CPPA registry CSV (2025-current) and replace the encrypted local registry snapshot. No subject data or controller write.",
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "RightOut refresh requires an exact empty input and native allow-once approval" };
+                }
+            }
             if (event.toolName === "rightout_live_scan") {
                 try {
-                    const input = validatePublicToolInput(event.params);
-                    assertSupportedBrokerScope(catalog, input);
-                    assertFreshCatalogEntries(catalog, input.brokerIds);
+                    const scoped = splitCampaignParams(event.params);
+                    const input = validatePublicToolInput(scoped.params);
+                    const scanCatalog = await combinedScanCatalog();
+                    assertSupportedBrokerScope(scanCatalog, input);
+                    await assertScanScopeFresh(input);
                     const attestations = scanAttestationSnapshot(config, input);
+                    if (scoped.campaignId) {
+                        await authorizeCampaignEffects(scoped.campaignId, input.profileId, input.brokerIds.map((brokerId) => ({ brokerId, effect: "discover" })), catalog, false);
+                        return { params: { ...input, campaignId: scoped.campaignId } };
+                    }
+                    if (input.brokerIds.length > 2)
+                        throw new Error("per_effect_scan_scope_too_large");
                     const binding = scanScopeBinding(input, attestations);
                     const toolCallId = event.toolCallId;
                     return {
@@ -681,7 +2016,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once") {
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -699,13 +2033,18 @@ export default definePluginEntry({
             }
             if (event.toolName === "rightout_submit_removal") {
                 try {
-                    const input = validateRemovalPublicToolInput(event.params);
+                    const scoped = splitCampaignParams(event.params);
+                    const input = validateRemovalPublicToolInput(scoped.params);
                     const broker = resolveRemovalCatalogEntry(catalog, input);
                     assertFreshCatalogEntries(catalog, [input.brokerId]);
                     const attestations = removalAttestationSnapshot(config, input);
                     const dedupeKey = removalDedupeKey(input);
                     if (submittedScopes.has(dedupeKey))
                         return { block: true, blockReason: "duplicate RightOut removal request is cooling down" };
+                    if (scoped.campaignId) {
+                        await authorizeCampaignEffects(scoped.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], catalog, false);
+                        return { params: { ...input, campaignId: scoped.campaignId } };
+                    }
                     const binding = removalScopeBinding(input, attestations, broker);
                     const toolCallId = event.toolCallId;
                     return {
@@ -716,7 +2055,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once") {
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -734,24 +2072,32 @@ export default definePluginEntry({
             }
             if (event.toolName === "rightout_submit_form_removal") {
                 try {
-                    const input = validateFormRemovalInput(event.params);
+                    const scoped = splitCampaignParams(event.params);
+                    const input = validateFormRemovalInput(scoped.params);
                     const broker = resolveFormCatalogEntry(catalog, input);
+                    const browserScope = browserApprovalRoutingScope(config, { browserRequired: true, effects: ["submit_form"] });
+                    if (browserScope.browserBackendMode === "not_required")
+                        throw new Error("rightout_browser_backend_invalid");
+                    assertPublisherAutomationPermission(config, { id: input.brokerId, method: "web_form" }, await providerTermsPromise, "submit_form", { browserBackend: browserScope.browserBackendMode });
                     assertFreshCatalogEntries(catalog, [input.brokerId]);
                     const attestations = formAttestationSnapshot(config, input);
                     const dedupeKey = removalDedupeKey(input);
                     if (submittedScopes.has(dedupeKey))
                         return { block: true, blockReason: "duplicate RightOut form removal is cooling down" };
-                    const binding = formScopeBinding(input, attestations, broker);
+                    if (scoped.campaignId) {
+                        await authorizeCampaignEffects(scoped.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_form" }], catalog, false);
+                        return { params: { ...input, campaignId: scoped.campaignId } };
+                    }
+                    const binding = formScopeBinding(input, attestations, broker, browserScope);
                     const toolCallId = event.toolCallId;
                     return {
                         params: input,
                         requireApproval: {
                             title: "Submit broker suppression form",
-                            description: formApprovalDescription(input, broker),
+                            description: formApprovalDescription(input, broker, browserScope),
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -767,10 +2113,16 @@ export default definePluginEntry({
             }
             if (event.toolName === "rightout_poll_verification") {
                 try {
-                    const input = validateVerificationPollInput(event.params);
-                    const broker = resolveVerificationCatalogEntry(catalog, input);
-                    assertFreshCatalogEntries(catalog, [input.brokerId]);
+                    const scoped = splitCampaignParams(event.params);
+                    const input = validateVerificationPollInput(scoped.params);
+                    const verificationCatalog = await combinedVerificationCatalog();
+                    const broker = resolveVerificationCatalogEntry(verificationCatalog, input);
+                    await assertParityRouteFresh(input.brokerId);
                     const attestations = verificationAttestationSnapshot(config, input);
+                    if (scoped.campaignId) {
+                        await authorizeCampaignEffects(scoped.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "poll_verification" }], catalog, false);
+                        return { params: { ...input, campaignId: scoped.campaignId } };
+                    }
                     const binding = verificationPollScopeBinding(input, attestations, broker);
                     const toolCallId = event.toolCallId;
                     return {
@@ -781,7 +2133,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -797,10 +2148,17 @@ export default definePluginEntry({
             }
             if (event.toolName === "rightout_direct_rescan") {
                 try {
-                    const input = validateDirectScanInput(event.params);
-                    const broker = resolveDirectScanCatalogEntry(catalog, input);
-                    assertFreshCatalogEntries(catalog, [input.brokerId]);
+                    const scoped = splitCampaignParams(event.params);
+                    const input = validateDirectScanInput(scoped.params);
+                    const directCatalog = await combinedDirectCatalog();
+                    const broker = resolveDirectScanCatalogEntry(directCatalog, input);
+                    assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "direct_recheck");
+                    await assertParityRouteFresh(input.brokerId);
                     const attestations = directScanAttestationSnapshot(config, input);
+                    if (scoped.campaignId) {
+                        await authorizeCampaignEffects(scoped.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "direct_recheck" }], catalog, false);
+                        return { params: { ...input, campaignId: scoped.campaignId } };
+                    }
                     const binding = directScanScopeBinding(input, attestations, broker);
                     const toolCallId = event.toolCallId;
                     return {
@@ -811,7 +2169,6 @@ export default definePluginEntry({
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
-                            timeoutBehavior: "deny",
                             onResolution(decision) {
                                 if (decision === "allow-once")
                                     approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -826,10 +2183,31 @@ export default definePluginEntry({
                 }
             }
             try {
-                const input = validateVerificationOpenInput(event.params);
-                const broker = resolveVerificationCatalogEntry(catalog, input);
-                assertFreshCatalogEntries(catalog, [input.brokerId]);
+                const scoped = splitCampaignParams(event.params);
+                const input = validateVerificationOpenInput(scoped.params);
+                const verificationCatalog = await combinedVerificationCatalog();
+                const broker = resolveVerificationCatalogEntry(verificationCatalog, input);
+                if (broker.openLinkMode === "browser_same_profile_required" && !scoped.campaignId) {
+                    return { block: true, blockReason: "Same-profile verification requires a finite campaign grant; assisted mode remains a manual human gate" };
+                }
+                const openRoutingScope = browserApprovalRoutingScope(config, {
+                    browserRequired: broker.openLinkMode === "browser_same_profile_required",
+                    effects: ["open_verification"],
+                });
+                if (broker.openLinkMode === "browser_same_profile_required") {
+                    if (openRoutingScope.browserBackendMode === "not_required")
+                        throw new Error("rightout_browser_backend_invalid");
+                    assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "open_verification", { browserBackend: openRoutingScope.browserBackendMode });
+                }
+                else {
+                    assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "open_verification");
+                }
+                await assertParityRouteFresh(input.brokerId);
                 const attestations = verificationAttestationSnapshot(config, input);
+                if (scoped.campaignId) {
+                    await authorizeCampaignEffects(scoped.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "open_verification" }], catalog, false);
+                    return { params: { ...input, campaignId: scoped.campaignId } };
+                }
                 const binding = verificationOpenScopeBinding(input, attestations, broker);
                 const toolCallId = event.toolCallId;
                 return {
@@ -840,7 +2218,6 @@ export default definePluginEntry({
                         severity: "critical",
                         allowedDecisions: ["allow-once", "deny"],
                         timeoutMs: approvalTtlMs,
-                        timeoutBehavior: "deny",
                         onResolution(decision) {
                             if (decision === "allow-once")
                                 approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
@@ -854,23 +2231,26 @@ export default definePluginEntry({
                 return { block: true, blockReason: "invalid, expired, mismatched, or unattested RightOut verification-link scope" };
             }
         });
-        api.registerTool({
+        api.registerTool((toolContext) => ({
             name: "rightout_live_scan",
             label: "RightOut live scan",
-            description: "Run a read-only live Brave index scan of supported catalog brokers. Requires native OpenClaw allow-once approval. Never authorizes or submits a removal.",
+            description: "Run a read-only live Brave index scan of supported catalog brokers under an assisted native allow-once approval or a matching finite campaign grant. Never authorizes or submits a removal.",
             parameters: LiveScanParameters,
             async execute(toolCallId, params, signal) {
                 let input;
+                let campaignId;
                 try {
-                    input = validatePublicToolInput(params);
+                    const scoped = splitCampaignParams(params);
+                    campaignId = scoped.campaignId;
+                    input = validatePublicToolInput(scoped.params);
                 }
                 catch {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 const config = api.pluginConfig;
-                const catalog = await catalogPromise;
+                const catalog = await combinedScanCatalog();
                 assertSupportedBrokerScope(catalog, input);
-                assertFreshCatalogEntries(catalog, input.brokerIds);
+                await assertScanScopeFresh(input);
                 let attestations;
                 try {
                     attestations = scanAttestationSnapshot(config, input);
@@ -878,17 +2258,19 @@ export default definePluginEntry({
                 catch {
                     // Missing or changed attestations invalidate the approval binding.
                 }
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval || approval.toolName !== "rightout_live_scan" || !attestations || approval.binding !== scanScopeBinding(input, attestations)) {
+                if (!attestations || (!campaignId && (!approval || approval.toolName !== "rightout_live_scan" || approval.binding !== scanScopeBinding(input, attestations)))) {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 if (!stateEncryptionReady(config) || typeof config.braveApiKey !== "string" || typeof config.profiles?.[input.profileId]?.payload !== "string") {
                     throw new Error("rightout_not_configured");
                 }
+                await authorizeCampaignEffects(campaignId, input.profileId, input.brokerIds.map((brokerId) => ({ brokerId, effect: "discover" })), catalog, true);
                 const guardedFetch = async ({ url, allowedHosts, ...options }) => fetchWithSsrFGuard({
                     url,
+                    fetchImpl: globalThis.fetch,
                     ...options,
                     requireHttps: true,
                     capture: false,
@@ -902,9 +2284,7 @@ export default definePluginEntry({
                     guardedFetch,
                     signal,
                     operatorAttestations: attestations,
-                    ...(typeof config.stateEncryptionKey === "string" ? {
-                        storeCandidate: createListingTokenVault(listingTokens, config.stateEncryptionKey).storeCandidate,
-                    } : {}),
+                    approvalBoundary: campaignId ? "finite_campaign_grant" : "assisted_allow_once",
                 });
                 let durableCaseRecorded = true;
                 try {
@@ -917,41 +2297,47 @@ export default definePluginEntry({
                 const trackedReport = { ...report, tracking: { durable_case_recorded: durableCaseRecorded } };
                 return { content: [{ type: "text", text: JSON.stringify(trackedReport) }], details: trackedReport };
             },
-        }, { optional: true });
+        }), { name: "rightout_live_scan", optional: true });
         api.registerTool({
             name: "rightout_direct_rescan",
             label: "RightOut direct rescan",
-            description: "Directly recheck only encrypted, broker-domain listing URLs previously observed through Brave. Requires separate exact-scope attestations and native allow-once approval. Never submits a request.",
+            description: "Directly recheck only encrypted broker-domain listing URLs captured by separately authorized discovery. Requires current written provider authorization and exact attestations. Assisted calls use native allow-once; campaign calls use a matching finite grant. Never submits a request.",
             parameters: DirectScanParameters,
             async execute(toolCallId, params, signal) {
                 let input;
+                let campaignId;
                 try {
-                    input = validateDirectScanInput(params);
+                    const scoped = splitCampaignParams(params);
+                    campaignId = scoped.campaignId;
+                    input = validateDirectScanInput(scoped.params);
                 }
                 catch {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 const config = api.pluginConfig;
-                const catalog = await catalogPromise;
+                const catalog = await combinedDirectCatalog();
                 const broker = resolveDirectScanCatalogEntry(catalog, input);
-                assertFreshCatalogEntries(catalog, [input.brokerId]);
+                assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "direct_recheck");
+                await assertParityRouteFresh(input.brokerId);
                 let attestations;
                 try {
                     attestations = directScanAttestationSnapshot(config, input);
                 }
                 catch { /* fail below */ }
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval || approval.toolName !== "rightout_direct_rescan" || !attestations
-                    || approval.binding !== directScanScopeBinding(input, attestations, broker))
+                if (!attestations || (!campaignId && (!approval || approval.toolName !== "rightout_direct_rescan"
+                    || approval.binding !== directScanScopeBinding(input, attestations, broker))))
                     throw new Error("rightout_approval_binding_failed");
                 if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") {
                     throw new Error("rightout_not_configured");
                 }
+                await authorizeCampaignEffects(campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "direct_recheck" }], catalog, true);
                 const token = await createListingTokenVault(listingTokens, config.stateEncryptionKey).lookup(input.listingHandle, input.profileId, input.brokerId);
                 const guardedFetch = async ({ url, allowedHosts, ...options }) => fetchWithSsrFGuard({
                     url,
+                    fetchImpl: globalThis.fetch,
                     ...options,
                     requireHttps: true,
                     capture: false,
@@ -978,19 +2364,27 @@ export default definePluginEntry({
                     durableCaseRecorded = false;
                     api.logger.error("RightOut direct rescan completed but its PII-safe case update failed");
                 }
-                const trackedReport = { ...report, state, tracking: { durable_case_recorded: durableCaseRecorded } };
+                const trackedReport = {
+                    ...report,
+                    state,
+                    approval_boundary: campaignId ? "finite_campaign_grant" : "assisted_allow_once",
+                    tracking: { durable_case_recorded: durableCaseRecorded },
+                };
                 return { content: [{ type: "text", text: JSON.stringify(trackedReport) }], details: trackedReport };
             },
         }, { optional: true });
         api.registerTool({
             name: "rightout_submit_removal",
             label: "RightOut submit removal",
-            description: "Send one catalog-locked US delete/opt-out or EU GDPR erasure/objection email through the operator's approved SMTP account. Requires a separate native OpenClaw allow-once approval. Submission is never reported as confirmed removal.",
+            description: "Send one catalog-locked US delete/opt-out or EU GDPR erasure/objection email through the approved SMTP account. Assisted calls use native allow-once; campaign calls use a matching finite grant. Submission is never reported as confirmed removal.",
             parameters: RemovalParameters,
             async execute(toolCallId, params, signal) {
                 let input;
+                let campaignId;
                 try {
-                    input = validateRemovalPublicToolInput(params);
+                    const scoped = splitCampaignParams(params);
+                    campaignId = scoped.campaignId;
+                    input = validateRemovalPublicToolInput(scoped.params);
                 }
                 catch {
                     throw new Error("rightout_approval_binding_failed");
@@ -1006,10 +2400,10 @@ export default definePluginEntry({
                 catch {
                     // Missing or changed attestations invalidate the approval binding.
                 }
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval || approval.toolName !== "rightout_submit_removal" || !attestations || approval.binding !== removalScopeBinding(input, attestations, broker)) {
+                if (!attestations || (!campaignId && (!approval || approval.toolName !== "rightout_submit_removal" || approval.binding !== removalScopeBinding(input, attestations, broker)))) {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.smtpTransport) {
@@ -1022,6 +2416,7 @@ export default definePluginEntry({
                     smtpConfig: config.smtpTransport,
                     operatorAttestations: attestations,
                 });
+                await authorizeCampaignEffects(campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], catalog, true);
                 if (broker.discoveryRequirement !== "not_required_for_data_subject_request") {
                     await caseLedger.removalContext(input.profileId, input.brokerId);
                 }
@@ -1048,6 +2443,7 @@ export default definePluginEntry({
                         profilePayload: config.profiles[input.profileId].payload,
                         smtpConfig: config.smtpTransport,
                         operatorAttestations: attestations,
+                        approvalBoundary: campaignId ? "finite_campaign_grant" : "assisted_allow_once",
                         signal,
                         sendMail: sendSmtpMail,
                     });
@@ -1099,14 +2495,420 @@ export default definePluginEntry({
             },
         }, { optional: true });
         api.registerTool((toolContext) => ({
+            name: "rightout_unbroker_parity_health",
+            label: "RightOut Unbroker parity health",
+            description: "Report the exact normalized 22-broker, 20-form/one-email/one-phone surface, exact form preflight state, and unresolved blockers. Performs no provider request; it may run one PII-free local browser deep-health probe.",
+            parameters: EmptyParameters,
+            async execute(_toolCallId, params) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+                    throw new Error("rightout_parity_health_input_invalid");
+                }
+                const parityHealth = parityCatalogHealth(await parityCatalogPromise);
+                const termsHealth = providerTermsHealth(await providerTermsPromise);
+                const config = api.pluginConfig;
+                const authorization = await providerAuthorizationHealth(config);
+                const exactFormPairs = [];
+                for (const brokerId of authorization.authorized_broker_ids_by_effect.submit_form) {
+                    for (const profileId of Object.keys(config?.profiles ?? {})) {
+                        try {
+                            parityFormAttestationSnapshot(config, profileId, brokerId);
+                            exactFormPairs.push({ profile_id: profileId, broker_id: brokerId });
+                        }
+                        catch { /* non-overlapping or stale attestations remain closed */ }
+                    }
+                }
+                const browser = resolveBrowserBackend(toolContext, config);
+                const browserProbe = browser.configured
+                    ? await probeBrowserBackend(browser)
+                    : { reachable: false, operational: false, deep_snapshot: false };
+                const formPolicyConfigurationReady = exactFormPairs.length > 0;
+                const formExecutionReady = formPolicyConfigurationReady
+                    && browser.configured && browserProbe.operational && browserProbe.deep_snapshot;
+                const formBlockers = [
+                    ...(formPolicyConfigurationReady ? [] : ["no_exact_profile_broker_form_attestation_and_provider_permission_overlap"]),
+                    ...(browser.configured ? [] : ["browser_backend_not_configured"]),
+                    ...(browserProbe.operational ? [] : ["browser_backend_not_operational"]),
+                    ...(browserProbe.deep_snapshot ? [] : ["browser_deep_snapshot_not_verified"]),
+                ];
+                const report = {
+                    ...parityHealth,
+                    release_ready: parityHealth.release_ready,
+                    software_release_ready: parityHealth.release_ready,
+                    autonomous_form_policy_configuration_ready: formPolicyConfigurationReady,
+                    autonomous_form_execution_ready: formExecutionReady,
+                    autonomous_form_readiness_scope: "exact_local_preflight_and_browser_deep_health_provider_effectiveness_not_canaried",
+                    autonomous_form_execution_blockers: formBlockers,
+                    exact_form_authorized_profile_broker_pairs: exactFormPairs,
+                    browser_readiness: {
+                        selected: browser.selected,
+                        configured: browser.configured,
+                        reachable: browserProbe.reachable,
+                        operational: browserProbe.operational,
+                        deep_snapshot: browserProbe.deep_snapshot,
+                    },
+                    provider_effectiveness_verified: false,
+                    exact_provider_playbook_choreography_complete: false,
+                    provider_terms: termsHealth,
+                    provider_authorization: authorization,
+                    latest_live_source_refresh: await paritySourceStore.lookup("latest") ?? null,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_unbroker_parity_health", optional: true });
+        api.registerTool({
+            name: "rightout_refresh_parity_sources",
+            label: "RightOut refresh official parity sources",
+            description: "Probe only Unbroker-parity publisher URLs covered by current written publisher authorization, without subject data or response-body capture. Unpermitted routes are skipped; findings are quarantined and never mutate the catalog automatically. Requires native allow-once approval.",
+            parameters: EmptyParameters,
+            async execute(toolCallId, params, signal) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+                    throw new Error("rightout_parity_source_refresh_input_invalid");
+                }
+                pruneApprovalState();
+                const config = api.pluginConfig;
+                const refreshScope = await paritySourceApprovalScope(config);
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_refresh_parity_sources"
+                    || approval.binding !== paritySourceRefreshScopeBinding(refreshScope.routeIds, refreshScope.permissionDigest)) {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                if (!stateEncryptionReady(config))
+                    throw new Error("rightout_not_configured");
+                const catalog = await parityCatalogPromise;
+                const guardedFetch = async ({ url, allowedHosts, ...options }) => fetchWithSsrFGuard({
+                    url,
+                    fetchImpl: globalThis.fetch,
+                    ...options,
+                    requireHttps: true,
+                    capture: false,
+                    policy: buildHostnameAllowlistPolicyFromSuffixAllowlist(allowedHosts),
+                    auditContext: "rightout_refresh_parity_sources",
+                });
+                const providerTerms = await providerTermsPromise;
+                const report = await refreshParitySources({
+                    catalog,
+                    guardedFetch,
+                    signal,
+                    permissionForRoute(route) {
+                        try {
+                            return assertPublisherAutomationPermission(config, route, providerTerms, "source_refresh");
+                        }
+                        catch {
+                            return null;
+                        }
+                    },
+                });
+                await paritySourceStore.register("latest", report);
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_submit_parity_email",
+            label: "RightOut submit parity rescue email",
+            description: "Send one official-source, catalog-locked deletion and opt-out request for an Unbroker broker whose form, phone, identity, or published automation boundary requires the compliant email rescue lane. Requires an active bounded campaign.",
+            parameters: ParityEmailParameters,
+            async execute(toolCallId, params, signal) {
+                const input = validateFormSessionBeginInput(params);
+                const config = api.pluginConfig;
+                if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.smtpTransport) {
+                    throw new Error("rightout_not_configured");
+                }
+                const parityCatalog = await parityCatalogPromise;
+                const broker = resolveParityBroker(parityCatalog, input.brokerId);
+                if (typeof broker.rescue_email !== "string")
+                    throw new Error("rightout_parity_email_lane_invalid");
+                await assertParityRescueFresh(input.brokerId);
+                const coreCatalog = await catalogPromise;
+                await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], coreCatalog, false);
+                let listingUrl;
+                if (broker.rescue_disclosure_fields.includes("listing_url")) {
+                    if (!input.listingHandle)
+                        throw new Error("rightout_form_listing_handle_required");
+                    const token = await createListingTokenVault(listingTokens, config.stateEncryptionKey).lookup(input.listingHandle, input.profileId, input.brokerId);
+                    listingUrl = token.urls[0];
+                }
+                const removalInput = { profileId: input.profileId, brokerId: input.brokerId, requestKind: "delete_and_opt_out" };
+                const dedupeKey = removalDedupeKey(removalInput);
+                await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], coreCatalog, true);
+                await acquireSubmissionDedupe(dedupeKey, removalInput, "smtp_email");
+                try {
+                    await caseLedger.reserveSubmission(input.profileId, input.brokerId, {
+                        channel: "smtp_email",
+                        discoveryRequirement: "not_required_for_data_subject_request",
+                    });
+                    await markSubmissionDedupeIntentReserved(dedupeKey, removalInput, "smtp_email");
+                }
+                catch (error) {
+                    await submissionDedupe.delete(dedupeKey);
+                    throw error;
+                }
+                let report;
+                try {
+                    report = await runParityEmail({
+                        input: { profileId: input.profileId, brokerId: input.brokerId },
+                        broker,
+                        profilePayload: config.profiles[input.profileId].payload,
+                        smtpConfig: config.smtpTransport,
+                        listingUrl,
+                        sendMail: sendSmtpMail,
+                        signal,
+                    });
+                }
+                catch (error) {
+                    const code = error instanceof Error ? error.message : "rightout_removal_transport_failed";
+                    const possibleWrite = ["rightout_removal_transport_failed", "rightout_removal_not_accepted"].includes(code);
+                    if (possibleWrite) {
+                        await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, { channel: "smtp_email", reason: code }).catch(() => undefined);
+                    }
+                    else {
+                        await caseLedger.releaseSubmission(input.profileId, input.brokerId, code).catch(() => undefined);
+                        await submissionDedupe.delete(dedupeKey);
+                    }
+                    throw error;
+                }
+                let durableCaseRecorded = true;
+                let durableSubmissionFinalized = true;
+                try {
+                    await caseLedger.recordRemoval(report, 45);
+                }
+                catch {
+                    durableSubmissionFinalized = false;
+                    try {
+                        await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, {
+                            channel: "smtp_email",
+                            reason: "accepted_write_ledger_finalize_failed",
+                        });
+                    }
+                    catch {
+                        durableCaseRecorded = false;
+                    }
+                    api.logger.error("RightOut parity rescue was accepted but its PII-safe case update failed");
+                }
+                const details = {
+                    ...report,
+                    state: durableSubmissionFinalized ? report.state : "submission_uncertain",
+                    campaign_id: input.campaignId,
+                    tracking: { durable_case_recorded: durableCaseRecorded, submission_finalized: durableSubmissionFinalized },
+                };
+                return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+            },
+        }, { optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_begin_webmail_session",
+            label: "RightOut begin browser webmail send",
+            description: "Open a privacy-redacted Gmail compose session in the configured logged-in OpenClaw browser profile for an official parity rescue address. Recipient, subject, and body stay inside the plugin/browser control plane.",
+            parameters: ParityEmailParameters,
+            async execute(toolCallId, params, signal) {
+                const input = validateFormSessionBeginInput(params);
+                const config = api.pluginConfig;
+                if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string")
+                    throw new Error("rightout_not_configured");
+                const parityCatalog = await parityCatalogPromise;
+                const broker = resolveParityBroker(parityCatalog, input.brokerId);
+                if (typeof broker.rescue_email !== "string")
+                    throw new Error("rightout_parity_email_lane_invalid");
+                await assertParityRescueFresh(input.brokerId);
+                const coreCatalog = await catalogPromise;
+                await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], coreCatalog, true);
+                let listingUrl;
+                if (broker.rescue_disclosure_fields.includes("listing_url")) {
+                    if (!input.listingHandle)
+                        throw new Error("rightout_form_listing_handle_required");
+                    const token = await createListingTokenVault(listingTokens, config.stateEncryptionKey).lookup(input.listingHandle, input.profileId, input.brokerId);
+                    listingUrl = token.urls[0];
+                }
+                const built = buildParityMessage({
+                    input: { profileId: input.profileId, brokerId: input.brokerId },
+                    broker,
+                    profilePayload: config.profiles[input.profileId].payload,
+                    listingUrl,
+                });
+                const browserControl = resolveBrowserControl(toolContext, config);
+                const browserBackend = resolveBrowserBackend(toolContext, config);
+                if (!browserBackend.webmail_ready || typeof browserControl.bridgeUrl !== "string" || !browserControl.browserProfile)
+                    throw new Error("rightout_browser_webmail_profile_required");
+                const values = { recipient: built.recipient, message_subject: built.subject, message_body: built.text };
+                const opened = await browserSessionDriver.openSession({
+                    ...browserControl,
+                    formUrl: "https://mail.google.com/mail/u/0/#compose",
+                    allowedDomains: ["mail.google.com"],
+                    allowedFields: Object.keys(values),
+                    values,
+                    privacyMode: "webmail",
+                    signal,
+                });
+                const sessionId = `webmailsession_${randomBytes(12).toString("hex")}`;
+                storeBrowserSession(sessionId, {
+                    sessionId, sessionType: "webmail", targetId: opened.targetId,
+                    profileId: input.profileId, brokerId: input.brokerId, campaignId: input.campaignId,
+                    broker, values, disclosureFields: built.disclosureFields, browserControl,
+                    filledFields: [], effectConsumed: true, expiresAt: Date.now() + 30 * 60_000,
+                });
+                const report = {
+                    report_version: 1, session_id: sessionId, subject_ref: input.profileId, broker_id: input.brokerId,
+                    state: "webmail_session_ready", provider: "gmail_openclaw_browser_profile", snapshot: opened.snapshot,
+                    disclosures_allowed: Object.keys(values), provider_reads: 1, provider_writes: 0, raw_mailbox_content_in_report: false, raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_begin_webmail_session", optional: true });
+        api.registerTool({
+            name: "rightout_webmail_session_step",
+            label: "RightOut browser webmail step",
+            description: "Fill or send one catalog-built privacy request in an active redacted webmail session. The model selects only ARIA refs and field names; it never supplies or receives message values.",
+            parameters: WebmailSessionStepParameters,
+            async execute(_toolCallId, params, signal) {
+                const input = validateWebmailSessionStepInput(params);
+                await pruneTransientState();
+                const session = activeWebmailSession(input.sessionId);
+                const coreCatalog = await catalogPromise;
+                const driverOptions = {
+                    ...session.browserControl, targetId: session.targetId, allowedDomains: ["mail.google.com"],
+                    allowedFields: Object.keys(session.values), values: session.values, privacyMode: "webmail", signal,
+                };
+                if (input.action.kind === "close") {
+                    deleteBrowserSession(input.sessionId);
+                    const cleanup = await cleanupAndCloseBrowserSession(session);
+                    const draftPossible = session.draftMayContainPii === true || session.filledFields.length > 0;
+                    const report = {
+                        session_id: input.sessionId, broker_id: session.brokerId, state: "webmail_session_closed",
+                        provider_writes: 0, provider_write_possible: draftPossible,
+                        draft_cleanup: cleanup.draft_cleanup,
+                        tab_cleanup: cleanup.tab_cleanup,
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                try {
+                    if (session.effectConsumed)
+                        await revalidateConsumedSessionEffect(session, "submit_email");
+                    else
+                        await authorizeCampaignEffects(session.campaignId, session.profileId, [{ brokerId: session.brokerId, effect: "submit_email" }], coreCatalog, false);
+                }
+                catch (error) {
+                    await invalidateBrowserSession(input.sessionId, session);
+                    throw error;
+                }
+                if (input.action.kind === "inspect") {
+                    const snapshot = await browserSessionDriver.inspect(driverOptions);
+                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "webmail_session_active", snapshot, raw_mailbox_content_in_report: false };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "record_redacted_state_receipt") {
+                    const receipt = await browserSessionDriver.redactedStateReceipt(driverOptions);
+                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "redacted_state_receipt_recorded", ...receipt };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "fill" && !session.effectConsumed) {
+                    await authorizeCampaignEffects(session.campaignId, session.profileId, [{ brokerId: session.brokerId, effect: "submit_email" }], coreCatalog, true);
+                    session.effectConsumed = true;
+                }
+                const finalSend = input.action.kind === "click" && input.action.purpose === "send";
+                let dedupeKey;
+                let reserved = false;
+                if (finalSend) {
+                    if (!session.effectConsumed || Object.keys(session.values).some((field) => !session.filledFields.includes(field)))
+                        throw new Error("rightout_webmail_fields_incomplete");
+                    const removalInput = { profileId: session.profileId, brokerId: session.brokerId, requestKind: "delete_and_opt_out" };
+                    dedupeKey = removalDedupeKey(removalInput);
+                    await acquireSubmissionDedupe(dedupeKey, removalInput, "browser_webmail");
+                    await caseLedger.reserveSubmission(session.profileId, session.brokerId, { channel: "browser_webmail", discoveryRequirement: "not_required_for_data_subject_request" });
+                    await markSubmissionDedupeIntentReserved(dedupeKey, removalInput, "browser_webmail");
+                    reserved = true;
+                }
+                try {
+                    const snapshot = await browserSessionDriver.act({ ...driverOptions, action: input.action });
+                    if (input.action.kind === "fill") {
+                        session.draftMayContainPii = true;
+                        for (const field of input.action.fields)
+                            session.filledFields.push(field.profile_field);
+                        session.filledFields = [...new Set(session.filledFields)];
+                    }
+                    if (!finalSend) {
+                        const report = {
+                            session_id: input.sessionId, broker_id: session.brokerId, state: "webmail_session_active", snapshot,
+                            provider_write_possible: input.action.kind === "fill",
+                            draft_retention: input.action.kind === "fill" ? "gmail_autosave_possible_until_send_or_discard" : "unchanged",
+                            raw_mailbox_content_in_report: false,
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    if (!snapshot.observed_transitions?.includes("message_sent_observed"))
+                        throw new Error("rightout_webmail_send_unconfirmed");
+                    session.sendCompleted = true;
+                    const receipt = await browserSessionDriver.redactedStateReceipt(driverOptions);
+                    const generatedAt = new Date().toISOString();
+                    const proof = `webmail_${createHash("sha256").update(JSON.stringify([input.sessionId, session.brokerId, generatedAt])).digest("hex").slice(0, 24)}`;
+                    const report = {
+                        report_version: 1, subject_ref: session.profileId, broker_id: session.brokerId, state: "submitted", generated_at: generatedAt,
+                        delivery: { channel: "openclaw_browser_webmail", webmail_sent: true, broker_receipt_confirmed: false, removal_confirmed: false },
+                        disclosures: { to_broker: session.disclosureFields, values_in_report: false, attachments: 0, identity_documents: 0 },
+                        proof_references: [proof, receipt.receipt_reference], redacted_state_receipt: receipt, campaign_id: session.campaignId,
+                        raw_mailbox_content_in_report: false, raw_message_in_report: false, raw_pii_in_report: false,
+                    };
+                    await caseLedger.recordRemoval(report, 45);
+                    await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                    deleteBrowserSession(input.sessionId);
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                catch (error) {
+                    if (reserved) {
+                        const code = error instanceof Error ? error.message : "rightout_webmail_send_failed";
+                        await caseLedger.recordSubmissionUncertain(session.profileId, session.brokerId, { channel: "browser_webmail", reason: code }).catch(() => undefined);
+                    }
+                    if (input.action.kind === "fill" && error instanceof Error && error.message === "rightout_browser_action_uncertain") {
+                        session.draftMayContainPii = true;
+                        const cleanup = await invalidateBrowserSession(input.sessionId, session);
+                        await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                            evidenceKind: "human_task", reason: "webmail_fill_outcome_uncertain",
+                        }).catch(() => undefined);
+                        const report = {
+                            session_id: input.sessionId, broker_id: session.brokerId, state: "human_task_queued",
+                            reason: "webmail_fill_outcome_uncertain", automatic_retry_allowed: false,
+                            provider_write_possible: true, draft_cleanup: cleanup.draft_cleanup, tab_cleanup: cleanup.tab_cleanup,
+                            raw_mailbox_content_in_report: false, raw_pii_in_report: false,
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    if (finalSend)
+                        await invalidateBrowserSession(input.sessionId, session);
+                    throw error;
+                }
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_begin_webmail_verification",
+            label: "RightOut browser-mail verification handoff",
+            description: "Return a zero-I/O human gate when authenticated IMAP is unavailable. RightOut does not search browser mail because the browser surface lacks a structured receiver-authentication contract.",
+            parameters: WebmailVerificationBeginParameters,
+            async execute(_toolCallId, params) {
+                const input = validateWebmailVerificationBeginInput(params);
+                const config = api.pluginConfig;
+                if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string")
+                    throw new Error("rightout_not_configured");
+                await ensureImmutableProfileSnapshot(input.profileId);
+                await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "poll_verification" }], await catalogPromise, false);
+                const humanOnlyReport = {
+                    report_version: 1, subject_ref: input.profileId, broker_id: input.brokerId,
+                    state: "human_gate", reason: "browser_mail_has_no_structured_authenticated_header_contract",
+                    next_action: "configure_receiver_authenticated_imap_or_open_the_message_manually",
+                    provider_reads: 0, provider_writes: 0, raw_mailbox_content_in_report: false, raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(humanOnlyReport) }], details: humanOnlyReport };
+            },
+        }, { optional: true });
+        api.registerTool((toolContext) => ({
             name: "rightout_submit_form_removal",
             label: "RightOut submit form removal",
-            description: "Initiate a catalog-locked broker suppression flow in OpenClaw's sandbox browser. PII is resolved inside the plugin, CAPTCHA/ID fails closed, and a separate native allow-once approval is mandatory.",
+            description: "Initiate a catalog-locked broker suppression flow through the configured OpenClaw browser backend. PII is resolved inside the plugin and CAPTCHA/ID fails closed. Assisted calls require native allow-once; campaign calls require a matching finite grant.",
             parameters: RemovalParameters,
             async execute(toolCallId, params, signal) {
                 let input;
+                let campaignId;
                 try {
-                    input = validateFormRemovalInput(params);
+                    const scoped = splitCampaignParams(params);
+                    campaignId = scoped.campaignId;
+                    input = validateFormRemovalInput(scoped.params);
                 }
                 catch {
                     throw new Error("rightout_approval_binding_failed");
@@ -1114,21 +2916,31 @@ export default definePluginEntry({
                 const config = api.pluginConfig;
                 const catalog = await catalogPromise;
                 const broker = resolveFormCatalogEntry(catalog, input);
+                const permissionRoutingScope = browserApprovalRoutingScope(config, { browserRequired: true, effects: ["submit_form"] });
+                if (permissionRoutingScope.browserBackendMode === "not_required")
+                    throw new Error("rightout_browser_backend_invalid");
+                assertPublisherAutomationPermission(config, { id: input.brokerId, method: "web_form" }, await providerTermsPromise, "submit_form", { browserBackend: permissionRoutingScope.browserBackendMode });
                 assertFreshCatalogEntries(catalog, [input.brokerId]);
                 let attestations;
                 try {
                     attestations = formAttestationSnapshot(config, input);
                 }
                 catch { /* fail below */ }
-                pruneTransientState();
+                let browserScope;
+                try {
+                    browserScope = browserApprovalRoutingScope(config, { browserRequired: true, effects: ["submit_form"] });
+                }
+                catch { /* fail below */ }
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval || approval.toolName !== "rightout_submit_form_removal" || !attestations || approval.binding !== formScopeBinding(input, attestations, broker)) {
+                if (!attestations || !browserScope || (!campaignId && (!approval || approval.toolName !== "rightout_submit_form_removal" || approval.binding !== formScopeBinding(input, attestations, broker, browserScope)))) {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string")
                     throw new Error("rightout_not_configured");
                 validateFormPreflight({ input, catalog, profilePayload: config.profiles[input.profileId].payload, attestations });
+                await authorizeCampaignEffects(campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_form" }], catalog, true);
                 await caseLedger.removalContext(input.profileId, input.brokerId);
                 const dedupeKey = removalDedupeKey(input);
                 if (submittedScopes.has(dedupeKey))
@@ -1147,12 +2959,16 @@ export default definePluginEntry({
                 }
                 submittedScopes.set(dedupeKey, Number.POSITIVE_INFINITY);
                 try {
+                    const browserControl = resolveBrowserControl(toolContext, config);
                     const report = await runFormRemoval({
                         input,
                         catalog,
                         profilePayload: config.profiles[input.profileId].payload,
                         attestations,
-                        bridgeUrl: toolContext.browser?.sandboxBridgeUrl,
+                        ...browserControl,
+                        browserBackend: browserScope.browserBackendMode,
+                        browserControlTransport: resolveBrowserControlTransport(toolContext, config),
+                        approvalBoundary: campaignId ? "finite_campaign_grant" : "assisted_allow_once",
                         submitForm: submitBrowserForm,
                         signal,
                     });
@@ -1188,10 +3004,10 @@ export default definePluginEntry({
                         "rightout_browser_bridge_unavailable", "rightout_browser_bridge_failed",
                         "rightout_browser_snapshot_invalid", "rightout_form_contract_mismatch",
                         "rightout_form_human_gate_required", "rightout_form_profile_field_missing",
-                        "rightout_form_submission_unconfirmed", "rightout_form_cancelled",
+                        "rightout_form_submission_unconfirmed", "rightout_form_submission_uncertain", "rightout_form_cancelled",
                     ]);
                     const reason = safeCodes.has(code) ? code : "rightout_form_failed";
-                    const possibleWrite = ["rightout_browser_bridge_failed", "rightout_form_submission_unconfirmed"].includes(reason);
+                    const possibleWrite = ["rightout_browser_bridge_failed", "rightout_form_submission_unconfirmed", "rightout_form_submission_uncertain"].includes(reason);
                     if (possibleWrite) {
                         submittedScopes.set(dedupeKey, Date.now() + duplicateCooldownMs);
                         await caseLedger.recordSubmissionUncertain(input.profileId, input.brokerId, {
@@ -1235,35 +3051,45 @@ export default definePluginEntry({
         api.registerTool({
             name: "rightout_poll_verification",
             label: "RightOut poll verification",
-            description: "Read recent mail from the subject's approved IMAP account and find a broker-domain confirmation link without returning raw mail or link values. Requires a separate native OpenClaw allow-once approval.",
+            description: "Read recent mail from the approved IMAP account and find a broker-domain confirmation link without returning raw mail or link values. Assisted calls use native allow-once; campaign calls use a matching finite grant.",
             parameters: VerificationPollParameters,
             async execute(toolCallId, params, signal) {
                 let input;
+                let campaignId;
                 try {
-                    input = validateVerificationPollInput(params);
+                    const scoped = splitCampaignParams(params);
+                    campaignId = scoped.campaignId;
+                    input = validateVerificationPollInput(scoped.params);
                 }
                 catch {
                     throw new Error("rightout_approval_binding_failed");
                 }
+                const approvalBoundary = campaignId ? "finite_campaign_grant" : "assisted_allow_once";
                 const config = api.pluginConfig;
-                const catalog = await catalogPromise;
+                const catalog = await combinedVerificationCatalog();
                 const broker = resolveVerificationCatalogEntry(catalog, input);
-                assertFreshCatalogEntries(catalog, [input.brokerId]);
+                await assertParityRouteFresh(input.brokerId);
+                await pruneTransientState();
+                if (broker.openLinkMode === "browser_same_profile_required" && await portalFlowStore.lookup(portalFlowKey(input.profileId, input.brokerId))) {
+                    throw new Error("rightout_verified_portal_flow_already_open");
+                }
                 let attestations;
                 try {
                     attestations = verificationAttestationSnapshot(config, input);
                 }
                 catch { /* fail below */ }
-                pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval || approval.toolName !== "rightout_poll_verification" || !attestations || approval.binding !== verificationPollScopeBinding(input, attestations, broker)) {
+                if (!attestations || (!campaignId && (!approval || approval.toolName !== "rightout_poll_verification" || approval.binding !== verificationPollScopeBinding(input, attestations, broker)))) {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.imapTransport) {
                     throw new Error("rightout_not_configured");
                 }
                 const caseContext = await caseLedger.verificationContext(input.profileId, input.brokerId, ["submitted", "verification_pending"]);
+                const unresolvedOpen = await verificationOpenDedupe.lookup(verificationOpenDedupeKey(input.profileId, input.brokerId, caseContext.submission_proof_reference));
+                if (unresolvedOpen)
+                    throw new Error("rightout_verification_open_unresolved");
                 const preflight = validateVerificationPreflight({
                     input,
                     catalog,
@@ -1271,6 +3097,7 @@ export default definePluginEntry({
                     imapTransport: config.imapTransport,
                     attestations,
                 });
+                await authorizeCampaignEffects(campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "poll_verification" }], catalog, true);
                 const result = await pollImapVerification({
                     transport: preflight.imap,
                     expectedAddress: preflight.profile.contactEmail,
@@ -1280,12 +3107,19 @@ export default definePluginEntry({
                     signal,
                 });
                 if (!result.found) {
+                    const deferred = await caseLedger.deferRecheck(input.profileId, input.brokerId, {
+                        reason: "verification_mail_not_observed",
+                        days: 1,
+                    });
                     const report = {
                         report_version: 1,
                         subject_ref: input.profileId,
                         broker_id: input.brokerId,
                         state: "verification_not_observed",
+                        approval_boundary: approvalBoundary,
                         generated_at: new Date().toISOString(),
+                        next_recheck_at: deferred.next_recheck_at,
+                        retry_deferred: true,
                         raw_mail_in_report: false,
                         provider_writes: 0,
                     };
@@ -1295,6 +3129,48 @@ export default definePluginEntry({
                     || typeof result.message_reference !== "string"
                     || !Array.isArray(result.allowed_link_domains))
                     throw new Error("rightout_verification_poll_failed");
+                if (broker.openLinkMode === "browser_same_profile_required" && !campaignId) {
+                    const deferred = await caseLedger.deferRecheck(input.profileId, input.brokerId, {
+                        reason: "same_profile_verification_requires_finite_campaign",
+                        days: 1,
+                    });
+                    const report = {
+                        report_version: 1,
+                        subject_ref: input.profileId,
+                        broker_id: input.brokerId,
+                        state: "requires_finite_campaign",
+                        approval_boundary: approvalBoundary,
+                        reason: "same_profile_verified_portal_cannot_start_from_assisted_allow_once",
+                        message_reference: result.message_reference,
+                        next_recheck_at: deferred.next_recheck_at,
+                        next_action: "start_a_finite_campaign_with_poll_verification_open_verification_and_submit_form_or_open_the_verified_message_manually",
+                        raw_mail_in_report: false,
+                        raw_link_in_report: false,
+                        raw_pii_in_report: false,
+                        provider_writes: 0,
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (broker.openLinkMode === "human_only") {
+                    await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                        evidenceKind: "human_task",
+                        reason: "verification_link_open_human_only",
+                        proofReference: result.message_reference,
+                    });
+                    const report = {
+                        report_version: 1,
+                        subject_ref: input.profileId,
+                        broker_id: input.brokerId,
+                        state: "human_task_queued",
+                        approval_boundary: approvalBoundary,
+                        reason: "verification_link_open_human_only",
+                        message_reference: result.message_reference,
+                        generated_at: new Date().toISOString(),
+                        next_action: "operator_opens_the_verified_broker_message_and_confirmation_control_manually",
+                        invariants: { raw_mail_in_report: false, raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 0 },
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
                 const verificationHandle = newVerificationHandle();
                 const token = {
                     profileId: input.profileId,
@@ -1322,45 +3198,87 @@ export default definePluginEntry({
                     subject_ref: input.profileId,
                     broker_id: input.brokerId,
                     state: "verification_pending",
+                    approval_boundary: approvalBoundary,
                     verification_handle: verificationHandle,
                     message_reference: result.message_reference,
+                    link_security: result.link_security,
                     generated_at: token.createdAt,
-                    next_action: "separately_approve_rightout_open_verification",
+                    next_action: broker.openLinkMode === "browser_same_profile_required"
+                        ? "open_the_opaque_handle_in_the_same_configured_browser_profile"
+                        : "separately_approve_rightout_open_verification",
+                    next_command: {
+                        tool: "rightout_open_verification",
+                        parameters: {
+                            profileId: input.profileId,
+                            brokerId: input.brokerId,
+                            verificationHandle,
+                            ...(campaignId ? { campaignId } : {}),
+                        },
+                        approval_boundary: campaignId ? "finite_campaign_grant" : "assisted_allow_once_required",
+                    },
                     tracking: { durable_case_recorded: true, bound_to_submission: true },
                     invariants: { raw_mail_in_report: false, raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 0 },
                 };
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
         }, { optional: true });
-        api.registerTool({
+        api.registerTool((toolContext) => ({
             name: "rightout_open_verification",
             label: "RightOut open verification",
-            description: "Consume one short-lived broker-bound handle and open its stored HTTPS confirmation link. This is an external write and requires its own native OpenClaw allow-once approval.",
+            description: "Consume one short-lived broker-bound handle and open its stored HTTPS confirmation link. This external write uses assisted native allow-once or a matching finite campaign grant; same-profile portals require the campaign path.",
             parameters: VerificationOpenParameters,
             async execute(toolCallId, params, signal) {
                 let input;
+                let campaignId;
                 try {
-                    input = validateVerificationOpenInput(params);
+                    const scoped = splitCampaignParams(params);
+                    campaignId = scoped.campaignId;
+                    input = validateVerificationOpenInput(scoped.params);
                 }
                 catch {
                     throw new Error("rightout_approval_binding_failed");
                 }
+                const approvalBoundary = campaignId ? "finite_campaign_grant" : "assisted_allow_once";
                 const config = api.pluginConfig;
-                const catalog = await catalogPromise;
+                const catalog = await combinedVerificationCatalog();
                 const broker = resolveVerificationCatalogEntry(catalog, input);
-                assertFreshCatalogEntries(catalog, [input.brokerId]);
+                const openPermissionScope = browserApprovalRoutingScope(config, {
+                    browserRequired: broker.openLinkMode === "browser_same_profile_required",
+                    effects: ["open_verification"],
+                });
+                if (broker.openLinkMode === "browser_same_profile_required") {
+                    if (openPermissionScope.browserBackendMode === "not_required")
+                        throw new Error("rightout_browser_backend_invalid");
+                    assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "open_verification", { browserBackend: openPermissionScope.browserBackendMode });
+                }
+                else {
+                    assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "open_verification");
+                }
+                await assertParityRouteFresh(input.brokerId);
+                let sameProfileBrowserControl;
+                if (broker.openLinkMode === "browser_same_profile_required") {
+                    sameProfileBrowserControl = resolveBrowserControl(toolContext, config);
+                    if (typeof sameProfileBrowserControl.bridgeUrl !== "string"
+                        || typeof sameProfileBrowserControl.browserProfile !== "string"
+                        || !sameProfileBrowserControl.bridgeUrl.trim()
+                        || !sameProfileBrowserControl.browserProfile.trim()) {
+                        throw new Error("rightout_peopleconnect_named_browser_profile_required");
+                    }
+                }
+                await pruneTransientState();
+                if (broker.openLinkMode === "browser_same_profile_required" && await portalFlowStore.lookup(portalFlowKey(input.profileId, input.brokerId))) {
+                    throw new Error("rightout_verified_portal_flow_already_open");
+                }
                 let attestations;
                 try {
                     attestations = verificationAttestationSnapshot(config, input);
                 }
                 catch { /* fail below */ }
-                pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
-                if (!approval
+                if (!attestations || (!campaignId && (!approval
                     || approval.toolName !== "rightout_open_verification"
-                    || !attestations
-                    || approval.binding !== verificationOpenScopeBinding(input, attestations, broker)) {
+                    || approval.binding !== verificationOpenScopeBinding(input, attestations, broker)))) {
                     throw new Error("rightout_approval_binding_failed");
                 }
                 if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.imapTransport) {
@@ -1379,13 +3297,105 @@ export default definePluginEntry({
                     imapTransport: config.imapTransport,
                     attestations,
                 });
-                const consumed = await verificationTokens.consume(input.verificationHandle);
-                if (!consumed || consumed.url !== token.url)
-                    throw new Error("rightout_verification_handle_expired");
+                if (broker.openLinkMode === "browser_same_profile_required" && !campaignId) {
+                    throw new Error("rightout_peopleconnect_campaign_required");
+                }
+                await authorizeCampaignEffects(campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "open_verification" }], catalog, true);
+                const openDedupeKey = verificationOpenDedupeKey(input.profileId, input.brokerId, context.submission_proof_reference);
+                const openIntentCreated = await verificationOpenDedupe.registerIfAbsent(openDedupeKey, {
+                    createdAt: new Date().toISOString(),
+                    profileId: input.profileId,
+                    brokerId: input.brokerId,
+                    submissionReference: context.submission_proof_reference,
+                    phase: "provider_request_intent",
+                });
+                if (!openIntentCreated)
+                    throw new Error("rightout_verification_open_unresolved");
+                let consumed;
+                try {
+                    consumed = await verificationTokens.consume(input.verificationHandle);
+                    if (!consumed || consumed.url !== token.url)
+                        throw new Error("rightout_verification_handle_expired");
+                }
+                catch (error) {
+                    await verificationOpenDedupe.delete(openDedupeKey);
+                    throw error;
+                }
+                if (broker.openLinkMode === "browser_same_profile_required") {
+                    let opened;
+                    let flowStored = false;
+                    let sessionId;
+                    try {
+                        const browserControl = sameProfileBrowserControl;
+                        const parity = await parityCatalogPromise;
+                        const portalBroker = resolveParityBroker(parity, input.brokerId);
+                        const profile = parseRemovalProfile(config.profiles[input.profileId].payload);
+                        const values = formProfileValues(profile);
+                        const disclosureFields = ["full_name", "date_of_birth"];
+                        const fieldDisclosureMap = formFieldDisclosureMap(disclosureFields, values);
+                        opened = await browserSessionDriver.openSession({
+                            ...browserControl, formUrl: consumed.url, allowedDomains: consumed.allowedDomains,
+                            allowedFields: Object.keys(fieldDisclosureMap), values, privacyMode: "peopleconnect_guided", signal,
+                        });
+                        const expiresAt = Date.now() + 30 * 60_000;
+                        await portalFlowStore.register(portalFlowKey(input.profileId, input.brokerId), {
+                            profileId: input.profileId, brokerId: input.brokerId, campaignId,
+                            targetId: opened.targetId, browserProfile: browserControl.browserProfile ?? null,
+                            bridgeUrl: browserControl.bridgeUrl,
+                            browserBackend: config?.browserBackendMode ?? "managed_openclaw",
+                            stage: "peopleconnect_guided_identity", expiresAt,
+                        });
+                        flowStored = true;
+                        sessionId = `formsession_${randomBytes(12).toString("hex")}`;
+                        storeBrowserSession(sessionId, {
+                            sessionId, sessionType: "form", stage: "peopleconnect_guided_identity", targetId: opened.targetId,
+                            profileId: input.profileId, brokerId: input.brokerId, campaignId,
+                            broker: portalBroker, values, fieldDisclosureMap, browserControl,
+                            browserBackend: config?.browserBackendMode ?? "managed_openclaw",
+                            filledFields: [], recordSelected: false, effectConsumed: true,
+                            submissionIntentReserved: false, expiresAt,
+                        });
+                        await verificationOpenDedupe.delete(openDedupeKey);
+                        const report = {
+                            report_version: 1, session_id: sessionId, subject_ref: input.profileId, broker_id: input.brokerId,
+                            state: "guided_suppression_ready", generated_at: new Date().toISOString(),
+                            approval_boundary: approvalBoundary,
+                            same_browser_profile_retained: true, authenticated_imap_message_bound: true,
+                            verification_handle_consumed: true, disclosures_allowed: disclosureFields,
+                            form_fields_available: Object.keys(fieldDisclosureMap), snapshot: opened.snapshot,
+                            next_action: "fill_identity_then_select_one_strongly_corroborated_record_then_click_suppress",
+                            invariants: { raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1 },
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    catch (error) {
+                        if (sessionId)
+                            deleteBrowserSession(sessionId);
+                        if (flowStored)
+                            await portalFlowStore.delete(portalFlowKey(input.profileId, input.brokerId)).catch(() => undefined);
+                        if (opened?.targetId && sameProfileBrowserControl) {
+                            await browserSessionDriver.closeSession({ ...sameProfileBrowserControl, targetId: opened.targetId }).catch(() => undefined);
+                        }
+                        await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                            evidenceKind: "human_task", reason: "same_profile_verification_open_uncertain",
+                        }).catch(() => undefined);
+                        const report = {
+                            report_version: 1, subject_ref: input.profileId, broker_id: input.brokerId,
+                            state: "human_task_queued", reason: "same_profile_verification_open_uncertain",
+                            approval_boundary: approvalBoundary,
+                            verification_handle_consumed: true, retry_blocked: true,
+                            tracking: { durable_retry_guard_recorded: true },
+                            invariants: { raw_link_in_report: false, raw_pii_in_report: false, provider_writes_possible: true },
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                }
                 let request;
+                let openFailure;
                 try {
                     request = await fetchWithSsrFGuard({
                         url: consumed.url,
+                        fetchImpl: globalThis.fetch,
                         requireHttps: true,
                         capture: false,
                         timeoutMs: 20_000,
@@ -1399,14 +3409,38 @@ export default definePluginEntry({
                         throw new Error("rightout_verification_open_failed");
                 }
                 catch (error) {
-                    if (signal?.aborted)
-                        throw new Error("rightout_verification_cancelled");
-                    if (error instanceof Error && error.message === "rightout_verification_open_failed")
-                        throw error;
-                    throw new Error("rightout_verification_open_failed");
+                    openFailure = signal?.aborted ? "rightout_verification_cancelled" : "rightout_verification_open_failed";
                 }
                 finally {
                     await request?.release?.();
+                }
+                if (openFailure) {
+                    let durableCaseRecorded = true;
+                    try {
+                        await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                            evidenceKind: "human_task",
+                            reason: "verification_open_outcome_uncertain",
+                        });
+                    }
+                    catch {
+                        durableCaseRecorded = false;
+                    }
+                    const report = {
+                        report_version: 1,
+                        subject_ref: input.profileId,
+                        broker_id: input.brokerId,
+                        state: durableCaseRecorded ? "human_task_queued" : "verification_opened_tracking_failed",
+                        approval_boundary: approvalBoundary,
+                        reason: "verification_open_outcome_uncertain",
+                        generated_at: new Date().toISOString(),
+                        verification_handle_consumed: true,
+                        removal_confirmed: false,
+                        retry_blocked: true,
+                        next_action: "manual_provider_status_check_required",
+                        tracking: { durable_case_recorded: durableCaseRecorded, durable_retry_guard_recorded: true },
+                        invariants: { raw_link_in_report: false, raw_pii_in_report: false, provider_writes_possible: true },
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
                 let durableCaseRecorded = true;
                 try {
@@ -1426,20 +3460,24 @@ export default definePluginEntry({
                         subject_ref: input.profileId,
                         broker_id: input.brokerId,
                         state: "verification_opened_tracking_failed",
+                        approval_boundary: approvalBoundary,
                         generated_at: new Date().toISOString(),
                         verification_handle_consumed: true,
                         removal_confirmed: false,
                         next_action: "manual_provider_status_check_required",
-                        tracking: { durable_case_recorded: false },
+                        retry_blocked: true,
+                        tracking: { durable_case_recorded: false, durable_retry_guard_recorded: true },
                         invariants: { raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1 },
                     };
                     return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
+                await verificationOpenDedupe.delete(openDedupeKey);
                 const report = {
                     report_version: 1,
                     subject_ref: input.profileId,
                     broker_id: input.brokerId,
                     state: "awaiting_processing",
+                    approval_boundary: approvalBoundary,
                     generated_at: new Date().toISOString(),
                     verification_handle_consumed: true,
                     removal_confirmed: false,
@@ -1448,7 +3486,7 @@ export default definePluginEntry({
                 };
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
-        }, { optional: true });
+        }), { name: "rightout_open_verification", optional: true });
         api.registerTool({
             name: "rightout_rotate_state_key",
             label: "RightOut rotate state key",
@@ -1458,7 +3496,7 @@ export default definePluginEntry({
                 if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
                     throw new Error("rightout_approval_binding_failed");
                 }
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
                 if (!approval || approval.toolName !== "rightout_rotate_state_key" || approval.binding !== rotationScopeBinding()) {
@@ -1467,11 +3505,17 @@ export default definePluginEntry({
                 const config = api.pluginConfig;
                 if (!stateRotationReady(config))
                     throw new Error("rightout_state_rotation_not_configured");
-                const [cases, verificationHandles, listingHandles, dedupeRecords] = await Promise.all([
+                const [cases, profileSnapshots, verificationHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, registryEntries, paritySourceEntries] = await Promise.all([
                     caseStore.reencrypt(),
+                    profileSnapshotStore.reencrypt(),
                     verificationTokens.reencrypt(),
+                    verificationOpenDedupe.reencrypt(),
+                    portalFlowStore.reencrypt(),
                     listingTokens.reencrypt(),
                     submissionDedupe.reencrypt(),
+                    campaignStore.reencrypt(),
+                    registryStore.reencrypt(),
+                    paritySourceStore.reencrypt(),
                 ]);
                 const report = {
                     report_version: 1,
@@ -1479,9 +3523,15 @@ export default definePluginEntry({
                     generated_at: new Date().toISOString(),
                     reencrypted_entries: {
                         cases,
+                        profile_snapshots: profileSnapshots,
                         verification_handles: verificationHandles,
+                        verification_open_guards: verificationOpenGuards,
+                        verified_portal_flows: portalFlows,
                         listing_handles: listingHandles,
                         dedupe_records: dedupeRecords,
+                        campaigns,
+                        registry_entries: registryEntries,
+                        parity_source_entries: paritySourceEntries,
                     },
                     previous_key_count: config.previousStateEncryptionKeys.length,
                     provider_writes: 0,
@@ -1504,7 +3554,7 @@ export default definePluginEntry({
                 catch {
                     throw new Error("rightout_approval_binding_failed");
                 }
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
                 if (!approval || approval.toolName !== "rightout_purge_subject_state" || approval.binding !== purgeScopeBinding(input)) {
@@ -1513,11 +3563,17 @@ export default definePluginEntry({
                 const config = api.pluginConfig;
                 if (!stateEncryptionReady(config))
                     throw new Error("rightout_not_configured");
-                const [caseDeleted, verificationHandles, listingHandles, dedupeRecords] = await Promise.all([
+                const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
+                const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
+                const [caseDeleted, profileSnapshotDeleted, verificationHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns] = await Promise.all([
                     caseLedger.purge(input.profileId),
+                    profileSnapshotStore.delete(input.profileId),
                     purgeProfileEntries(verificationTokens, input.profileId),
+                    purgeProfileEntries(verificationOpenDedupe, input.profileId),
+                    purgeProfileEntries(portalFlowStore, input.profileId),
                     purgeProfileEntries(listingTokens, input.profileId),
                     purgeProfileEntries(submissionDedupe, input.profileId),
+                    purgeProfileEntries(campaignStore, input.profileId),
                 ]);
                 submittedScopes.clear();
                 const report = {
@@ -1527,9 +3583,21 @@ export default definePluginEntry({
                     generated_at: new Date().toISOString(),
                     deleted: {
                         case_record: caseDeleted ? 1 : 0,
+                        profile_snapshot: profileSnapshotDeleted ? 1 : 0,
                         verification_handles: verificationHandles,
+                        verification_open_guards: verificationOpenGuards,
+                        verified_portal_flows: portalFlows,
                         listing_handles: listingHandles,
                         dedupe_records: dedupeRecords,
+                        campaigns,
+                        active_sessions: activeSessionsInvalidated.invalidated,
+                        active_verified_portal_flows: activePortalFlowsInvalidated,
+                        webmail_drafts_discarded: activeSessionsInvalidated.drafts_discarded,
+                        webmail_drafts_needing_manual_cleanup: activeSessionsInvalidated.drafts_needing_manual_cleanup,
+                        form_provider_intents_marked_uncertain: activeSessionsInvalidated.provider_intents_marked_uncertain,
+                        form_provider_intents_needing_manual_reconciliation: activeSessionsInvalidated.provider_intents_needing_manual_reconciliation,
+                        browser_tabs_closed: activeSessionsInvalidated.tabs_closed,
+                        browser_tabs_needing_manual_cleanup: activeSessionsInvalidated.tabs_needing_manual_cleanup,
                     },
                     config_profile_deleted: false,
                     provider_writes: 0,
@@ -1553,13 +3621,14 @@ export default definePluginEntry({
                 }
                 const catalog = await catalogPromise;
                 const broker = resolveControllerOutcomeBroker(catalog, input);
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
                 if (!approval || approval.toolName !== "rightout_record_controller_outcome"
                     || approval.binding !== controllerOutcomeScopeBinding(input, broker))
                     throw new Error("rightout_approval_binding_failed");
                 assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
                 const outcome = await caseLedger.recordControllerOutcome(input.profileId, input.brokerId, input.outcome, {
                     id: broker.id,
                     process_class: broker.processClass,
@@ -1596,13 +3665,14 @@ export default definePluginEntry({
                 }
                 const catalog = await catalogPromise;
                 const broker = resolveSubmissionReconciliationBroker(catalog, input);
-                pruneTransientState();
+                await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
                 if (!approval || approval.toolName !== "rightout_reconcile_submission"
                     || approval.binding !== submissionReconciliationScopeBinding(input, broker))
                     throw new Error("rightout_approval_binding_failed");
                 assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
                 const outcome = await caseLedger.reconcileSubmission(input.profileId, input.brokerId, input.outcome, {
                     processingDays: broker.processingDays,
                 });
@@ -1632,6 +3702,890 @@ export default definePluginEntry({
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
         }, { optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_begin_discovery_session",
+            label: "RightOut begin publisher browser discovery",
+            description: "Open one official-domain broker search surface after Brave was inconclusive. Requires a separately authorized publisher-discovery campaign effect and publisher-terms attestation; returns only a PII-redacted snapshot.",
+            parameters: DiscoverySessionBeginParameters,
+            async execute(_toolCallId, params, signal) {
+                const input = validateDiscoverySessionBeginInput(params);
+                const config = api.pluginConfig;
+                const parityCatalog = await parityCatalogPromise;
+                const broker = resolveParityBroker(parityCatalog, input.brokerId);
+                const selectedBackend = input.browserBackend ?? config?.browserBackendMode ?? "managed_openclaw";
+                assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "publisher_discover", { browserBackend: selectedBackend });
+                const profilePayload = config?.profiles?.[input.profileId]?.payload;
+                if (!stateEncryptionReady(config) || typeof profilePayload !== "string")
+                    throw new Error("rightout_not_configured");
+                if (String(broker.source_status).startsWith("needs_evidence")
+                    || broker.source_status === "observed_official_archive_external_unavailable") {
+                    throw new Error("rightout_publisher_discovery_not_executable");
+                }
+                await assertParityRouteFresh(input.brokerId);
+                const attestations = validatePublisherAccessAttestations({ profileId: input.profileId, brokerId: input.brokerId }, config?.directScanAttestations);
+                if (scanProfileDigest(profilePayload) !== attestations.authorizedProfileDigests[input.profileId]) {
+                    throw new Error("rightout_direct_scan_profile_snapshot_changed");
+                }
+                const profile = parseRemovalProfile(profilePayload);
+                const values = discoveryProfileValues(profile);
+                if (typeof values.full_name !== "string")
+                    throw new Error("rightout_discovery_profile_field_missing");
+                const browserControl = resolveBrowserControl(toolContext, config, input.browserBackend);
+                if (typeof browserControl.bridgeUrl !== "string")
+                    throw new Error("rightout_browser_bridge_unavailable");
+                if (input.browserBackend === "remote_cloud_cdp" && !browserControl.browserProfile) {
+                    throw new Error("rightout_remote_cloud_browser_unavailable");
+                }
+                if (input.browserBackend === "remote_cloud_cdp") {
+                    const caseStatus = await caseLedger.status(input.profileId);
+                    const brokerCase = caseStatus.cases.find((item) => item.broker_id === input.brokerId);
+                    if (brokerCase?.state !== "blocked")
+                        throw new Error("rightout_remote_cloud_retry_not_eligible");
+                }
+                await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "publisher_discover" }], await catalogPromise, true);
+                if (input.browserBackend === "remote_cloud_cdp") {
+                    await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                        evidenceKind: "human_task",
+                        reason: "remote_cloud_browser_retry_in_progress",
+                    });
+                }
+                const discoveryStartUrl = `https://${broker.official_domains[0]}/`;
+                let opened;
+                try {
+                    opened = await browserSessionDriver.openSession({
+                        ...browserControl,
+                        formUrl: discoveryStartUrl,
+                        discoveryStartUrl,
+                        allowedDomains: broker.official_domains,
+                        allowedFields: Object.keys(values),
+                        values,
+                        privacyMode: "publisher_discovery",
+                        label: input.browserBackend === "remote_cloud_cdp"
+                            ? "rightout-remote-cloud-retry"
+                            : "rightout-publisher-discovery",
+                        signal,
+                    });
+                }
+                catch (error) {
+                    if (input.browserBackend === "remote_cloud_cdp") {
+                        await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                            evidenceKind: "human_task",
+                            reason: "remote_cloud_browser_retry_failed",
+                        }).catch(() => undefined);
+                    }
+                    else {
+                        await caseLedger.recordLifecycle(input.profileId, input.brokerId, "blocked", {
+                            evidenceKind: "human_task",
+                            reason: "primary_browser_access_blocked",
+                        }).catch(() => undefined);
+                    }
+                    throw error;
+                }
+                if (["hard_human_gate", "access_blocked"].includes(opened.snapshot.challenge)) {
+                    await browserSessionDriver.closeSession({ ...browserControl, targetId: opened.targetId }).catch(() => undefined);
+                    await caseLedger.recordLifecycle(input.profileId, input.brokerId, input.browserBackend === "remote_cloud_cdp" ? "human_task_queued" : "blocked", {
+                        evidenceKind: "human_task",
+                        reason: input.browserBackend === "remote_cloud_cdp" ? "remote_cloud_browser_retry_failed" : "primary_browser_access_blocked",
+                    });
+                    throw new Error("rightout_form_human_gate_required");
+                }
+                const sessionId = `discoverysession_${randomBytes(12).toString("hex")}`;
+                storeBrowserSession(sessionId, {
+                    kind: "publisher_discovery",
+                    sessionId,
+                    targetId: opened.targetId,
+                    profileId: input.profileId,
+                    brokerId: input.brokerId,
+                    campaignId: input.campaignId,
+                    broker,
+                    values,
+                    discoveryStartUrl,
+                    browserControl,
+                    privacyMode: "publisher_discovery",
+                    browserBackend: input.browserBackend ?? resolveBrowserBackend(toolContext, config).selected,
+                    expiresAt: Date.now() + 30 * 60_000,
+                });
+                const report = {
+                    report_version: 1,
+                    session_id: sessionId,
+                    subject_ref: input.profileId,
+                    broker_id: input.brokerId,
+                    state: "publisher_discovery_session_ready",
+                    snapshot: opened.snapshot,
+                    disclosures_allowed: Object.keys(values),
+                    next_actions: ["inspect", "fill_search_fields", "select_record", "capture_candidate_or_close"],
+                    provider_reads: 1,
+                    provider_writes: 0,
+                    browser_backend: input.browserBackend ?? resolveBrowserBackend(toolContext, config).selected,
+                    raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_begin_discovery_session", optional: true });
+        api.registerTool({
+            name: "rightout_discovery_session_step",
+            label: "RightOut publisher browser discovery step",
+            description: "Inspect or drive one bounded official-domain discovery session. Candidate capture encrypts the current broker URL and records only an indirect signal for later direct verification.",
+            parameters: DiscoverySessionStepParameters,
+            async execute(_toolCallId, params, signal) {
+                const input = validateDiscoverySessionStepInput(params);
+                pruneApprovalState();
+                await pruneTransientState();
+                const session = activeDiscoverySession(input.sessionId);
+                if (input.action.kind !== "close") {
+                    await revalidatePublisherBrowserSession(input.sessionId, session, "publisher_discover");
+                }
+                const driverOptions = {
+                    ...session.browserControl,
+                    targetId: session.targetId,
+                    allowedDomains: session.broker.official_domains,
+                    allowedFields: Object.keys(session.values),
+                    values: session.values,
+                    discoveryStartUrl: session.discoveryStartUrl,
+                    privacyMode: session.privacyMode,
+                    signal,
+                };
+                const guardedBrowserStep = async (operation) => {
+                    try {
+                        return await operation();
+                    }
+                    catch (error) {
+                        if (session.browserBackend === "remote_cloud_cdp") {
+                            await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                                evidenceKind: "human_task",
+                                reason: "remote_cloud_browser_retry_failed",
+                            }).catch(() => undefined);
+                            await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                            deleteBrowserSession(input.sessionId);
+                        }
+                        else {
+                            const code = error instanceof Error ? error.message : "rightout_browser_bridge_failed";
+                            if (![
+                                "rightout_discovery_candidate_not_selected", "rightout_form_ref_invalid",
+                                "rightout_form_action_not_allowed", "rightout_form_profile_field_missing",
+                            ].includes(code)) {
+                                await caseLedger.recordLifecycle(session.profileId, session.brokerId, "blocked", {
+                                    evidenceKind: "human_task",
+                                    reason: "primary_browser_access_blocked",
+                                }).catch(() => undefined);
+                                await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                                deleteBrowserSession(input.sessionId);
+                            }
+                        }
+                        throw error;
+                    }
+                };
+                if (input.action.kind === "inspect") {
+                    const snapshot = await guardedBrowserStep(() => browserSessionDriver.inspect(driverOptions));
+                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "publisher_discovery_session_active", snapshot };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "record_redacted_state_receipt") {
+                    const receipt = await guardedBrowserStep(() => browserSessionDriver.redactedStateReceipt(driverOptions));
+                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "redacted_state_receipt_recorded", ...receipt };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "close") {
+                    await browserSessionDriver.closeSession(driverOptions);
+                    deleteBrowserSession(input.sessionId);
+                    await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                        evidenceKind: "human_task",
+                        reason: session.browserBackend === "remote_cloud_cdp"
+                            ? "remote_cloud_browser_retry_closed_without_candidate"
+                            : "publisher_discovery_closed_without_candidate",
+                    });
+                    const report = {
+                        session_id: input.sessionId,
+                        broker_id: session.brokerId,
+                        state: "human_task_queued",
+                        reason: session.browserBackend === "remote_cloud_cdp"
+                            ? "remote_cloud_browser_retry_closed_without_candidate"
+                            : "publisher_discovery_closed_without_candidate",
+                        provider_writes: 0,
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "capture_candidate") {
+                    const candidate = await guardedBrowserStep(() => browserSessionDriver.captureCandidate(driverOptions));
+                    const observedAt = new Date().toISOString();
+                    const listingHandle = await createListingTokenVault(listingTokens, api.pluginConfig.stateEncryptionKey).storeCandidate({
+                        profileId: session.profileId,
+                        brokerId: session.brokerId,
+                        urls: [candidate.candidateUrl],
+                        officialDomains: session.broker.official_domains,
+                        observedAt,
+                    });
+                    const receipt = await guardedBrowserStep(() => browserSessionDriver.redactedStateReceipt(driverOptions));
+                    const report = {
+                        report_version: 1,
+                        mode: "operator_authorized_browser_discovery",
+                        subject_ref: session.profileId,
+                        broker_id: session.brokerId,
+                        state: "indirect_exposure",
+                        listing_handle: listingHandle,
+                        generated_at: observedAt,
+                        proof_references: [receipt.receipt_reference],
+                        redacted_state_receipt: receipt,
+                        candidate_requires_direct_verification: true,
+                        provider_reads: 1,
+                        provider_writes: 0,
+                        raw_url_in_report: false,
+                        raw_pii_in_report: false,
+                    };
+                    await caseLedger.recordBrowserDiscovery(report);
+                    await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                    deleteBrowserSession(input.sessionId);
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                const snapshot = await guardedBrowserStep(() => browserSessionDriver.act({ ...driverOptions, action: input.action }));
+                const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "publisher_discovery_session_active", snapshot };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_begin_form_session",
+            label: "RightOut begin autonomous form session",
+            description: "Open one independently sourced Unbroker-parity opt-out route inside an approved bounded campaign. Returns a PII-redacted interactive snapshot; secret values remain inside the plugin and browser control plane.",
+            parameters: FormSessionBeginParameters,
+            async execute(_toolCallId, params, signal) {
+                const input = validateFormSessionBeginInput(params);
+                await pruneTransientState();
+                const config = api.pluginConfig;
+                if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") {
+                    throw new Error("rightout_not_configured");
+                }
+                const parityCatalog = await parityCatalogPromise;
+                const broker = resolveParityBroker(parityCatalog, input.brokerId);
+                if (broker.method !== "web_form"
+                    || [
+                        "needs_evidence",
+                        "observed_official_archive_external_unavailable",
+                    ].includes(broker.source_status)) {
+                    throw new Error("rightout_parity_route_not_executable");
+                }
+                parityFormAttestationSnapshot(config, input.profileId, input.brokerId);
+                const selectedBackend = config?.browserBackendMode ?? "managed_openclaw";
+                assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "submit_form", { browserBackend: selectedBackend });
+                await assertParityRouteFresh(input.brokerId);
+                await ensureImmutableProfileSnapshot(input.profileId);
+                const coreCatalog = await catalogPromise;
+                const profile = parseRemovalProfile(config.profiles[input.profileId].payload);
+                let listingUrl;
+                if (broker.disclosure_fields.includes("listing_url")) {
+                    if (!input.listingHandle)
+                        throw new Error("rightout_form_listing_handle_required");
+                    const token = await createListingTokenVault(listingTokens, config.stateEncryptionKey).lookup(input.listingHandle, input.profileId, input.brokerId);
+                    listingUrl = token.urls[0];
+                }
+                const values = formProfileValues(profile, listingUrl);
+                const browserControl = resolveBrowserControl(toolContext, config);
+                if (typeof browserControl.bridgeUrl !== "string")
+                    throw new Error("rightout_browser_bridge_unavailable");
+                if (broker.id === "intelius" && typeof browserControl.browserProfile !== "string") {
+                    throw new Error("rightout_peopleconnect_named_browser_profile_required");
+                }
+                if (broker.id === "intelius") {
+                    const flowKey = portalFlowKey(input.profileId, input.brokerId);
+                    const flow = await portalFlowStore.lookup(flowKey);
+                    if (flow) {
+                        if (flow.profileId !== input.profileId || flow.brokerId !== input.brokerId || flow.campaignId !== input.campaignId
+                            || flow.stage !== "peopleconnect_guided_identity" || !Number.isFinite(flow.expiresAt) || flow.expiresAt <= Date.now()
+                            || flow.browserProfile !== (browserControl.browserProfile ?? null))
+                            throw new Error("rightout_verified_portal_flow_invalid");
+                        try {
+                            await revalidateConsumedSessionEffect({ ...flow, profileId: input.profileId, brokerId: input.brokerId }, "submit_form");
+                        }
+                        catch (error) {
+                            await portalFlowStore.delete(flowKey);
+                            await browserSessionDriver.closeSession({
+                                bridgeUrl: flow.bridgeUrl,
+                                targetId: flow.targetId,
+                                browserProfile: flow.browserProfile ?? undefined,
+                                browserAuthToken: config.browserControlToken,
+                            }).catch(() => undefined);
+                            throw error;
+                        }
+                        const disclosureFields = ["full_name", "date_of_birth"];
+                        const fieldDisclosureMap = formFieldDisclosureMap(disclosureFields, values);
+                        const driverOptions = {
+                            ...browserControl, targetId: flow.targetId, allowedDomains: broker.official_domains,
+                            allowedFields: Object.keys(fieldDisclosureMap), values, privacyMode: "peopleconnect_guided", signal,
+                        };
+                        let snapshot;
+                        try {
+                            snapshot = await browserSessionDriver.inspect(driverOptions);
+                        }
+                        catch {
+                            await portalFlowStore.delete(flowKey).catch(() => undefined);
+                            await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                            await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
+                                evidenceKind: "human_task",
+                                reason: "verified_portal_target_lost_after_restart",
+                            }).catch(() => undefined);
+                            const report = {
+                                report_version: 1, subject_ref: input.profileId, broker_id: input.brokerId,
+                                state: "human_task_queued", reason: "verified_portal_target_lost_after_restart",
+                                verification_link_reopened: false, provider_writes: 0, raw_pii_in_report: false,
+                            };
+                            return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                        }
+                        const sessionId = `formsession_${randomBytes(12).toString("hex")}`;
+                        storeBrowserSession(sessionId, {
+                            sessionId, sessionType: "form", stage: "peopleconnect_guided_identity", targetId: flow.targetId,
+                            profileId: input.profileId, brokerId: input.brokerId, campaignId: input.campaignId,
+                            broker, values, fieldDisclosureMap, browserControl,
+                            browserBackend: config?.browserBackendMode ?? "managed_openclaw",
+                            filledFields: [], recordSelected: false,
+                            effectConsumed: true, submissionIntentReserved: false, expiresAt: flow.expiresAt,
+                        });
+                        const report = {
+                            report_version: 1, session_id: sessionId, subject_ref: input.profileId, broker_id: input.brokerId,
+                            method: "web_form", state: "guided_suppression_ready", snapshot,
+                            disclosures_allowed: disclosureFields, form_fields_available: Object.keys(fieldDisclosureMap),
+                            same_browser_profile_retained: true, resumed_from_encrypted_flow_state: true,
+                            provider_reads: 1, provider_writes: 0, raw_pii_in_report: false,
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    const currentCase = (await caseLedger.load(input.profileId)).brokers?.[input.brokerId];
+                    if (["human_task_queued", "blocked"].includes(currentCase?.state)) {
+                        throw new Error("rightout_peopleconnect_manual_reconciliation_required");
+                    }
+                    if (["submitted", "verification_pending", "submission_pending", "submission_uncertain", "awaiting_processing"].includes(currentCase?.state)) {
+                        throw new Error("rightout_peopleconnect_verification_resume_required");
+                    }
+                }
+                const stage = broker.id === "intelius" ? "peopleconnect_email_entry" : "generic";
+                const disclosureFields = stage === "peopleconnect_email_entry" ? ["contact_email"] : broker.disclosure_fields;
+                if (disclosureFields.some((field) => typeof values[field] !== "string" || !values[field])) {
+                    throw new Error("rightout_form_profile_field_missing");
+                }
+                const fieldDisclosureMap = formFieldDisclosureMap(disclosureFields, values);
+                await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_form" }], coreCatalog, true);
+                let opened;
+                try {
+                    opened = await browserSessionDriver.openSession({
+                        ...browserControl,
+                        formUrl: broker.action_url,
+                        allowedDomains: broker.official_domains,
+                        allowedFields: Object.keys(fieldDisclosureMap),
+                        values,
+                        signal,
+                    });
+                }
+                catch {
+                    await caseLedger.recordLifecycle(input.profileId, input.brokerId, "blocked", {
+                        evidenceKind: "human_task",
+                        reason: "primary_browser_open_failed_after_effect_consumed",
+                    }).catch(() => undefined);
+                    const report = {
+                        report_version: 1, subject_ref: input.profileId, broker_id: input.brokerId,
+                        state: "blocked", reason: "primary_browser_open_failed_after_effect_consumed",
+                        effect_consumed: true, automatic_retry_allowed: false,
+                        provider_writes: 0, raw_pii_in_report: false,
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (["hard_human_gate", "access_blocked"].includes(opened.snapshot.challenge)) {
+                    await browserSessionDriver.closeSession({ ...browserControl, targetId: opened.targetId }).catch(() => undefined);
+                    await caseLedger.recordLifecycle(input.profileId, input.brokerId, "blocked", {
+                        evidenceKind: "human_task",
+                        reason: "primary_browser_access_blocked",
+                    }).catch(() => undefined);
+                    throw new Error(opened.snapshot.challenge === "access_blocked" ? "rightout_browser_access_blocked" : "rightout_form_human_gate_required");
+                }
+                const sessionId = `formsession_${randomBytes(12).toString("hex")}`;
+                storeBrowserSession(sessionId, {
+                    sessionId,
+                    sessionType: "form",
+                    stage,
+                    targetId: opened.targetId,
+                    profileId: input.profileId,
+                    brokerId: input.brokerId,
+                    campaignId: input.campaignId,
+                    broker,
+                    values,
+                    fieldDisclosureMap,
+                    browserControl,
+                    browserBackend: config?.browserBackendMode ?? "managed_openclaw",
+                    filledFields: [],
+                    consentAgreed: false,
+                    effectConsumed: true,
+                    submissionIntentReserved: false,
+                    expiresAt: Date.now() + 30 * 60_000,
+                });
+                const report = {
+                    report_version: 1,
+                    session_id: sessionId,
+                    subject_ref: input.profileId,
+                    broker_id: input.brokerId,
+                    method: "web_form",
+                    state: "form_session_ready",
+                    snapshot: opened.snapshot,
+                    disclosures_allowed: disclosureFields,
+                    flow_stage: stage,
+                    form_fields_available: Object.keys(fieldDisclosureMap),
+                    provider_reads: 1,
+                    provider_writes: 0,
+                    raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_begin_form_session", optional: true });
+        api.registerTool({
+            name: "rightout_form_session_step",
+            label: "RightOut autonomous form step",
+            description: "Inspect or perform one bounded action in an active parity form session. Profile values are selected only by catalog field name, never supplied by the model. Final submission requires the campaign scope and every required field.",
+            parameters: FormSessionStepParameters,
+            async execute(toolCallId, params, signal) {
+                const input = validateFormSessionStepInput(params);
+                pruneApprovalState();
+                await pruneTransientState();
+                const session = activeFormSession(input.sessionId);
+                if (input.action.kind !== "close") {
+                    await revalidatePublisherBrowserSession(input.sessionId, session, "submit_form");
+                }
+                if (input.action.kind === "fill_challenge" && session.stage !== "generic") {
+                    throw new Error("rightout_form_session_input_invalid");
+                }
+                if (input.action.kind === "click") {
+                    const allowedPurposes = session.stage === "peopleconnect_email_entry"
+                        ? ["agree", "continue"]
+                        : session.stage === "peopleconnect_guided_identity"
+                            ? ["continue", "select_record", "suppress"]
+                            : ["continue", "agree", "select_record", "confirm", "submit"];
+                    if (!allowedPurposes.includes(input.action.purpose))
+                        throw new Error("rightout_form_session_input_invalid");
+                }
+                const driverOptions = {
+                    ...session.browserControl,
+                    targetId: session.targetId,
+                    allowedDomains: session.broker.official_domains,
+                    allowedFields: Object.keys(session.fieldDisclosureMap),
+                    values: session.values,
+                    ...(session.stage === "peopleconnect_guided_identity" ? { privacyMode: "peopleconnect_guided" } : {}),
+                    signal,
+                };
+                if (input.action.kind === "close") {
+                    await browserSessionDriver.closeSession(driverOptions);
+                    deleteBrowserSession(input.sessionId);
+                    const pendingProviderIntent = session.submissionIntentReserved === true;
+                    if (pendingProviderIntent) {
+                        await caseLedger.recordSubmissionUncertain(session.profileId, session.brokerId, {
+                            channel: "browser_form", reason: "form_session_closed_with_pending_provider_intent",
+                        }).catch(() => undefined);
+                    }
+                    if (session.stage === "peopleconnect_guided_identity") {
+                        await portalFlowStore.delete(portalFlowKey(session.profileId, session.brokerId));
+                        if (!pendingProviderIntent) {
+                            await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                                evidenceKind: "human_task", reason: "verified_portal_closed_before_suppression",
+                            });
+                        }
+                    }
+                    const report = {
+                        session_id: input.sessionId, broker_id: session.brokerId,
+                        state: pendingProviderIntent ? "submission_uncertain"
+                            : session.stage === "peopleconnect_guided_identity" ? "human_task_queued" : "form_session_closed",
+                        ...(pendingProviderIntent
+                            ? { reason: "pending_provider_intent_requires_reconciliation", next_action: "rightout_reconcile_submission" }
+                            : session.stage === "peopleconnect_guided_identity" ? { reason: "verified_portal_closed_before_suppression" } : {}),
+                        provider_writes_possible: pendingProviderIntent,
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "inspect") {
+                    const snapshot = await browserSessionDriver.inspect(driverOptions);
+                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "form_session_active", snapshot };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "record_redacted_state_receipt") {
+                    const receipt = await browserSessionDriver.redactedStateReceipt(driverOptions);
+                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "redacted_state_receipt_recorded", ...receipt };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (input.action.kind === "fill") {
+                    const disclosures = (input.action.fields ?? []).map((field) => session.fieldDisclosureMap[field.profile_field]).filter(Boolean);
+                    if (disclosures.includes("date_of_birth")) {
+                        const approval = approvalBindings.get(toolCallId);
+                        approvalBindings.delete(toolCallId);
+                        if (!approval || approval.toolName !== "rightout_form_session_step"
+                            || approval.binding !== sensitiveFormStepScopeBinding(session, input))
+                            throw new Error("rightout_form_sensitive_field_human_gate");
+                    }
+                }
+                const initialVerificationRequest = session.stage === "peopleconnect_email_entry"
+                    && input.action.kind === "click" && input.action.purpose === "continue";
+                const finalSuppression = session.stage === "peopleconnect_guided_identity"
+                    && input.action.kind === "click" && input.action.purpose === "suppress";
+                const finalSubmit = session.stage === "generic"
+                    && input.action.kind === "click" && input.action.purpose === "submit";
+                if (session.stage === "peopleconnect_email_entry" && input.action.kind === "click" && input.action.purpose === "submit") {
+                    throw new Error("rightout_peopleconnect_email_continue_required");
+                }
+                if (session.stage === "peopleconnect_guided_identity" && input.action.kind === "click" && input.action.purpose === "submit") {
+                    throw new Error("rightout_peopleconnect_suppression_control_required");
+                }
+                let dedupeKey = session.submissionDedupeKey;
+                let submissionReserved = session.submissionIntentReserved === true;
+                let reservedThisAction = false;
+                const removalInput = { profileId: session.profileId, brokerId: session.brokerId, requestKind: "delete_and_opt_out" };
+                const peopleConnectProviderClick = session.stage === "peopleconnect_email_entry" && input.action.kind === "click";
+                const genericProviderClick = session.stage === "generic" && input.action.kind === "click";
+                const guidedProviderClick = session.stage === "peopleconnect_guided_identity" && input.action.kind === "click"
+                    && ["continue", "suppress"].includes(input.action.purpose);
+                if (initialVerificationRequest && session.consentAgreed !== true)
+                    throw new Error("rightout_peopleconnect_consent_required");
+                if (peopleConnectProviderClick || finalSubmit) {
+                    const required = peopleConnectProviderClick ? ["contact_email"] : session.broker.disclosure_fields;
+                    if (required.some((field) => !session.filledFields.includes(field))) {
+                        throw new Error("rightout_form_required_fields_not_filled");
+                    }
+                }
+                if (finalSuppression || guidedProviderClick) {
+                    if (!["full_name", "date_of_birth"].every((field) => session.filledFields.includes(field))) {
+                        throw new Error("rightout_form_required_fields_not_filled");
+                    }
+                }
+                if (finalSuppression && session.recordSelected !== true)
+                    throw new Error("rightout_peopleconnect_record_not_corroborated");
+                if ((peopleConnectProviderClick || genericProviderClick) && !submissionReserved) {
+                    dedupeKey = removalDedupeKey(removalInput);
+                    await acquireSubmissionDedupe(dedupeKey, removalInput, "browser_form");
+                    try {
+                        await caseLedger.reserveSubmission(session.profileId, session.brokerId, {
+                            channel: "browser_form",
+                            discoveryRequirement: "not_required_for_data_subject_request",
+                        });
+                        await markSubmissionDedupeIntentReserved(dedupeKey, removalInput, "browser_form");
+                        submissionReserved = true;
+                        reservedThisAction = true;
+                        session.submissionIntentReserved = true;
+                        session.submissionDedupeKey = dedupeKey;
+                    }
+                    catch (error) {
+                        await submissionDedupe.delete(dedupeKey);
+                        throw error;
+                    }
+                }
+                else if (guidedProviderClick && !submissionReserved) {
+                    dedupeKey = removalDedupeKey(removalInput);
+                    const existing = await submissionDedupe.lookup(dedupeKey);
+                    if (!existing || existing.phase !== "identity_portal_verification_requested")
+                        throw new Error("rightout_peopleconnect_flow_state_invalid");
+                    await caseLedger.reserveVerifiedPortalSubmission(session.profileId, session.brokerId);
+                    await submissionDedupe.register(dedupeKey, {
+                        createdAt: new Date().toISOString(), channel: "browser_form", profileId: session.profileId,
+                        brokerId: session.brokerId, phase: "durable_verified_portal_suppression_intent",
+                    });
+                    submissionReserved = true;
+                    reservedThisAction = true;
+                    session.submissionIntentReserved = true;
+                    session.submissionDedupeKey = dedupeKey;
+                }
+                try {
+                    const snapshot = await browserSessionDriver.act({ ...driverOptions, action: input.action });
+                    if (input.action.kind === "fill") {
+                        for (const field of input.action.fields ?? []) {
+                            const disclosure = session.fieldDisclosureMap[field.profile_field];
+                            if (disclosure)
+                                session.filledFields.push(disclosure);
+                        }
+                        session.filledFields = [...new Set(session.filledFields)];
+                    }
+                    if (session.stage === "peopleconnect_guided_identity" && input.action.kind === "click" && input.action.purpose === "select_record") {
+                        session.recordSelected = true;
+                    }
+                    if (session.stage === "peopleconnect_email_entry" && input.action.kind === "click" && input.action.purpose === "agree") {
+                        if (!snapshot.refs.some((item) => item.ref === input.action.ref && item.checked === true)) {
+                            throw new Error("rightout_peopleconnect_consent_unconfirmed");
+                        }
+                        session.consentAgreed = true;
+                    }
+                    const genericSuccessObserved = session.stage === "generic" && input.action.kind === "click"
+                        && snapshot.observed_transitions?.includes("submission_success_observed");
+                    if (genericSuccessObserved && session.broker.disclosure_fields.some((field) => !session.filledFields.includes(field))) {
+                        throw new Error("rightout_form_required_fields_not_filled_after_provider_action");
+                    }
+                    const completedGeneric = finalSubmit || genericSuccessObserved;
+                    if (!completedGeneric && !initialVerificationRequest && !finalSuppression) {
+                        const report = {
+                            session_id: input.sessionId, broker_id: session.brokerId,
+                            state: session.stage === "peopleconnect_guided_identity" ? "guided_suppression_active" : "form_session_active",
+                            snapshot, record_corroborated: session.recordSelected === true,
+                            durable_provider_intent: submissionReserved,
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    const confirmed = initialVerificationRequest
+                        ? snapshot.observed_transitions?.includes("verification_email_requested_observed")
+                        : finalSuppression
+                            ? snapshot.observed_transitions?.includes("suppression_success_observed")
+                            : snapshot.observed_transitions?.includes("submission_success_observed");
+                    if (!confirmed)
+                        throw new Error(finalSuppression ? "rightout_peopleconnect_suppression_unconfirmed" : "rightout_form_submission_unconfirmed");
+                    const receipt = await browserSessionDriver.redactedStateReceipt(driverOptions);
+                    const generatedAt = new Date().toISOString();
+                    const formProofReference = `form_${createHash("sha256")
+                        .update(JSON.stringify([session.sessionId, session.brokerId, generatedAt, initialVerificationRequest, finalSuppression]))
+                        .digest("hex").slice(0, 24)}`;
+                    if (initialVerificationRequest) {
+                        const report = {
+                            report_version: 1, subject_ref: session.profileId, broker_id: session.brokerId,
+                            state: "verification_pending", generated_at: generatedAt,
+                            delivery: { channel: "openclaw_browser_profile", verification_email_requested: true, removal_confirmed: false },
+                            disclosures: { to_broker: ["contact_email"], values_in_report: false, identity_documents: 0 },
+                            proof_references: [formProofReference, receipt.receipt_reference], redacted_state_receipt: receipt, campaign_id: session.campaignId,
+                            next_action: "open_authenticated_current_submission_message_in_same_browser_profile",
+                            raw_pii_in_report: false,
+                        };
+                        await caseLedger.recordVerificationRequested(report);
+                        await submissionDedupe.register(dedupeKey, {
+                            createdAt: generatedAt, channel: "browser_form", profileId: session.profileId,
+                            brokerId: session.brokerId, phase: "identity_portal_verification_requested",
+                        });
+                        await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                        deleteBrowserSession(input.sessionId);
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    if (finalSuppression) {
+                        const report = {
+                            report_version: 1, subject_ref: session.profileId, broker_id: session.brokerId,
+                            state: "awaiting_processing", generated_at: generatedAt,
+                            delivery: { channel: "openclaw_browser_profile", form_submitted: true, suppression_selected: true, removal_confirmed: false },
+                            disclosures: { to_broker: ["full_name", "date_of_birth"], values_in_report: false, identity_documents: 0 },
+                            proof_references: [formProofReference, receipt.receipt_reference], redacted_state_receipt: receipt, campaign_id: session.campaignId,
+                            provider_control_verified: "suppressed", delete_control_used: false, raw_pii_in_report: false,
+                        };
+                        await caseLedger.recordSuppressionSubmission(report);
+                        await portalFlowStore.delete(portalFlowKey(session.profileId, session.brokerId));
+                        await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                        deleteBrowserSession(input.sessionId);
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    const report = {
+                        report_version: 1,
+                        subject_ref: session.profileId,
+                        broker_id: session.brokerId,
+                        state: "verification_pending",
+                        generated_at: generatedAt,
+                        delivery: { channel: "openclaw_browser_profile", form_submitted: true, removal_confirmed: false },
+                        disclosures: { to_broker: session.broker.disclosure_fields, values_in_report: false, identity_documents: 0 },
+                        proof_references: [formProofReference, receipt.receipt_reference],
+                        redacted_state_receipt: receipt,
+                        campaign_id: session.campaignId,
+                        raw_pii_in_report: false,
+                    };
+                    await caseLedger.recordFormSubmission(report);
+                    await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                    deleteBrowserSession(input.sessionId);
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                catch (error) {
+                    if (submissionReserved) {
+                        const code = error instanceof Error ? error.message : "rightout_form_failed";
+                        const definitelyNotStarted = new Set([
+                            "rightout_form_ref_invalid", "rightout_form_action_not_allowed", "rightout_form_human_gate_required",
+                            "rightout_form_domain_mismatch", "rightout_form_target_invalid", "rightout_form_action_ambiguous",
+                            "rightout_form_field_target_mismatch", "rightout_form_field_target_ambiguous",
+                            "rightout_form_field_mapping_ambiguous", "rightout_form_field_type_mismatch",
+                            "rightout_form_record_not_corroborated", "rightout_form_record_ambiguous",
+                        ]).has(code);
+                        if (definitelyNotStarted && reservedThisAction && session.stage !== "peopleconnect_guided_identity") {
+                            await caseLedger.releaseSubmission(session.profileId, session.brokerId, code).catch(() => undefined);
+                            if (dedupeKey)
+                                await submissionDedupe.delete(dedupeKey);
+                            session.submissionIntentReserved = false;
+                            delete session.submissionDedupeKey;
+                        }
+                        else if (!definitelyNotStarted) {
+                            await caseLedger.recordSubmissionUncertain(session.profileId, session.brokerId, { channel: "browser_form", reason: code })
+                                .catch(() => undefined);
+                            if (session.stage === "peopleconnect_guided_identity") {
+                                await portalFlowStore.delete(portalFlowKey(session.profileId, session.brokerId));
+                            }
+                            await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+                            deleteBrowserSession(input.sessionId);
+                        }
+                    }
+                    throw error;
+                }
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_start_campaign",
+            label: "RightOut start autonomous campaign",
+            description: "Create a finite, revocable standing authorization for an exact subject, broker set, effect set, lifetime, and effect budget. One native allow-once approval starts the campaign; subsequent in-scope effects can run without per-effect prompts.",
+            parameters: CampaignStartParameters,
+            async execute(toolCallId, params) {
+                let input;
+                try {
+                    input = validateCampaignStartInput(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                await assertAutonomousCampaignScope(input);
+                const digest = await campaignCatalogDigestPromise;
+                const config = api.pluginConfig;
+                const routingScope = browserApprovalRoutingScope(config, {
+                    browserRequired: input.effects.some((effect) => ["publisher_discover", "submit_form"].includes(effect))
+                        || (input.effects.includes("open_verification") && input.brokerIds.includes("intelius")),
+                    effects: input.effects,
+                });
+                await assertCampaignPublisherPermissions(input, routingScope);
+                pruneApprovalState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_start_campaign"
+                    || approval.binding !== campaignScopeBinding(input, digest, routingScope.routingDigest))
+                    throw new Error("rightout_approval_binding_failed");
+                assertConfiguredProfile(input.profileId);
+                parseRemovalProfile(api.pluginConfig.profiles[input.profileId].payload);
+                const profileDigest = await ensureImmutableProfileSnapshot(input.profileId);
+                const runtimeScopeDigest = configuredRuntimeScopeDigest();
+                const report = await campaignLedger.start(input, { catalogDigest: digest, profileDigest, runtimeScopeDigest });
+                const details = {
+                    report_version: 1,
+                    ...report,
+                    approval_boundary: "native_openclaw_allow_once_bounded_standing_authorization",
+                    scope_widening_allowed: false,
+                    raw_pii_in_report: false,
+                    next_action: "call_rightout_campaign_next_then_execute_only_the_returned_campaign_scoped_command_until_done_for_now",
+                };
+                return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_campaign_status",
+            label: "RightOut campaign status",
+            description: "Read one PII-safe autonomous campaign grant, remaining effect budget, expiry, and revocation state. Performs no provider request or write.",
+            parameters: CampaignRefParameters,
+            async execute(_toolCallId, params) {
+                const input = validateCampaignRef(params);
+                const report = await campaignLedger.status(input.campaignId);
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_campaign_next",
+            label: "RightOut campaign next",
+            description: "Return exactly one deterministic in-scope RightOut command, human/source gate, or done-for-now digest for an active autonomous campaign. Performs no network request or provider write.",
+            parameters: CampaignNextParameters,
+            async execute(_toolCallId, params) {
+                const input = validateCampaignRef(params);
+                await pruneTransientState();
+                const initial = await campaignLedger.status(input.campaignId);
+                if (initial.status !== "active") {
+                    const report = {
+                        report_version: 1,
+                        campaign_id: input.campaignId,
+                        state: initial.status === "completed" ? "campaign_completed" : "campaign_revoked",
+                        terminal: true,
+                        reason: initial.status === "completed" ? "effect_budget_exhausted" : "standing_authorization_revoked",
+                        used_effects: initial.used_effects,
+                        max_effects: initial.max_effects,
+                        remaining_effects: initial.remaining_effects,
+                        next_action: initial.status === "completed"
+                            ? "review_outcomes_and_start_a_new_separately_approved_campaign_only_if_needed"
+                            : "none",
+                        deterministic_next_loop: true,
+                        provider_reads: 0,
+                        provider_writes: 0,
+                        raw_pii_in_report: false,
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                const profileDigest = await ensureImmutableProfileSnapshot(initial.subject_ref);
+                const campaign = await campaignLedger.assertScope(input.campaignId, {
+                    profileId: initial.subject_ref,
+                    profileDigest,
+                    runtimeScopeDigest: configuredRuntimeScopeDigest(),
+                });
+                const [caseStatus, parity, core] = await Promise.all([
+                    caseLedger.status(campaign.subject_ref),
+                    parityCatalogPromise,
+                    catalogPromise,
+                ]);
+                const config = api.pluginConfig;
+                const browser = resolveBrowserBackend(toolContext, config);
+                const emailMode = config?.smtpTransport ? "smtp" : browser.webmail_ready ? "webmail" : "unavailable";
+                const verificationMode = config?.imapTransport ? "imap" : "unavailable";
+                const globalScanOnly = campaign.effects.length === 1 && campaign.effects[0] === "discover";
+                let planned = globalScanOnly
+                    ? planGlobalScanCampaignNext({ campaign, caseStatus, scanCatalog: await combinedScanCatalog() })
+                    : planParityCampaignNext({
+                        campaign, caseStatus, parityCatalog: parity, coreCatalog: core,
+                        emailMode, verificationMode, browserMode: browser.selected,
+                        remoteCloudRetryAvailable: browser.remote_cloud_fallback_ready,
+                    });
+                for (const brokerId of campaign.broker_ids) {
+                    const flow = await portalFlowStore.lookup(portalFlowKey(campaign.subject_ref, brokerId));
+                    if (flow?.campaignId === input.campaignId && flow.stage === "peopleconnect_guided_identity"
+                        && Number.isFinite(flow.expiresAt) && flow.expiresAt > Date.now()) {
+                        planned = {
+                            state: "action_ready",
+                            command: {
+                                tool: "rightout_begin_form_session",
+                                parameters: { profileId: campaign.subject_ref, brokerId, campaignId: input.campaignId },
+                                rationale: "resume_same_browser_profile_verified_portal_from_encrypted_flow_state",
+                            },
+                        };
+                        break;
+                    }
+                }
+                const report = {
+                    report_version: 1,
+                    campaign_id: input.campaignId,
+                    ...planned,
+                    selected_email_mode: emailMode,
+                    selected_verification_mode: verificationMode,
+                    selected_browser_mode: browser.selected,
+                    remote_cloud_retry_available: browser.remote_cloud_fallback_ready,
+                    deterministic_next_loop: true,
+                    provider_reads: 0,
+                    provider_writes: 0,
+                    raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_campaign_next", optional: true });
+        api.registerTool({
+            name: "rightout_revoke_campaign",
+            label: "RightOut revoke autonomous campaign",
+            description: "Permanently revoke one bounded standing authorization so it cannot authorize further provider effects. Requires native allow-once approval and performs no provider request.",
+            parameters: CampaignRefParameters,
+            async execute(toolCallId, params) {
+                let input;
+                try {
+                    input = validateCampaignRef(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                await pruneTransientState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_revoke_campaign"
+                    || approval.binding !== campaignRevokeScopeBinding(input))
+                    throw new Error("rightout_approval_binding_failed");
+                const report = await campaignLedger.revoke(input.campaignId);
+                const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.campaignId === input.campaignId);
+                const portalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.campaignId === input.campaignId);
+                const details = {
+                    ...report,
+                    active_sessions_invalidated: activeSessionsInvalidated.invalidated,
+                    webmail_drafts_discarded: activeSessionsInvalidated.drafts_discarded,
+                    webmail_drafts_needing_manual_cleanup: activeSessionsInvalidated.drafts_needing_manual_cleanup,
+                    form_provider_intents_marked_uncertain: activeSessionsInvalidated.provider_intents_marked_uncertain,
+                    form_provider_intents_needing_manual_reconciliation: activeSessionsInvalidated.provider_intents_needing_manual_reconciliation,
+                    browser_tabs_closed: activeSessionsInvalidated.tabs_closed,
+                    browser_tabs_needing_manual_cleanup: activeSessionsInvalidated.tabs_needing_manual_cleanup,
+                    verified_portal_flows_invalidated: portalFlowsInvalidated,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+            },
+        }, { optional: true });
         api.registerTool({
             name: "rightout_next_actions",
             label: "RightOut next actions",
@@ -1640,6 +4594,7 @@ export default definePluginEntry({
             async execute(_toolCallId, params) {
                 const input = validateCaseInput(params);
                 assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
                 const catalog = await catalogPromise;
                 const report = await caseLedger.plan(input.profileId, catalog);
                 const health = catalogPolicyHealth(catalog);
@@ -1660,7 +4615,171 @@ export default definePluginEntry({
             async execute(_toolCallId, params) {
                 const input = validateCaseInput(params);
                 assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
                 const report = await caseLedger.status(input.profileId);
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_export_report",
+            label: "RightOut export status report",
+            description: "Export one subject's PII-safe durable status as Markdown, structured JSON, and Google Sheets-compatible rows. Performs no network request or provider write.",
+            parameters: CaseParameters,
+            async execute(_toolCallId, params) {
+                const input = validateCaseInput(params);
+                assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
+                const report = createReportExport(await caseLedger.status(input.profileId));
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_refresh_registries",
+            label: "RightOut refresh official registries",
+            description: "Fetch the newest complete California data-broker registry from the official CPPA source, validate and encrypt it locally, and surface official Vermont, Oregon, and Texas registry portals. Uses no subject data and performs no provider write.",
+            parameters: EmptyParameters,
+            async execute(toolCallId, params, signal) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+                    throw new Error("rightout_registry_refresh_input_invalid");
+                }
+                pruneApprovalState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_refresh_registries" || approval.binding !== registryRefreshScopeBinding()) {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                const config = api.pluginConfig;
+                if (!stateEncryptionReady(config))
+                    throw new Error("rightout_not_configured");
+                let snapshot;
+                let providerReadAttempts = 0;
+                const currentYear = new Date().getUTCFullYear();
+                for (let year = currentYear; year >= 2025; year -= 1) {
+                    const url = `https://cppa.ca.gov/data_broker_registry/registry${year}.csv`;
+                    let request;
+                    try {
+                        providerReadAttempts += 1;
+                        request = await fetchWithSsrFGuard({
+                            url,
+                            fetchImpl: globalThis.fetch,
+                            requireHttps: true,
+                            capture: false,
+                            timeoutMs: 60_000,
+                            maxRedirects: 0,
+                            signal,
+                            policy: buildHostnameAllowlistPolicyFromSuffixAllowlist(["cppa.ca.gov"]),
+                            auditContext: "rightout_refresh_registries",
+                            init: { method: "GET", redirect: "manual", headers: { Accept: "text/csv" } },
+                        });
+                        if (!request.response.ok)
+                            continue;
+                        const text = await readBoundedText(request.response);
+                        snapshot = parseCaliforniaRegistryCsv(text, { sourceUrl: url });
+                        break;
+                    }
+                    catch (error) {
+                        if (signal?.aborted)
+                            throw new Error("rightout_registry_refresh_cancelled");
+                        if (year === 2025)
+                            throw new Error("rightout_registry_refresh_failed");
+                    }
+                    finally {
+                        await request?.release?.();
+                    }
+                }
+                if (!snapshot)
+                    throw new Error("rightout_registry_refresh_failed");
+                await saveRegistrySnapshot(snapshot);
+                const report = {
+                    ...registrySummary(snapshot),
+                    state: "official_registry_refreshed",
+                    encrypted_local_snapshot: true,
+                    provider_reads: providerReadAttempts,
+                    provider_read_attempts: providerReadAttempts,
+                    successful_sources: 1,
+                    provider_writes: 0,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_registry_status",
+            label: "RightOut registry status",
+            description: "Read the PII-safe status and official portal coverage of the encrypted registry snapshot. Performs no network request.",
+            parameters: EmptyParameters,
+            async execute(_toolCallId, params) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+                    throw new Error("rightout_registry_status_input_invalid");
+                }
+                const report = await registryMeta();
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_record_drop_filed",
+            label: "RightOut record California DROP filed",
+            description: "Record an operator-verified California DROP filing as one durable registry-wide case. Requires native allow-once approval; performs no portal action and never automates state identity verification.",
+            parameters: CaseParameters,
+            async execute(toolCallId, params) {
+                const input = validateCaseInput(params);
+                const config = api.pluginConfig;
+                assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
+                const profile = parseRemovalProfile(config.profiles[input.profileId].payload);
+                if (!profile.jurisdictions.includes("US-CA"))
+                    throw new Error("rightout_drop_ineligible");
+                const registry = await registryMeta();
+                if (registry.state !== "registry_ready" || !Number.isInteger(registry.record_count) || registry.record_count < 1)
+                    throw new Error("rightout_drop_registry_invalid");
+                await pruneTransientState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_record_drop_filed" || approval.binding !== dropFiledScopeBinding(input.profileId, registry.record_count)) {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                const outcome = await caseLedger.recordDropFiled(input.profileId, {
+                    registryCount: registry.record_count,
+                    processingStart: "2026-08-01T00:00:00.000Z",
+                });
+                const report = {
+                    report_version: 1, subject_ref: input.profileId, broker_id: "ca_drop", state: outcome.state,
+                    registry_scope: registry.record_count, proof_references: [outcome.proof_reference], next_recheck_at: outcome.next_recheck_at,
+                    portal_action_performed_by_rightout: false, human_identity_verification_required: true,
+                    coverage_gap: "nonregistered_brokers_and_fcra_exceptions_not_covered", provider_reads: 0, provider_writes: 0, raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_registry_search",
+            label: "RightOut registry search",
+            description: "Search the encrypted official California registry snapshot by public broker/company name or domain and return PII-safe controller routing metadata.",
+            parameters: RegistrySearchParameters,
+            async execute(_toolCallId, params) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).some((key) => !["query", "limit"].includes(key))) {
+                    throw new Error("rightout_registry_search_input_invalid");
+                }
+                const value = params;
+                const query = typeof value.query === "string" ? value.query.trim().toLowerCase() : "";
+                const limitValue = value.limit === undefined ? 20 : value.limit;
+                if (!/^[a-z0-9 .&'_-]{2,80}$/i.test(query) || typeof limitValue !== "number" || !Number.isInteger(limitValue) || limitValue < 1 || limitValue > 50) {
+                    throw new Error("rightout_registry_search_input_invalid");
+                }
+                const limit = limitValue;
+                const matches = (await registryRecords()).filter((record) => [
+                    record.name,
+                    record.website_domain,
+                    record.contact_email_domain,
+                    record.rights_domain,
+                ].some((value) => typeof value === "string" && value.toLowerCase().includes(query))).slice(0, limit);
+                const report = {
+                    report_version: 1,
+                    query,
+                    match_count: matches.length,
+                    matches,
+                    route: "california_drop_primary_controller_request_fallback",
+                    raw_contact_addresses_in_report: false,
+                };
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
         }, { optional: true });
@@ -1677,6 +4796,152 @@ export default definePluginEntry({
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
         }, { optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_setup",
+            label: "RightOut initialize",
+            description: "Autonomously detect configured RightOut capabilities, select the most autonomous valid transport/browser combination, initialize encrypted profile state, and report only missing upgrades. Never creates secrets, changes OpenClaw config, or contacts a provider.",
+            parameters: EmptyParameters,
+            async execute(_toolCallId, params) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0)
+                    throw new Error("rightout_setup_input_invalid");
+                const config = api.pluginConfig;
+                const profileIds = Object.keys(config?.profiles ?? {}).filter((value) => /^profile_[a-f0-9]{16,32}$/.test(value)).sort();
+                const browser = resolveBrowserBackend(toolContext, config);
+                const browserControlTransport = resolveBrowserControlTransport(toolContext, config);
+                const emailMode = config?.smtpTransport ? "smtp" : browser.webmail_ready ? "browser_webmail" : "unavailable";
+                const verificationMode = config?.imapTransport ? "imap" : "unavailable";
+                const missing = [
+                    ...(stateEncryptionReady(config) ? [] : ["stateEncryptionKey_secretref"]),
+                    ...(profileIds.length ? [] : ["profiles_secretref"]),
+                    ...(typeof config?.braveApiKey === "string" ? [] : ["braveApiKey_secretref"]),
+                    ...(browser.configured ? [] : ["browser_backend"]),
+                    ...(emailMode !== "unavailable" ? [] : ["smtp_or_logged_in_webmail"]),
+                    ...(verificationMode !== "unavailable" ? [] : ["receiver_authenticated_imap_verification"]),
+                ];
+                let initialized = 0;
+                if (stateEncryptionReady(config)) {
+                    for (const profileId of profileIds) {
+                        if (typeof config.profiles?.[profileId]?.payload !== "string")
+                            continue;
+                        await ensureImmutableProfileSnapshot(profileId);
+                        await caseLedger.ensure(profileId);
+                        initialized += 1;
+                    }
+                }
+                const report = {
+                    report_version: 1, state: missing.length === 0 ? "ready" : "needs_configuration",
+                    initialized_profiles: initialized, encrypted_state_auto_initialized: initialized > 0,
+                    durable_campaign_case_resume_ready: initialized > 0,
+                    active_browser_session_resume_ready: false,
+                    restart_browser_cleanup: "manual_close_or_discard_required_for_tabs_or_gmail_drafts_left_open_by_an_unclean_gateway_stop",
+                    capability_detection: {
+                        discovery: typeof config?.braveApiKey === "string" ? "brave_index" : "unavailable",
+                        browser: browser.selected,
+                        email_send: emailMode,
+                        verification: verificationMode,
+                        supported_browser_backends: browser.supported,
+                        remote_cloud_fallback: browser.remote_cloud_fallback_ready ? "configured" : "optional_not_configured",
+                        browser_control_transport: browserControlTransport,
+                    },
+                    selected_autonomous_modes: { browser: browser.selected, email_send: emailMode, verification: verificationMode },
+                    readiness_scope: "configuration_only_run_rightout_doctor_for_live_browser_probe",
+                    missing, configuration_mutated: false,
+                    provider_reads: 0, provider_writes: 0, raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_setup", optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_doctor",
+            label: "RightOut capability doctor",
+            description: "Diagnose local autonomous-campaign capabilities, official-source parity health, transports, browser modes, encrypted state, and registry readiness without returning secrets or subject data.",
+            parameters: EmptyParameters,
+            async execute(_toolCallId, params) {
+                if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0)
+                    throw new Error("rightout_doctor_input_invalid");
+                const config = api.pluginConfig;
+                const parity = parityCatalogHealth(await parityCatalogPromise);
+                const registry = await registryMeta();
+                const paritySource = await paritySourceStore.lookup("latest");
+                const authorization = await providerAuthorizationHealth(config);
+                const browser = resolveBrowserBackend(toolContext, config);
+                const browserControlTransport = resolveBrowserControlTransport(toolContext, config);
+                const browserProbe = browser.configured
+                    ? await probeBrowserBackend(browser)
+                    : { reachable: false, operational: false, deep_snapshot: false };
+                const remoteCloudProbe = browser.remote_cloud_fallback_ready
+                    ? await probeBrowserBackend(resolveBrowserControl(toolContext, config, "remote_cloud_cdp"))
+                    : { reachable: false, operational: false, deep_snapshot: false };
+                const emailSend = Boolean(config?.smtpTransport) || browser.webmail_ready;
+                const verificationReady = Boolean(config?.imapTransport);
+                const checks = {
+                    encrypted_state: stateEncryptionReady(config),
+                    configured_profiles: Object.values(config?.profiles ?? {}).filter((entry) => typeof entry?.payload === "string").length,
+                    brave_discovery: typeof config?.braveApiKey === "string",
+                    brave_configured: typeof config?.braveApiKey === "string",
+                    brave_live_auth_unverified: true,
+                    smtp_send: Boolean(config?.smtpTransport),
+                    imap_verification: Boolean(config?.imapTransport),
+                    email_send: emailSend,
+                    verification: verificationReady,
+                    browser_backend_configured: browser.configured,
+                    browser_backend_reachable: browserProbe.reachable,
+                    browser_backend_operational: browserProbe.operational,
+                    browser_deep_snapshot: browserProbe.deep_snapshot,
+                    managed_openclaw_browser: browser.configured && browser.selected === "managed_openclaw",
+                    remote_cloud_cdp_browser: browser.configured && browser.selected === "remote_cloud_cdp",
+                    existing_logged_in_cdp_browser: browser.configured && browser.selected === "existing_logged_in_cdp",
+                    remote_cloud_fallback: browser.remote_cloud_fallback_ready,
+                    remote_cloud_fallback_operational: remoteCloudProbe.operational,
+                    browser_control_auth: config?.browserControlToken !== undefined,
+                    standalone_browser_control_http: browserControlTransport === "standalone_loopback_http_opt_in",
+                    openclaw_sandbox_browser_bridge: browserControlTransport === "openclaw_sandbox_browser_bridge",
+                    browser_runtime_prerequisites_verified: browserProbe.operational && browserProbe.deep_snapshot,
+                    official_registry_snapshot: registry.state === "registry_ready",
+                    official_parity_source_snapshot: Boolean(paritySource?.generated_at) && Number(paritySource?.probed_routes) > 0,
+                    parity_source_probed_routes: Number(paritySource?.probed_routes ?? 0),
+                    lane_authorization_ready: authorization.any_publisher_lane_authorized,
+                    authorized_submit_form_routes: authorization.authorized_route_counts.submit_form,
+                    authorized_source_refresh_routes: authorization.authorized_route_counts.source_refresh,
+                    exact_unbroker_broker_count: parity.broker_count === 22,
+                    normalized_unbroker_contract_surface: parity.source_blockers.length === 0 && parity.broker_count === 22,
+                    primary_reference_routes_available: parity.externally_unavailable_routes.length === 0,
+                    autonomous_external_route_rescue: parity.broker_routes
+                        .filter((route) => route.primary_route_available === false)
+                        .every((route) => route.autonomous_rescue_available === true),
+                    equivalent_reference_outcomes: parity.equivalent_outcome_gaps.length === 0,
+                };
+                const critical = Object.entries(checks).filter(([key, value]) => [
+                    "encrypted_state", "configured_profiles", "brave_discovery", "email_send", "verification", "browser_backend_configured", "browser_backend_operational", "browser_deep_snapshot",
+                    "exact_unbroker_broker_count", "normalized_unbroker_contract_surface", "autonomous_external_route_rescue",
+                ].includes(key) && !value).map(([key]) => key);
+                const localRuntimeReady = critical.length === 0;
+                const report = {
+                    report_version: 1,
+                    state: !localRuntimeReady
+                        ? "needs_attention"
+                        : !authorization.any_publisher_lane_authorized
+                            ? "runtime_ready_policy_gates_closed"
+                            : "runtime_prerequisites_ready_external_providers_unverified",
+                    checks, critical, parity_release_blockers: parity.source_blockers,
+                    external_runtime_degradations: parity.externally_unavailable_routes,
+                    selected_browser_backend: browser.selected,
+                    browser_control_transport: browserControlTransport,
+                    supported_browser_backends: browser.supported,
+                    browser_probe: { selected: browserProbe, remote_cloud_fallback: remoteCloudProbe },
+                    provider_authorization: authorization,
+                    readiness: {
+                        software_release_ready: parity.release_ready,
+                        local_runtime_prerequisites_ready: localRuntimeReady,
+                        publisher_lane_authorization_ready: authorization.any_publisher_lane_authorized,
+                        external_provider_auth_quota_and_effectiveness_verified: false,
+                    },
+                    operator_configuration_optional_by_lane: ["smtp_send", "imap_verification", "official_registry_snapshot", "official_parity_source_snapshot"],
+                    provider_reads: 0, provider_writes: 0, raw_pii_in_report: false, secrets_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_doctor", optional: true });
         api.registerTool({
             name: "rightout_due_rechecks",
             label: "RightOut due rechecks",
@@ -1685,6 +4950,7 @@ export default definePluginEntry({
             async execute(_toolCallId, params) {
                 const input = validateCaseInput(params);
                 assertConfiguredProfile(input.profileId);
+                await ensureImmutableProfileSnapshot(input.profileId);
                 const report = await caseLedger.due(input.profileId);
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },

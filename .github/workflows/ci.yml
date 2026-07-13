@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        openclaw: ["2026.6.11", "2026.7.1-beta.5"]
+        openclaw: ["2026.6.11", "2026.7.1-beta.6"]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

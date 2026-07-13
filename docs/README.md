@@ -19,6 +19,8 @@ repository and GitHub release history.
 - [Provider and publisher terms review](provider-terms-review.md)
 - [Feature benchmark](feature-benchmark.md)
 - [Unbroker parity contract](unbroker-parity-contract.md)
+- [Pinned Unbroker baseline](unbroker-parity-baseline.json)
+- [Machine-readable parity evidence and release verdict](unbroker-parity-evidence.json)
 
 ## Repository-only evidence
 

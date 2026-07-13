@@ -1,0 +1,747 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-07-13",
+  "reference_commit": "e589b739ca70eba00aa90fd3d0228bada00dbf8f",
+  "policy": {
+    "clean_room": true,
+    "all_routes_required": true,
+    "unverified_routes_block_release": true,
+    "profile_urls_use_encrypted_listing_handles": true,
+    "hard_challenges_are_human_only": true
+  },
+  "brokers": [
+    {
+      "id": "addresses",
+      "name": "Addresses.com",
+      "method": "web_form",
+      "action_url": "https://suppression.peopleconnect.us/login",
+      "official_domains": [
+        "addresses.com",
+        "peopleconnect.us"
+      ],
+      "disclosure_fields": [
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "cluster_parent": "intelius",
+      "source_url": "https://suppression.peopleconnect.us/login",
+      "source_status": "observed_200",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://suppression.peopleconnect.us/login",
+        "inputs": [
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "advancedbackgroundchecks",
+      "name": "AdvancedBackgroundChecks",
+      "method": "web_form",
+      "action_url": "https://www.advancedbackgroundchecks.com/opt-out",
+      "official_domains": [
+        "advancedbackgroundchecks.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://www.advancedbackgroundchecks.com/opt-out",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.advancedbackgroundchecks.com/opt-out",
+        "inputs": [
+          "full_name",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": true
+      }
+    },
+    {
+      "id": "beenverified",
+      "name": "BeenVerified",
+      "method": "web_form",
+      "action_url": "https://www.beenverified.com/svc/optout/search/optouts",
+      "official_domains": [
+        "beenverified.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://www.beenverified.com/faq/privacy/",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.beenverified.com/svc/optout/search/optouts",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "clustal",
+      "name": "Clustal",
+      "method": "web_form",
+      "action_url": "https://www.clustal.org/privacy-control/",
+      "official_domains": [
+        "clustal.org"
+      ],
+      "disclosure_fields": [
+        "listing_url",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://www.clustal.org/privacy-control/",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.clustal.org/privacy-control/",
+        "inputs": [
+          "profile_url",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "clustrmaps",
+      "name": "ClustrMaps",
+      "method": "web_form",
+      "action_url": "https://clustrmaps.com/bl/opt-out",
+      "official_domains": [
+        "clustrmaps.com"
+      ],
+      "disclosure_fields": [
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "rescue_email": "support@clustrmaps.com",
+      "rescue_source_url": "https://web.archive.org/web/20260509191655id_/https://clustrmaps.com/bl/opt-out",
+      "rescue_disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "rescue_last_checked": "2026-07-13",
+      "rescue_source_status": "observed_official_archive_with_current_mx",
+      "source_url": "https://clustrmaps.com/bl/opt-out",
+      "source_status": "observed_official_archive_external_unavailable",
+      "source_evidence_url": "https://web.archive.org/web/20260509191655id_/https://clustrmaps.com/bl/opt-out",
+      "source_evidence_captured_at": "2026-05-09",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://clustrmaps.com/bl/opt-out",
+        "inputs": [
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "cyberbackgroundchecks",
+      "name": "CyberBackgroundChecks",
+      "method": "web_form",
+      "action_url": "https://www.cyberbackgroundchecks.com/removal",
+      "official_domains": [
+        "cyberbackgroundchecks.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://www.cyberbackgroundchecks.com/removal",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.cyberbackgroundchecks.com/removal",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "familytreenow",
+      "name": "FamilyTreeNow",
+      "method": "web_form",
+      "action_url": "https://www.familytreenow.com/optout",
+      "official_domains": [
+        "familytreenow.com"
+      ],
+      "disclosure_fields": [
+        "full_name"
+      ],
+      "verification": "on_site",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://www.familytreenow.com/optout",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.familytreenow.com/optout",
+        "inputs": [
+          "full_name"
+        ],
+        "email_verification": false,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "fastpeoplesearch",
+      "name": "FastPeopleSearch",
+      "method": "web_form",
+      "action_url": "https://www.fastpeoplesearch.com/removal",
+      "official_domains": [
+        "fastpeoplesearch.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://www.fastpeoplesearch.com/removal",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.fastpeoplesearch.com/removal",
+        "inputs": [
+          "full_name",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": true
+      }
+    },
+    {
+      "id": "intelius",
+      "name": "Intelius / PeopleConnect",
+      "method": "web_form",
+      "action_url": "https://suppression.peopleconnect.us/login",
+      "official_domains": [
+        "intelius.com",
+        "peopleconnect.us"
+      ],
+      "disclosure_fields": [
+        "contact_email",
+        "full_name",
+        "date_of_birth"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://suppression.peopleconnect.us/login",
+      "source_status": "observed_200",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://suppression.peopleconnect.us/login",
+        "inputs": [
+          "contact_email",
+          "full_name",
+          "date_of_birth"
+        ],
+        "email_verification": true,
+        "requires_dob": true,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "mylife",
+      "name": "MyLife",
+      "method": "phone",
+      "action_url": "https://www.mylife.com/privacyrequest",
+      "official_domains": [
+        "mylife.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "listing_url"
+      ],
+      "verification": "phone_or_identity",
+      "challenge_policy": "human_phone_or_identity_only",
+      "rescue_email": "membersupport@mylife.com",
+      "rescue_source_url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv",
+      "rescue_disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "rescue_last_checked": "2026-07-13",
+      "rescue_source_status": "observed_official_registry",
+      "source_url": "https://www.mylife.com/privacyrequest",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "phone",
+        "action_url": "https://www.mylife.com/privacyrequest",
+        "inputs": [
+          "full_name",
+          "profile_url"
+        ],
+        "email_verification": false,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "nuwber",
+      "name": "Nuwber",
+      "method": "web_form",
+      "action_url": "https://nuwber.com/removal/link",
+      "official_domains": [
+        "nuwber.com"
+      ],
+      "disclosure_fields": [
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://nuwber.com/removal/link",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://nuwber.com/removal/link",
+        "inputs": [
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "peekyou",
+      "name": "PeekYou",
+      "method": "web_form",
+      "action_url": "https://www.peekyou.com/about/contact/optout/",
+      "official_domains": [
+        "peekyou.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "rescue_email": "ccpa@peekyou.com",
+      "rescue_source_url": "https://oag.ca.gov/node/550652",
+      "rescue_disclosure_fields": [
+        "full_name",
+        "contact_email"
+      ],
+      "rescue_last_checked": "2026-07-13",
+      "rescue_source_status": "observed_official_registry",
+      "source_url": "https://www.peekyou.com/about/contact/optout/",
+      "source_status": "observed_official_archive_external_unavailable",
+      "source_evidence_url": "https://web.archive.org/web/20250426000851id_/https://www.peekyou.com/about/contact/optout/",
+      "source_evidence_captured_at": "2025-04-26",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.peekyou.com/about/contact/optout",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "peoplefinders",
+      "name": "PeopleFinders",
+      "method": "web_form",
+      "action_url": "https://www.peoplefinders.com/opt-out",
+      "official_domains": [
+        "peoplefinders.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://www.peoplefinders.com/opt-out",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.peoplefinders.com/opt-out",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "radaris",
+      "name": "Radaris",
+      "method": "web_form",
+      "action_url": "https://radaris.com/control-privacy",
+      "official_domains": [
+        "radaris.com"
+      ],
+      "disclosure_fields": [
+        "listing_url",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://radaris.com/control-privacy",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://radaris.com/control-privacy",
+        "inputs": [
+          "profile_url",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": true
+      }
+    },
+    {
+      "id": "rehold",
+      "name": "Rehold",
+      "method": "web_form",
+      "action_url": "https://rehold.com/control/privacy",
+      "official_domains": [
+        "rehold.com"
+      ],
+      "disclosure_fields": [
+        "listing_url",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://rehold.com/control/privacy",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://rehold.com/optout",
+        "inputs": [
+          "profile_url"
+        ],
+        "email_verification": false,
+        "requires_dob": false,
+        "requires_captcha": false
+      },
+      "current_contract": {
+        "method": "web_form",
+        "action_url": "https://rehold.com/control/privacy",
+        "inputs": [
+          "listing_url",
+          "contact_email"
+        ],
+        "verification": "email",
+        "evidence": [
+          {
+            "url": "https://rehold.com/",
+            "fact_scope": "official_homepage_current_information_control_link",
+            "last_verified": "2026-07-13"
+          },
+          {
+            "url": "https://rehold.com/page/privacy",
+            "fact_scope": "official_privacy_policy_exact_listing_and_email_requirements",
+            "last_verified": "2026-07-13"
+          }
+        ],
+        "supersedes_reference_reason": "pinned_optout_route_now_404_official_information_control_route_requires_exact_listing_and_email"
+      }
+    },
+    {
+      "id": "searchpeoplefree",
+      "name": "SearchPeopleFree",
+      "method": "web_form",
+      "action_url": "https://www.searchpeoplefree.com/opt-out",
+      "official_domains": [
+        "searchpeoplefree.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://www.searchpeoplefree.com/opt-out",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.searchpeoplefree.com/opt-out",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "socialcatfish",
+      "name": "Social Catfish",
+      "method": "web_form",
+      "action_url": "https://socialcatfish.com/opt-out/?id=request_optout",
+      "official_domains": [
+        "socialcatfish.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://socialcatfish.com/opt-out/?id=request_optout",
+      "source_status": "observed_200",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://socialcatfish.com/opt-out/",
+        "inputs": [
+          "full_name",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": true
+      }
+    },
+    {
+      "id": "spokeo",
+      "name": "Spokeo",
+      "method": "web_form",
+      "action_url": "https://www.spokeo.com/optout",
+      "official_domains": [
+        "spokeo.com"
+      ],
+      "disclosure_fields": [
+        "listing_url",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "rescue_email": "legal@spokeo.com",
+      "rescue_source_url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv",
+      "rescue_disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "rescue_last_checked": "2026-07-13",
+      "rescue_source_status": "observed_official_registry",
+      "source_url": "https://www.spokeo.com/optout",
+      "source_status": "observed_200_terms_restrict_automation",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.spokeo.com/optout",
+        "inputs": [
+          "profile_url",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "thatsthem",
+      "name": "That’s Them",
+      "method": "web_form",
+      "action_url": "https://thatsthem.com/optout",
+      "official_domains": [
+        "thatsthem.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "street",
+        "city",
+        "region",
+        "postal",
+        "contact_email",
+        "phone"
+      ],
+      "verification": "on_site",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://thatsthem.com/optout",
+      "source_status": "observed_200",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://thatsthem.com/optout",
+        "inputs": [
+          "full_name",
+          "street",
+          "city",
+          "state",
+          "postal",
+          "contact_email",
+          "phone"
+        ],
+        "email_verification": false,
+        "requires_dob": false,
+        "requires_captcha": true
+      }
+    },
+    {
+      "id": "truepeoplesearch",
+      "name": "TruePeopleSearch",
+      "method": "web_form",
+      "action_url": "https://www.truepeoplesearch.com/removal",
+      "official_domains": [
+        "truepeoplesearch.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email"
+      ],
+      "verification": "email",
+      "challenge_policy": "soft_managed_browser_then_human_hard",
+      "source_url": "https://www.truepeoplesearch.com/removal",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.truepeoplesearch.com/removal",
+        "inputs": [
+          "full_name",
+          "contact_email"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": true
+      }
+    },
+    {
+      "id": "usphonebook",
+      "name": "USPhoneBook",
+      "method": "web_form",
+      "action_url": "https://www.usphonebook.com/opt-out",
+      "official_domains": [
+        "usphonebook.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "email",
+      "challenge_policy": "ordinary_browser",
+      "source_url": "https://www.usphonebook.com/opt-out",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "web_form",
+        "action_url": "https://www.usphonebook.com/opt-out",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    },
+    {
+      "id": "whitepages",
+      "name": "Whitepages",
+      "method": "email",
+      "action_url": "https://www.whitepages.com/privacy/consumer-rights",
+      "official_domains": [
+        "whitepages.com",
+        "whitepagesprivacy.zendesk.com"
+      ],
+      "disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "verification": "controller_response",
+      "challenge_policy": "ordinary_email_rescue_lane",
+      "rescue_email": "legal@whitepages.com",
+      "rescue_source_url": "https://cppa.ca.gov/data_broker_registry/registry2025.csv",
+      "rescue_disclosure_fields": [
+        "full_name",
+        "contact_email",
+        "listing_url"
+      ],
+      "rescue_last_checked": "2026-07-13",
+      "rescue_source_status": "observed_official_registry",
+      "source_url": "https://www.whitepages.com/privacy/consumer-rights",
+      "source_status": "observed_403_antibot",
+      "last_checked": "2026-07-13",
+      "reference_contract": {
+        "method": "email",
+        "action_url": "https://www.whitepages.com/suppression_requests",
+        "inputs": [
+          "full_name",
+          "contact_email",
+          "profile_url"
+        ],
+        "email_verification": true,
+        "requires_dob": false,
+        "requires_captcha": false
+      }
+    }
+  ]
+}

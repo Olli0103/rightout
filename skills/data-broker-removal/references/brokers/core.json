@@ -1032,7 +1032,7 @@
       "direct_rescan": {
         "supported": true,
         "strategy": "exact_encrypted_index_candidate_urls",
-        "publisher_terms_gate": "operator_attestation_required",
+        "publisher_terms_gate": "current_written_provider_authorization",
         "redirect_policy": "deny",
         "confirmation_scope": "known_listing_set_only",
         "identity_match": "full_name_plus_one_configured_corroborator",
@@ -1140,7 +1140,7 @@
       "direct_rescan": {
         "supported": true,
         "strategy": "exact_encrypted_index_candidate_urls",
-        "publisher_terms_gate": "operator_attestation_required",
+        "publisher_terms_gate": "current_written_provider_authorization",
         "redirect_policy": "deny",
         "confirmation_scope": "known_listing_set_only",
         "identity_match": "full_name_plus_one_configured_corroborator",

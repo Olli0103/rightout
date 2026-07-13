@@ -37,11 +37,21 @@ deployment `needs_evidence`.
 
 - Record Brave, SMTP, IMAP, OpenClaw, and any secret backend in the provider and
   transfer inventory with the applicable contract and retention posture.
+- For each form or publisher-browser route, retain the provider's actual current
+  written automation authorization outside RightOut and bind its SHA-256 plus
+  the exact reviewed terms-contract digest and expiry in
+  `publisherAutomationPermissions`. Subject consent, a privacy right, or an
+  operator attestation is not a publisher license. Publicly prohibited routes
+  remain human-only by default; only a specific current written provider
+  exception bound to the exact terms digest, allowed effect, and browser backend
+  may activate that exact lane. Missing or mismatched permissions fail closed.
 - Prefer a Brave Zero Data Retention agreement where the deployment requires it;
   otherwise disclose the documented standard-plan retention boundary.
 - Define the local case-retention period and purge responsibility.
 - Store every secret as a SecretRef, scrub plaintext residue, and run the
   OpenClaw secret and security audits after each configuration change.
+- Record that OpenClaw materializes active SecretRefs into an in-memory snapshot
+  at Gateway activation; approval limits RightOut's use, not materialization.
 - Treat plugins as trusted in-process code. Separate mutually untrusted users by
   Gateway and operating-system identity.
 

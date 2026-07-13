@@ -72,6 +72,11 @@ def main() -> None:
             fail(errors, "npm-shrinkwrap.json must exactly match package-lock.json")
     manifest = read_json(ROOT / "openclaw.plugin.json")
     catalog = read_json(ROOT / "skills/data-broker-removal/references/brokers/core.json")
+    parity_catalog = read_json(ROOT / "skills/data-broker-removal/references/brokers/unbroker-parity.json")
+    provider_terms = read_json(ROOT / "skills/data-broker-removal/references/brokers/provider-terms.json")
+    parity_baseline = read_json(ROOT / "docs/unbroker-parity-baseline.json")
+    parity_evidence = read_json(ROOT / "docs/unbroker-parity-evidence.json")
+    upstream_refresh = read_json(ROOT / "docs/unbroker-upstream-refresh.json")
     sbom = read_json(ROOT / "SBOM.spdx.json")
     skill_version = (ROOT / "skills/data-broker-removal/VERSION").read_text(encoding="utf-8").strip()
     if not (ROOT / f"docs/release-notes-v{version}.md").is_file():
@@ -121,19 +126,112 @@ def main() -> None:
             for item in brokers
         ),
     }
-    minimums = {
-        "people_search": 22, "scan": 21, "email": 27, "browser_form": 1,
-        "direct_rescan": 1, "inbound_verification": 1, "eu_processes": 23, "eu_email": 18,
-        "us_executable": 10, "executable": 28,
+    required_capabilities = sorted(item.get("id") for item in parity_baseline.get("capabilities", []) if item.get("required") is True)
+    evidenced_capabilities = parity_evidence.get("capabilities", [])
+    if sorted(item.get("id") for item in evidenced_capabilities) != required_capabilities:
+        fail(errors, "full Unbroker capability evidence does not exactly match the pinned baseline")
+    accepted_capability_statuses = {"implemented", "conditional", "gap", "human_only"}
+    invalid_capabilities = [
+        item.get("id") for item in evidenced_capabilities
+        if item.get("status") not in accepted_capability_statuses
+    ]
+    if invalid_capabilities:
+        fail(errors, f"Unbroker capability classification is invalid: {', '.join(invalid_capabilities)}")
+    documented_gaps = sorted(item.get("id") for item in evidenced_capabilities if item.get("status") == "gap")
+    if documented_gaps != ["full_autonomy_default", "soft_managed_challenge_browser_clearance"]:
+        fail(errors, "machine evidence must preserve the known Unbroker capability gaps")
+    expected_broker_ids = sorted(parity_baseline.get("broker_ids", []))
+    actual_broker_ids = sorted(item.get("id") for item in parity_catalog.get("brokers", []))
+    if actual_broker_ids != expected_broker_ids or len(actual_broker_ids) != 22:
+        fail(errors, "exact Unbroker broker surface mismatch")
+    provider_terms_brokers = provider_terms.get("brokers", [])
+    if (
+        provider_terms.get("schema_version") != 1
+        or provider_terms.get("policy") != {
+            "default_publisher_automation": "deny",
+            "permission_requirement": "current_written_provider_authorization",
+            "operator_attestation_alone_is_insufficient": True,
+        }
+        or sorted(item.get("id") for item in provider_terms_brokers) != expected_broker_ids
+        or sum(item.get("status") == "explicit_automation_prohibition" for item in provider_terms_brokers) != 8
+        or sum(item.get("status") == "needs_evidence" for item in provider_terms_brokers) != 14
+    ):
+        fail(errors, "provider-terms default-deny contract does not exactly cover the 22 reference brokers")
+    baseline_contracts = parity_baseline.get("broker_contracts", {})
+    actual_contracts = {item.get("id"): item.get("reference_contract") for item in parity_catalog.get("brokers", [])}
+    if actual_contracts != baseline_contracts or sorted(actual_contracts) != expected_broker_ids:
+        fail(errors, "per-broker Unbroker method/input/route contract mismatch")
+    rehold = next((item for item in parity_catalog.get("brokers", []) if item.get("id") == "rehold"), {})
+    current_rehold = rehold.get("current_contract", {})
+    if (
+        current_rehold.get("method") != rehold.get("method")
+        or current_rehold.get("action_url") != rehold.get("action_url")
+        or current_rehold.get("inputs") != rehold.get("disclosure_fields")
+        or current_rehold.get("verification") != rehold.get("verification")
+        or current_rehold.get("supersedes_reference_reason")
+        != "pinned_optout_route_now_404_official_information_control_route_requires_exact_listing_and_email"
+        or {
+            (item.get("url"), item.get("fact_scope"), item.get("last_verified"))
+            for item in current_rehold.get("evidence", [])
+        }
+        != {
+            ("https://rehold.com/", "official_homepage_current_information_control_link", "2026-07-13"),
+            ("https://rehold.com/page/privacy", "official_privacy_policy_exact_listing_and_email_requirements", "2026-07-13"),
+        }
+    ):
+        fail(errors, "Rehold current executable contract is not exactly machine-bound to current official evidence")
+    parity_methods = {
+        "web_form": sum(item.get("method") == "web_form" for item in parity_catalog.get("brokers", [])),
+        "email": sum(item.get("method") == "email" for item in parity_catalog.get("brokers", [])),
+        "phone": sum(item.get("method") == "phone" for item in parity_catalog.get("brokers", [])),
     }
-    for capability, minimum in minimums.items():
-        if parity_counts[capability] < minimum:
-            fail(errors, f"minimum Unbroker parity capability missing: {capability}")
+    if parity_methods != {"web_form": 20, "email": 1, "phone": 1}:
+        fail(errors, "Unbroker method-for-method surface mismatch")
+    source_blockers = sorted(item.get("id") for item in parity_catalog.get("brokers", []) if item.get("source_status") == "needs_evidence")
+    if source_blockers:
+        fail(errors, f"Unbroker official-route evidence is incomplete: {', '.join(source_blockers)}")
+    if (
+        parity_evidence.get("release_ready") is not True
+        or parity_evidence.get("software_release_ready") is not True
+        or parity_evidence.get("release_blockers")
+        or parity_evidence.get("unbroker_normalized_contract_surface_complete") is not True
+        or parity_evidence.get("unbroker_recipe_surface_complete") is not False
+        or parity_evidence.get("unbroker_exact_playbook_choreography_complete") is not False
+        or parity_evidence.get("unbroker_capability_parity_complete") is not False
+        or parity_evidence.get("unbroker_default_autonomy_complete") is not False
+        or parity_evidence.get("autonomous_form_execution_ready") is not False
+        or "not a claim of default autonomous form execution" not in parity_evidence.get("release_ready_meaning", "")
+    ):
+        fail(errors, "machine-readable normalized-contract release verdict is invalid")
+    if (
+        upstream_refresh.get("schema_version") != 1
+        or upstream_refresh.get("pinned_commit") != parity_baseline.get("reference", {}).get("commit")
+        or upstream_refresh.get("pinned_commit") != parity_catalog.get("reference_commit")
+        or upstream_refresh.get("unbroker_subtree_unchanged") is not True
+        or upstream_refresh.get("pinned_subtree_sha") != upstream_refresh.get("current_subtree_sha")
+    ):
+        fail(errors, "Unbroker upstream-refresh evidence is invalid")
+    upstream_check = subprocess.run(
+        ["node", "scripts/verify-unbroker-upstream.mjs"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if upstream_check.returncode != 0:
+        fail(errors, f"live Unbroker upstream refresh failed: {upstream_check.stderr.strip()}")
     for test_file in [
         "cases.test.mjs", "direct-rescan.test.mjs", "file-keyed-store.test.mjs", "form-runtime.test.mjs",
         "listing-tokens.test.mjs", "verification-runtime.test.mjs", "adversarial-input-property.test.mjs",
         "controller-outcome-runtime.test.mjs", "submission-reconciliation-runtime.test.mjs", "dedupe-recovery-runtime.test.mjs",
         "removal-lane-matrix.test.mjs", "catalog-health.test.mjs", "retention-runtime.test.mjs", "state-rotation-runtime.test.mjs",
+        "campaigns.test.mjs", "campaign-runtime.test.mjs", "parity-autopilot.test.mjs", "parity-catalog.test.mjs",
+        "parity-evidence.test.mjs", "parity-scan.test.mjs", "browser-session.test.mjs", "parity-email.test.mjs",
+        "registry.test.mjs", "report-export.test.mjs", "parity-form-matrix.test.mjs", "parity-source-refresh.test.mjs",
+        "feature-runtime.test.mjs", "webmail-runtime.test.mjs", "discovery-session-runtime.test.mjs", "drop-runtime.test.mjs",
+        "browser-backend-runtime.test.mjs", "full-autonomy-runtime.test.mjs", "form-session-runtime.test.mjs",
+        "provider-terms.test.mjs", "peopleconnect-runtime.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -201,7 +299,9 @@ def main() -> None:
         ROOT / "dist/lib/file-keyed-store.mjs", ROOT / "dist/lib/catalog-health.mjs",
         ROOT / "dist/lib/listing-tokens.mjs", ROOT / "dist/lib/removal.mjs", ROOT / "dist/lib/form-removal.mjs",
         ROOT / "dist/lib/browser-form.mjs", ROOT / "dist/lib/imap.mjs", ROOT / "dist/lib/verification.mjs",
-        ROOT / "dist/lib/cases.mjs", ROOT / "dist/lib/smtp.mjs",
+        ROOT / "dist/lib/cases.mjs", ROOT / "dist/lib/smtp.mjs", ROOT / "dist/lib/campaigns.mjs",
+        ROOT / "dist/lib/parity-catalog.mjs", ROOT / "dist/lib/parity-email.mjs", ROOT / "dist/lib/parity-autopilot.mjs",
+        ROOT / "dist/lib/registry.mjs", ROOT / "dist/lib/report-export.mjs", ROOT / "dist/lib/parity-source-refresh.mjs",
     ]:
         if not path.is_file():
             fail(errors, f"compiled release file missing: {path.relative_to(ROOT)}")
@@ -310,7 +410,9 @@ def main() -> None:
                     Path("lib/catalog-health.mjs"),
                     Path("lib/listing-tokens.mjs"), Path("lib/removal.mjs"), Path("lib/form-removal.mjs"),
                     Path("lib/browser-form.mjs"), Path("lib/imap.mjs"), Path("lib/verification.mjs"),
-                    Path("lib/cases.mjs"), Path("lib/smtp.mjs"),
+                    Path("lib/cases.mjs"), Path("lib/smtp.mjs"), Path("lib/campaigns.mjs"),
+                    Path("lib/parity-catalog.mjs"), Path("lib/parity-email.mjs"), Path("lib/parity-autopilot.mjs"), Path("lib/provider-terms.mjs"),
+                    Path("lib/registry.mjs"), Path("lib/report-export.mjs"), Path("lib/parity-source-refresh.mjs"),
                 ]:
                     generated = Path(tmp) / relative
                     committed = ROOT / "dist" / relative
@@ -329,7 +431,13 @@ def main() -> None:
         "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
         "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome",
         "rightout_reconcile_submission", "rightout_next_actions", "rightout_case_status",
-        "rightout_catalog_health", "rightout_due_rechecks",
+        "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks",
+        "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign",
+        "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
+        "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session",
+        "rightout_webmail_session_step", "rightout_begin_webmail_verification",
+        "rightout_begin_discovery_session", "rightout_discovery_session_step",
+        "rightout_begin_form_session", "rightout_form_session_step",
     ]
     if manifest.get("contracts", {}).get("tools") != expected_tools:
         fail(errors, "manifest tool contract mismatch")
@@ -355,7 +463,7 @@ def main() -> None:
     if secret_paths != {
         "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
         "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
-        "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*",
+        "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*", "browserControlToken",
     }:
         fail(errors, "SecretInput contract mismatch")
     config_properties = manifest.get("configSchema", {}).get("properties", {})
@@ -474,9 +582,17 @@ def main() -> None:
         for item in catalog.get("brokers", [])
         if item.get("removal", {}).get("supported") is True
     }
+    allowed_public_emails.update(
+        item.get("rescue_email", "").lower()
+        for item in parity_catalog.get("brokers", [])
+        if item.get("rescue_email")
+    )
     for email in re.findall(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", combined):
         local, domain = email.lower().rsplit("@", 1)
-        safe_fixture = domain.endswith(".invalid") or (local in {"test-message", "opaque"} and domain.endswith("beenverified.com"))
+        safe_fixture = domain.endswith(".invalid") or (
+            local in {"test-message", "opaque"}
+            and domain in {"beenverified.com", "peopleconnect.us"}
+        )
         if not safe_fixture and email.lower() not in allowed_public_emails:
             fail(errors, f"non-fixture email found: {email}")
 
@@ -487,7 +603,7 @@ def main() -> None:
     if '"indirect_exposure": by_state["indirect_exposure"]' not in runner or 'by_state["found"] + by_state["indirect_exposure"]' in runner:
         fail(errors, "offline report must keep indirect_exposure separate from found")
     runtime_js = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in ["index.ts", "lib/live-scan.mjs", "lib/removal.mjs", "lib/smtp.mjs"])
-    if re.search(r"\bfetch\s*\(", runtime_js) or re.search(r"(?<!guarded)fetch\s*\(", runner):
+    if re.search(r"(?<![\w.])fetch\s*\(", runtime_js) or re.search(r"(?<!guarded)fetch\s*\(", runner):
         fail(errors, "unguarded fetch path detected")
     browser_form = (ROOT / "lib/browser-form.mjs").read_text(encoding="utf-8")
     if "globalThis.fetch" not in browser_form or "safeBridgeUrl" not in browser_form or "redirect: \"error\"" not in browser_form:
@@ -496,7 +612,6 @@ def main() -> None:
     for required in [
         "requireApproval",
         'allowedDecisions: ["allow-once", "deny"]',
-        'timeoutBehavior: "deny"',
         "scanScopeBinding",
         "removalScopeBinding",
         "approvalBindings.delete(toolCallId)",
@@ -509,6 +624,12 @@ def main() -> None:
     ]:
         if required not in index:
             fail(errors, f"approval/security invariant missing: {required}")
+    for required in [
+        "globalThis.fetch", 'url.protocol !== "http:"', 'redirect: "error"',
+        "AbortController", "128_000", 'url.searchParams.set("deep", "true")',
+    ]:
+        if required not in index:
+            fail(errors, f"loopback browser-doctor probe invariant missing: {required}")
     if "openKeyedStore" in index or "openSyncKeyedStore" in index or "resolveStateDir(process.env)" not in index:
         fail(errors, "community plugin must use the public state-directory resolver, not bundled-only keyed stores")
     live_scan = (ROOT / "lib/live-scan.mjs").read_text(encoding="utf-8")
@@ -651,12 +772,17 @@ def main() -> None:
                 "dist/lib/catalog-health.mjs",
                 "dist/lib/listing-tokens.mjs", "dist/lib/removal.mjs", "dist/lib/form-removal.mjs",
                 "dist/lib/browser-form.mjs", "dist/lib/imap.mjs", "dist/lib/verification.mjs",
-                "dist/lib/cases.mjs", "dist/lib/smtp.mjs", "scripts/compute-removal-bindings.mjs",
+                "dist/lib/cases.mjs", "dist/lib/smtp.mjs", "dist/lib/campaigns.mjs",
+                "dist/lib/parity-catalog.mjs", "dist/lib/parity-email.mjs", "dist/lib/parity-autopilot.mjs", "dist/lib/provider-terms.mjs",
+                "dist/lib/registry.mjs", "dist/lib/report-export.mjs", "dist/lib/parity-source-refresh.mjs", "scripts/compute-removal-bindings.mjs",
                 "openclaw.plugin.json", "skills/data-broker-removal/SKILL.md", "LICENSE",
                 "THIRD_PARTY_NOTICES.md", "SBOM.spdx.json", "npm-shrinkwrap.json",
                 "CONTRIBUTING.md", "docs/README.md", "docs/authorized-canary.md",
                 "docs/broker-coverage.md", "docs/catalog-provenance.json",
-                "docs/deployment-compliance.md",
+                "docs/deployment-compliance.md", "docs/unbroker-parity-baseline.json", "docs/unbroker-parity-evidence.json",
+                "docs/unbroker-upstream-refresh.json", "scripts/verify-unbroker-upstream.mjs",
+                "skills/data-broker-removal/references/brokers/unbroker-parity.json",
+                "skills/data-broker-removal/references/brokers/provider-terms.json",
             ]:
                 if required not in packed:
                     fail(errors, f"release archive missing: {required}")

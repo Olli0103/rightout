@@ -1,6 +1,6 @@
 # Source matrix
 
-Review date: 2026-07-12.
+Review date: 2026-07-13.
 
 ## OpenClaw primary documentation
 
@@ -22,6 +22,10 @@ Review date: 2026-07-12.
 - `https://api-dashboard.search.brave.com/documentation/resources/privacy-notice`
 - `https://www.truepeoplesearch.com/` and `/removal`: official identity/entry-point facts only; no RightOut publisher request.
 - `https://www.spokeo.com/`, `/optout`, `/terms-of-use-consumer`, and `/robots.txt`: official identity/entry-point/restriction facts only; automation is disabled.
+- The 22 exact official terms/privacy/action URLs in
+  `references/brokers/provider-terms.json`: per-route automation status only.
+  Current result: 8 explicit prohibitions, 14 `needs_evidence`, zero public
+  permissions. A written provider exception must be obtained independently.
 
 ## Removal sources
 
@@ -53,13 +57,14 @@ The generic legal reference remains human-only. Catalog-locked controller channe
 ## Product architecture and UX benchmark
 
 - `https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-unbroker`
-- `https://github.com/NousResearch/hermes-agent`, snapshot `2d9fd870b6d105e3b367aaa97477931b6671192e`
+- `https://github.com/NousResearch/hermes-agent`, snapshot `e589b739ca70eba00aa90fd3d0228bada00dbf8f`
 - `https://incogni.com/features/remove-my-information-from-internet`
 - `https://support.incogni.com/hc/en-us/articles/4904721869458-What-do-the-data-removal-statuses-on-my-dashboard-mean`
 - `https://www.optery.com/`
 - `https://help.optery.com/en/article/what-is-a-removals-report-1ht35vl/`
 - `https://help.joindeleteme.com/hc/en-us/articles/8142303949587-How-Does-DeleteMe-Work`
 - `https://www.kanary.com/`
+- `https://privacybee.com/`
 
 These sources support feature categories only. They do not evidence RightOut behavior, legal compliance, coverage, or effectiveness.
 

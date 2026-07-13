@@ -1,30 +1,66 @@
 # Broker coverage
 
-Review date: 2026-07-12. Counts come from the validated schema-v6 catalog and
-describe software lanes, not proven real-world removals.
+Review date: 2026-07-13. Counts describe software/source contracts, not proven
+real-world removals.
 
-| Capability | Current coverage | Meaning |
+## Exact pinned Unbroker surface
+
+| Capability | Coverage | Release state |
 | --- | ---: | --- |
-| Catalog entries | 56 | Official-source-backed planning targets |
-| People-search entries | 22 | US-oriented people-search planning set |
-| Brave discovery lanes | 21 | Indirect official-domain index signals only |
-| Executable targets | 28 | 27 fixed-recipient emails and one closed browser-form initiation |
-| EU/EEA controller emails | 18 | Submitted requests awaiting human-reviewed controller outcomes |
-| US executable targets | 10 | Nine emails and one PeopleConnect form initiation |
-| Direct recheck lanes | 2 | Exact encrypted known-listing URLs only |
-| Inbox verification lanes | 1 | Gmail receiver-authenticated BeenVerified confirmation flow |
+| Reference broker IDs | 22 of 22 | exact |
+| Web-form contracts | 20 of 20 | normalized method/route/input contracts feed a generic synthetic-tested engine; only PeopleConnect has a provider-specific staged multi-step E2E; default deny without current written provider authorization |
+| Email methods | 1 of 1 | evidenced |
+| Phone methods | 1 of 1 | human like reference; official email rescue also available |
+| One-batch Brave discovery | 21 of 22 | tested, indirect index evidence only; Spokeo is a separate human-only gate because its published terms prohibit automated queries |
+| Publisher-browser fallback after inconclusive index search | 0 routes enabled by public evidence alone | requires current written provider authorization; 8 routes explicitly prohibit automation and 14 remain `needs_evidence` |
+| Generic form contract fixtures | 20 of 20 | synthetic one-page fixtures cover split-name/email-confirm/listing-ID aliases; they do not prove exact live provider choreography or effectiveness |
+| Authenticated IMAP verification | catalog-supported Gmail routes | implemented; authorized canary still required |
+| Browser-only inbound verification | 0 autonomous routes | zero-I/O human gate; no structured receiver-authentication contract |
+| Exact known-listing recheck | every source-ready route except published automation prohibition | terms/authority attestation required |
 
-## Honest breadth boundary
+`clustrmaps` and `peekyou` are external runtime degradations, not missing
+RightOut normalized contracts. One pinned Unbroker site-playbook pass records both as
+dead/404, while the pinned broker records retain their routes, document
+datacenter anti-bot/access failures, require residential confirmation, and
+leave `last_verified` unset. Current independent checks find the hosts
+unavailable. RightOut independently evidences the exact historic official
+historical routes, keeps the primary routes marked unavailable, and provides separately
+sourced rescue email (`support@clustrmaps.com` and `ccpa@peekyou.com`) with
+independent disclosure and freshness contracts. A rescue submission is never
+reported as a form submission or confirmed removal.
 
-RightOut exceeds the raw executable-target count of the pinned public Hermes
-Unbroker snapshot, but the lane mix is different: RightOut is email-heavy while
-the reviewed Unbroker snapshot is web-form-heavy. Managed services claim much
-larger private inventories, hosted dashboards, recurring managed submissions,
-custom removal teams, and effectiveness data that RightOut neither possesses
-nor claims.
+## Additional clean-room coverage
+
+| Capability | Additional coverage |
+| --- | ---: |
+| Core catalog entries | 56 |
+| Combined Brave index discovery lanes | 59: 30 people-search plus 29 EU/US controller or B2B domains |
+| Global autonomous scan batching | deterministic groups of four across an exact scan-only campaign scope |
+| Independently locked core removal targets | 28 |
+| EU/EEA controller email targets | 18 |
+| US core executable targets | 10 |
+| Live official California registry snapshot | complete official CSV is parsed and encrypted; the runtime snapshot count is authoritative and intentionally not hard-coded |
+| Other official registry portals | Vermont, Oregon, Texas |
+
+The broader core catalog improves coverage but is not Unbroker-parity evidence.
+DE/EU profiles are accepted and localized through Brave country/language
+targeting when supported; other ISO countries use explicit worldwide targeting.
+For controller, adtech, and B2B brokers an absent index hit is especially weak:
+the service may hold private or identifier-linked data without publishing a
+person-search page, so RightOut reports only `inconclusive`.
+California DROP is a separate human-verified, registry-wide route; it excludes
+non-registered brokers and may not delete FCRA-regulated data.
+
+The public provider-terms review found zero affirmative automation permissions,
+8 explicit prohibitions, and 14 `needs_evidence` routes. This is an operational
+coverage limit. A provider-specific written exception can enable the matching
+generic contract lane; subject/operator consent cannot, and exact live
+effectiveness remains `needs_evidence`.
+
+## Honest outcome boundary
 
 `indirect_exposure`, `submitted`, and `verification_pending` are not removal
-proof. People-search `confirmed_removed` covers only the encrypted known listing
+proof. People-search `confirmed_removed` covers only the encrypted known-listing
 set after two timed direct absences. A controller response covers only that
-controller and the identifiers it handled. California DROP remains a separate
-human government-platform route.
+controller and reviewed identifiers. Private inventories, new/unindexed URLs,
+legal exceptions, and future reappearance remain outside any completion claim.
