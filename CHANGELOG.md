@@ -2,6 +2,33 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.8.1 - 2026-07-13
+
+- Fixed autonomous discovery campaigns so campaign-authorized scan reports are
+  durably recorded and finite scan-only campaigns can terminate.
+- Replaced the ambiguous 59-lane claim with a shared runtime/documentation
+  contract proving 56 code-enforced Brave lanes: 30 people-search and 26
+  controller/B2B lanes, while preserving three reviewed portal lanes as
+  `human_only`.
+- Made profile country mandatory and report localization, public-index scope,
+  private-inventory limits, and unproven discovery effectiveness explicitly.
+- Removed the remaining nested-address US defaults from removal profiles;
+  scan/removal now share one ISO-country contract and inherit only the explicit
+  top-level country.
+- Preserved protected case workflow states when mixed scan batches record fresh
+  observations, preventing one protected broker from dropping the remainder of
+  a batch.
+- Added a real campaign-to-live-scan runtime regression, mixed-state case tests,
+  non-US coverage tests, and a machine-readable scan-coverage release gate.
+- Required GitHub-verified signed annotated release tags and successful GitHub
+  artifact-attestation verification before release publication.
+- Revalidated managed-service claims against current primary sources and added
+  an evidence scale plus peer-reviewed market-effectiveness context so vendor
+  inventory claims are never presented as equivalent to runtime proof.
+- Stabilized the live Hermes gate on the exact pinned Unbroker subtree rather
+  than unrelated upstream `main` commits; any subtree change still fails closed
+  for review.
+
 ## 0.8.0 - 2026-07-13
 
 - Replaced minimum/count parity with an exact pinned 22-broker normalized method/route/input contract plus machine-readable `implemented`/`conditional`/`gap`/`human_only` capability evidence.

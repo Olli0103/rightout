@@ -1,6 +1,6 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Bounded autonomous data-broker discovery, removal, verification, registry, and recheck campaigns for OpenClaw",
   "type": "module",
   "license": "MIT",
@@ -28,11 +28,14 @@
     "docs/openclaw-conformance.md",
     "docs/privacy-posture.md",
     "docs/provider-terms-review.md",
+    "docs/scan-coverage.json",
     "docs/unbroker-parity-contract.md",
     "docs/unbroker-parity-baseline.json",
     "docs/unbroker-parity-evidence.json",
     "docs/unbroker-upstream-refresh.json",
     "scripts/compute-removal-bindings.mjs",
+    "scripts/unbroker-upstream-contract.mjs",
+    "scripts/verify-scan-coverage.mjs",
     "scripts/verify-unbroker-upstream.mjs",
     "VERSION"
   ],

@@ -1,0 +1,14 @@
+{
+  "schema_version": "rightout.scan-coverage.v1",
+  "reviewed_at": "2026-07-13",
+  "runtime_combined_entries": 65,
+  "code_enforced_brave_scan_lanes": 56,
+  "people_search_brave_scan_lanes": 30,
+  "controller_b2b_brave_scan_lanes": 26,
+  "human_only_controller_portal_lanes": 3,
+  "transport": "brave_web_search_post_body",
+  "visibility": "public_web_search_index_only",
+  "publisher_requests": 0,
+  "private_broker_inventory_visibility": false,
+  "discovery_effectiveness": "needs_evidence"
+}

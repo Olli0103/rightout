@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { compareUnbrokerUpstream } from "./unbroker-upstream-contract.mjs";
+
 const root = new URL("../", import.meta.url);
 const evidence = JSON.parse(readFileSync(new URL("docs/unbroker-upstream-refresh.json", root), "utf8"));
 const baseline = JSON.parse(readFileSync(new URL("docs/unbroker-parity-baseline.json", root), "utf8"));
@@ -41,16 +43,17 @@ try {
   });
   const currentCommit = execFileSync("git", ["-C", worktree, "rev-parse", "FETCH_HEAD"], { encoding: "utf8" }).trim();
   const currentTree = execFileSync("git", ["-C", worktree, "rev-parse", `FETCH_HEAD:${subtreePath}`], { encoding: "utf8" }).trim();
-  if (currentCommit !== evidence.current_commit || currentTree !== evidence.current_subtree_sha) {
-    fail("rightout_unbroker_upstream_changed_refresh_required");
+  try {
+    process.stdout.write(`${JSON.stringify(compareUnbrokerUpstream({
+      pinnedCommit: evidence.pinned_commit,
+      evidenceCurrentCommit: evidence.current_commit,
+      currentCommit,
+      pinnedSubtreeSha: evidence.pinned_subtree_sha,
+      currentSubtreeSha: currentTree,
+    }))}\n`);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "rightout_unbroker_upstream_observation_invalid");
   }
-  process.stdout.write(`${JSON.stringify({
-    state: "current_unbroker_subtree_matches_pinned_baseline",
-    pinned_commit: evidence.pinned_commit,
-    current_commit: currentCommit,
-    subtree_sha: currentTree,
-    checked_at: new Date().toISOString(),
-  })}\n`);
 } finally {
   rmSync(worktree, { recursive: true, force: true });
 }

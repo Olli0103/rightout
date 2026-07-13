@@ -1,4 +1,5 @@
 import { createHash, randomUUID, scryptSync } from "node:crypto";
+import { ISO_COUNTRIES } from "./countries.mjs";
 const SAFE_ID = /^[a-z0-9_]{2,24}$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
@@ -125,7 +126,7 @@ export function parseRemovalProfile(value) {
     const city = cleanString(profile.city, "profile", 1, 80);
     const region = cleanString(profile.region, "profile", 2, 40).toUpperCase();
     const country = cleanString(profile.country, "profile", 2, 2).toUpperCase();
-    if (!/^[A-Z0-9][A-Z0-9 .'-]{1,39}$/.test(region) || !/^[A-Z]{2}$/.test(country))
+    if (!/^[A-Z0-9][A-Z0-9 .'-]{1,39}$/.test(region) || !ISO_COUNTRIES.has(country))
         throw new Error("profile_invalid");
     const contactEmail = cleanEmail(profile.contactEmail, "contact_email");
     const jurisdictions = cleanJurisdictions(profile.jurisdictions);
@@ -146,9 +147,9 @@ export function parseRemovalProfile(value) {
     const phones = cleanOptionalStrings(profile.phones, "phone", 7, 32, 5);
     if (!phones.every((phone) => SAFE_PHONE.test(phone)))
         throw new Error("profile_invalid");
-    const priorLocations = cleanPriorLocations(profile.priorLocations);
-    const currentAddress = profile.currentAddress === undefined ? undefined : cleanAddress(profile.currentAddress);
-    const priorAddresses = cleanPriorAddresses(profile.priorAddresses);
+    const priorLocations = cleanPriorLocations(profile.priorLocations, country);
+    const currentAddress = profile.currentAddress === undefined ? undefined : cleanAddress(profile.currentAddress, country);
+    const priorAddresses = cleanPriorAddresses(profile.priorAddresses, country);
     const consent = cleanConsent(profile.consent);
     return {
         fullName,
@@ -178,7 +179,7 @@ function cleanOptionalStrings(values, label, min, max, maxItems) {
         throw new Error("profile_invalid");
     return cleaned;
 }
-function cleanPriorLocations(values) {
+function cleanPriorLocations(values, defaultCountry) {
     if (values === undefined)
         return [];
     if (!Array.isArray(values) || values.length > 5)
@@ -190,8 +191,8 @@ function cleanPriorLocations(values) {
             throw new Error("profile_invalid");
         const city = cleanString(location.city, "prior_city", 1, 80);
         const region = cleanString(location.region, "prior_region", 2, 40).toUpperCase();
-        const country = cleanString(location.country ?? "US", "prior_country", 2, 2).toUpperCase();
-        if (!/^[A-Z]{2}$/.test(country))
+        const country = cleanString(location.country ?? defaultCountry, "prior_country", 2, 2).toUpperCase();
+        if (!ISO_COUNTRIES.has(country))
             throw new Error("profile_invalid");
         return { city, region, country };
     });
@@ -199,7 +200,7 @@ function cleanPriorLocations(values) {
         throw new Error("profile_invalid");
     return out;
 }
-function cleanAddress(value) {
+function cleanAddress(value, defaultCountry) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("profile_invalid");
     if (Object.keys(value).some((key) => !["line1", "line2", "city", "region", "postal", "country"].includes(key)))
@@ -209,17 +210,17 @@ function cleanAddress(value) {
     const city = cleanString(value.city, "address_city", 1, 80);
     const region = cleanString(value.region, "address_region", 2, 40).toUpperCase();
     const postal = cleanString(value.postal, "address_postal", 3, 16);
-    const country = cleanString(value.country ?? "US", "address_country", 2, 2).toUpperCase();
-    if (!/^[A-Z]{2}$/.test(country))
+    const country = cleanString(value.country ?? defaultCountry, "address_country", 2, 2).toUpperCase();
+    if (!ISO_COUNTRIES.has(country))
         throw new Error("profile_invalid");
     return { line1, ...(line2 ? { line2 } : {}), city, region, postal, country };
 }
-function cleanPriorAddresses(values) {
+function cleanPriorAddresses(values, defaultCountry) {
     if (values === undefined)
         return [];
     if (!Array.isArray(values) || values.length > 5)
         throw new Error("profile_invalid");
-    const out = values.map(cleanAddress);
+    const out = values.map((value) => cleanAddress(value, defaultCountry));
     if (new Set(out.map((value) => JSON.stringify(value))).size !== out.length)
         throw new Error("profile_invalid");
     return out;

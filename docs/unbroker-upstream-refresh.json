@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "checked_at": "2026-07-13T12:35:51Z",
+  "checked_at": "2026-07-13T16:45:04Z",
   "source_repository": "https://github.com/NousResearch/hermes-agent.git",
   "branch": "main",
   "subtree_path": "optional-skills/security/unbroker",
   "pinned_commit": "e589b739ca70eba00aa90fd3d0228bada00dbf8f",
   "pinned_subtree_sha": "f8145c8318a398f0d12dbbd27bb88175ce19519b",
-  "current_commit": "bd740f203b44237dbc5c27a2de4d86ef32af4dde",
+  "current_commit": "af250d84948179834820a62bfd870c0df6f264a1",
   "current_subtree_sha": "f8145c8318a398f0d12dbbd27bb88175ce19519b",
   "unbroker_subtree_unchanged": true,
-  "method": "clean_temporary_git_fetch_and_exact_subtree_tree_hash"
+  "method": "snapshot_plus_live_exact_subtree_tree_hash_unrelated_head_drift_allowed"
 }

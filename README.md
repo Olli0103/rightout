@@ -13,7 +13,7 @@ state; tool inputs and reports use opaque references.
 
 ## Release truth, without marketing math
 
-RightOut `0.8.0` clean-room represents the complete normalized contract surface
+RightOut `0.8.1` clean-room represents the complete normalized contract surface
 from pinned Hermes Unbroker commit
 `e589b739ca70eba00aa90fd3d0228bada00dbf8f`: 22 exact broker IDs and their
 20-form/one-email/one-phone method, route, input, and verification metadata.
@@ -76,8 +76,8 @@ flowchart LR
 
 | Area | Capability |
 | --- | --- |
-| Live scan | Country-aware Brave Web Search POST discovery across all 59 policy-permitted catalog lanes: 30 people-search plus 29 EU/US controller/B2B domains. Campaigns drain deterministic four-broker batches; the pinned Unbroker subset remains 21/22 because Spokeo is a human gate under its published automation prohibition. Query/result bodies and result URLs are never persisted or returned |
-| Discovery | ISO-country profiles, Brave country/language targeting (for example `DE/de`) or explicit worldwide fallback, plus full name, aliases, current/prior locations, subject emails and phones; vectors stay within Brave's 400-character/50-word limits without truncating identity values |
+| Live scan | Country-aware Brave Web Search POST discovery across 56 code-enforced catalog lanes: 30 people-search plus 26 EU/US controller/B2B domains. Three controller portal lanes and Spokeo retain their catalog `human_only`/published-terms gates. Campaigns drain deterministic four-broker batches. Query/result bodies and result URLs are never persisted or returned |
+| Discovery | ISO-country profiles require an explicit country, then use Brave country/language targeting (for example `DE/de`) or an explicit worldwide fallback, plus full name, aliases, current/prior locations, subject emails and phones. This is public-index discovery only: localization does not prove real broker discovery, private-inventory visibility, identity, or absence. Vectors stay within Brave's 400-character/50-word limits without truncating identity values |
 | Exact verification | A separate, provider-authorized direct read matches full name plus a strong configured corroborator before `found` |
 | Autonomous campaigns | One native `allow-once` creates a revocable grant for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 effects |
 | Form execution | Generic bounded ARIA-ref engine for 20 normalized contracts plus a staged PeopleConnect path; minimum disclosure, intent-before-click, semantic-state receipts, and provider-authorization default deny |
@@ -91,8 +91,9 @@ flowchart LR
 | Reporting | PII-safe Markdown, structured JSON, consolidated digest, and Google Sheets-compatible rows |
 | Recovery | Encrypted campaign/case resume, intent-before-write, duplicate suppression, uncertain-write reconciliation, retention, purge, and key rotation; active browser sessions are memory-only and require manual tab/draft cleanup after an unclean Gateway stop |
 
-The broader catalog contains 56 US/EU entries, 59 combined live-index scan
-lanes after the pinned reference overlay, and 28 independently locked executable
+The broader catalog contains 56 US/EU entries, 56 code-enforced combined
+live-index scan lanes after the pinned reference overlay (30 people-search and
+26 controller/B2B), and 28 independently locked executable
 email/removal targets, including 18 EU/EEA controller lanes. Those
 additional routes never substitute for a missing Unbroker reference contract or
 provider-specific playbook.
@@ -176,11 +177,11 @@ The manifest is the canonical exact tool list.
 
 ## Install
 
-For the tagged `0.8.0` release, install only the versioned GitHub artifact after
+For the tagged `0.8.1` release, install only the versioned GitHub artifact after
 verifying both its checksum and workflow attestation:
 
 ```bash
-VERSION=0.8.0
+VERSION=0.8.1
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 shasum -a 256 -c RELEASE-SHA256SUMS

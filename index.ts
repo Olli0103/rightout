@@ -90,6 +90,7 @@ import {
 } from "./lib/parity-catalog.mjs";
 import { buildParityMessage, runParityEmail } from "./lib/parity-email.mjs";
 import { planGlobalScanCampaignNext, planParityCampaignNext } from "./lib/parity-autopilot.mjs";
+import { buildCombinedScanCatalog } from "./lib/scan-catalog.mjs";
 import {
   assertPublisherAutomationPermission,
   providerTermsHealth,
@@ -1194,44 +1195,7 @@ export default definePluginEntry({
 
     async function combinedScanCatalog(): Promise<Record<string, any>> {
       const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
-      const rows = new Map<string, Record<string, any>>();
-      for (const row of Array.isArray(core.brokers) ? core.brokers : []) {
-        if (row && typeof row === "object" && !Array.isArray(row) && typeof (row as Record<string, any>).id === "string") {
-          const entry = row as Record<string, any>;
-          if (entry.category === "data_broker" && entry.scan?.supported !== true) {
-            rows.set(entry.id, {
-              ...entry,
-              scan: {
-                supported: true,
-                automated_access_policy: "search_index_only_no_publisher_access",
-                provider: "brave_search_api",
-                visibility_semantics: "public_index_signal_only_not_controller_inventory",
-              },
-            });
-          } else rows.set(entry.id, entry);
-        }
-      }
-      for (const route of parity.brokers) {
-        const existing = rows.get(route.id);
-        if (existing?.scan?.supported === true) continue;
-        if (
-          existing?.human_only === true
-          || existing?.scan?.manual_only === true
-          || existing?.scan?.automated_access_policy === "prohibited_by_published_terms"
-        ) continue;
-        rows.set(route.id, {
-          id: route.id,
-          name: route.name,
-          category: "people_search",
-          official_domains: route.official_domains,
-          scan: {
-            supported: true,
-            automated_access_policy: "search_index_only_no_publisher_access",
-            provider: "brave_search_api",
-          },
-        });
-      }
-      return { schema_version: 1, brokers: [...rows.values()] };
+      return buildCombinedScanCatalog(core, parity);
     }
 
     async function assertAutonomousCampaignScope(input: PublicCampaignStartInput): Promise<void> {
@@ -4807,7 +4771,9 @@ export default definePluginEntry({
             || approval.binding !== campaignScopeBinding(input, digest, routingScope.routingDigest)
           ) throw new Error("rightout_approval_binding_failed");
           assertConfiguredProfile(input.profileId);
-          parseRemovalProfile((api.pluginConfig as RightOutConfig).profiles![input.profileId].payload);
+          const profilePayload = (api.pluginConfig as RightOutConfig).profiles![input.profileId].payload;
+          if (input.effects.includes("discover")) scanProfileDigest(profilePayload);
+          if (input.effects.some((effect) => effect !== "discover")) parseRemovalProfile(profilePayload);
           const profileDigest = await ensureImmutableProfileSnapshot(input.profileId);
           const runtimeScopeDigest = configuredRuntimeScopeDigest();
           const report = await campaignLedger.start(input, { catalogDigest: digest, profileDigest, runtimeScopeDigest });
