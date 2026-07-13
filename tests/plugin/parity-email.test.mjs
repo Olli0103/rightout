@@ -52,6 +52,50 @@ test("official registry rescue sends one minimum-disclosure request and returns 
   assert.equal(JSON.stringify(report).includes("avery@example.invalid"), false);
 });
 
+test("SMTP receipt matching is case-insensitive for catalog recipients", async () => {
+  const report = await runParityEmail({
+    input: { profileId: "profile_a1b2c3d4e5f60718", brokerId: "spokeo" },
+    broker: { ...broker, rescue_email: "Legal@spokeo.com" },
+    profilePayload: profile,
+    smtpConfig: smtp,
+    listingUrl: "https://www.spokeo.com/Avery-Example/opaque",
+    sendMail: async () => ({ accepted: ["legal@spokeo.com"], rejected: [] }),
+  });
+  assert.equal(report.state, "submitted");
+  assert.equal(report.delivery.recipient, "Legal@spokeo.com");
+});
+
+test("parity email cancellation is preserved before and during transport", async () => {
+  const input = { profileId: "profile_a1b2c3d4e5f60718", brokerId: "spokeo" };
+  const before = new AbortController();
+  before.abort();
+  let sends = 0;
+  await assert.rejects(runParityEmail({
+    input,
+    broker,
+    profilePayload: profile,
+    smtpConfig: smtp,
+    listingUrl: "https://www.spokeo.com/Avery-Example/opaque",
+    signal: before.signal,
+    sendMail: async () => { sends += 1; return { accepted: ["legal@spokeo.com"] }; },
+  }), /rightout_removal_cancelled/);
+  assert.equal(sends, 0);
+
+  const during = new AbortController();
+  await assert.rejects(runParityEmail({
+    input,
+    broker,
+    profilePayload: profile,
+    smtpConfig: smtp,
+    listingUrl: "https://www.spokeo.com/Avery-Example/opaque",
+    signal: during.signal,
+    sendMail: async () => {
+      during.abort();
+      throw new Error("transport aborted");
+    },
+  }), /rightout_removal_cancelled/);
+});
+
 test("rescue lane rejects foreign recipient and listing domains", async () => {
   await assert.rejects(runParityEmail({
     input: { profileId: "profile_a1b2c3d4e5f60718", brokerId: "spokeo" },

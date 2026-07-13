@@ -218,7 +218,7 @@ function digestJson(value: unknown): string {
 function resolveBrowserControl(
   toolContext: Record<string, any>,
   config: RightOutConfig | undefined,
-  backendOverride?: "remote_cloud_cdp",
+  backendOverride?: "managed_openclaw" | "remote_cloud_cdp" | "existing_logged_in_cdp",
 ) {
   const explicit = config?.browserControlBaseUrl;
   if (explicit !== undefined && config?.browserBackendMode === undefined) {
@@ -4096,12 +4096,12 @@ export default definePluginEntry({
           const profile = parseRemovalProfile(profilePayload) as Record<string, any>;
           const values = discoveryProfileValues(profile);
           if (typeof values.full_name !== "string") throw new Error("rightout_discovery_profile_field_missing");
-          const browserControl = resolveBrowserControl(toolContext as Record<string, any>, config, input.browserBackend);
+          const browserControl = resolveBrowserControl(toolContext as Record<string, any>, config, selectedBackend);
           if (typeof browserControl.bridgeUrl !== "string") throw new Error("rightout_browser_bridge_unavailable");
-          if (input.browserBackend === "remote_cloud_cdp" && !browserControl.browserProfile) {
+          if (selectedBackend === "remote_cloud_cdp" && !browserControl.browserProfile) {
             throw new Error("rightout_remote_cloud_browser_unavailable");
           }
-          if (input.browserBackend === "remote_cloud_cdp") {
+          if (selectedBackend === "remote_cloud_cdp") {
             const caseStatus = await caseLedger.status(input.profileId);
             const brokerCase = caseStatus.cases.find((item: any) => item.broker_id === input.brokerId);
             if (brokerCase?.state !== "blocked") throw new Error("rightout_remote_cloud_retry_not_eligible");
@@ -4113,7 +4113,7 @@ export default definePluginEntry({
             await catalogPromise,
             true,
           );
-          if (input.browserBackend === "remote_cloud_cdp") {
+          if (selectedBackend === "remote_cloud_cdp") {
             await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
               evidenceKind: "human_task",
               reason: "remote_cloud_browser_retry_in_progress",
@@ -4130,13 +4130,13 @@ export default definePluginEntry({
               allowedFields: Object.keys(values),
               values,
               privacyMode: "publisher_discovery",
-              label: input.browserBackend === "remote_cloud_cdp"
+              label: selectedBackend === "remote_cloud_cdp"
                 ? "rightout-remote-cloud-retry"
                 : "rightout-publisher-discovery",
               signal,
             });
           } catch (error) {
-            if (input.browserBackend === "remote_cloud_cdp") {
+            if (selectedBackend === "remote_cloud_cdp") {
               await caseLedger.recordLifecycle(input.profileId, input.brokerId, "human_task_queued", {
                 evidenceKind: "human_task",
                 reason: "remote_cloud_browser_retry_failed",
@@ -4151,9 +4151,9 @@ export default definePluginEntry({
           }
           if (["hard_human_gate", "access_blocked"].includes(opened.snapshot.challenge)) {
             await browserSessionDriver.closeSession({ ...browserControl, targetId: opened.targetId }).catch(() => undefined);
-            await caseLedger.recordLifecycle(input.profileId, input.brokerId, input.browserBackend === "remote_cloud_cdp" ? "human_task_queued" : "blocked", {
+            await caseLedger.recordLifecycle(input.profileId, input.brokerId, selectedBackend === "remote_cloud_cdp" ? "human_task_queued" : "blocked", {
               evidenceKind: "human_task",
-              reason: input.browserBackend === "remote_cloud_cdp" ? "remote_cloud_browser_retry_failed" : "primary_browser_access_blocked",
+              reason: selectedBackend === "remote_cloud_cdp" ? "remote_cloud_browser_retry_failed" : "primary_browser_access_blocked",
             });
             throw new Error("rightout_form_human_gate_required");
           }
@@ -4170,7 +4170,7 @@ export default definePluginEntry({
             discoveryStartUrl,
             browserControl,
             privacyMode: "publisher_discovery",
-            browserBackend: input.browserBackend ?? resolveBrowserBackend(toolContext as Record<string, any>, config).selected,
+            browserBackend: selectedBackend,
             expiresAt: Date.now() + 30 * 60_000,
           });
           const report = {

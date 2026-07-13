@@ -157,3 +157,60 @@ test("an inconclusive index result can escalate to separately authorized publish
     globalThis.fetch = originalFetch;
   }
 });
+
+test("configured remote-cloud discovery uses the selected backend even without a request override", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "rightout-discovery-remote-default-"));
+  const tools = new Map();
+  let beforeToolCall;
+  const plugin = (await import("../../index.ts")).default;
+  plugin.register({
+    runtime: { state: { resolveStateDir() { return stateDir; } } },
+    on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
+    registerTool(tool) {
+      const resolved = typeof tool === "function"
+        ? tool({ browser: { sandboxBridgeUrl: "http://127.0.0.1:3000/browser" } })
+        : tool;
+      tools.set(resolved.name, resolved);
+    },
+    registerSecurityAuditCollector() {},
+    pluginConfig: {
+      stateEncryptionKey: "dummy-remote-discovery-key-with-more-than-32-characters",
+      profiles: { [profileId]: { payload: profilePayload } },
+      browserBackendMode: "remote_cloud_cdp",
+      browserControlBaseUrl: "http://127.0.0.1:3001/browser",
+      browserControlToken: "dummy-browser-control-token",
+      browserProfile: "rightout-primary",
+      remoteCloudBrowserProfile: "rightout-remote-cloud",
+      publisherAutomationPermissions: publisherAutomationPermissions(["familytreenow"]),
+      directScanAttestations: {
+        rightoutDirectScanPolicyAccepted: true,
+        rightoutDirectScanPolicyVersion: "2026-07-12",
+        subjectConsentReviewed: true,
+        publisherAccessAuthorized: true,
+        publisherTermsReviewed: true,
+        authorizedProfileIds: [profileId],
+        authorizedProfileDigests: { [profileId]: scanProfileDigest(profilePayload) },
+        authorizedBrokerIds: ["familytreenow"],
+      },
+    },
+    resolvePath(value) { return value; },
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+  });
+
+  const campaignInput = {
+    profileId,
+    brokerIds: ["familytreenow"],
+    effects: ["publisher_discover"],
+    durationHours: 1,
+    maxEffects: 1,
+  };
+  const approval = await beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "remote-campaign" });
+  approval.requireApproval.onResolution("allow-once");
+  const campaign = await tools.get("rightout_start_campaign").execute("remote-campaign", campaignInput);
+
+  await assert.rejects(tools.get("rightout_begin_discovery_session").execute("remote-begin", {
+    profileId,
+    brokerId: "familytreenow",
+    campaignId: campaign.details.campaign_id,
+  }), /rightout_remote_cloud_retry_not_eligible/);
+});

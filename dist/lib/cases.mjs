@@ -317,7 +317,10 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
             if (brokerCase.state === "confirmed_removed") {
                 transition(brokerCase, "confirmed_removed", observedAt, "browser_candidate_requires_direct_reappearance_confirmation");
             }
-            else if (!["submitted", "verification_pending", "awaiting_processing"].includes(brokerCase.state)) {
+            else if (![
+                "submitted", "verification_pending", "awaiting_processing", "action_selected",
+                "identity_verification_required", "partially_removed", "request_rejected",
+            ].includes(brokerCase.state)) {
                 transition(brokerCase, "indirect_exposure", observedAt, "publisher_browser_candidate_observed");
             }
             profile.brokers[brokerId] = brokerCase;

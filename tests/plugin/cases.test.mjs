@@ -125,6 +125,27 @@ test("operator-authorized browser discovery records only an opaque candidate for
   assert.equal(JSON.stringify(store.values.get(PROFILE)).includes("https://"), false);
 });
 
+test("browser discovery evidence does not regress in-flight or terminal request states", async () => {
+  for (const state of ["action_selected", "identity_verification_required", "partially_removed", "request_rejected"]) {
+    const store = memoryStore();
+    const ledger = createCaseLedger(store, { now: () => new Date("2026-07-13T10:00:00Z") });
+    await recordDiscovery(ledger);
+    store.values.get(PROFILE).brokers.beenverified.state = state;
+    await ledger.recordBrowserDiscovery({
+      mode: "operator_authorized_browser_discovery",
+      subject_ref: PROFILE,
+      broker_id: "beenverified",
+      state: "indirect_exposure",
+      listing_handle: "listing_0123456789abcdef01234567",
+      generated_at: "2026-07-13T10:00:00Z",
+      proof_references: ["receipt_0123456789abcdef01234567"],
+    });
+    const status = await ledger.status(PROFILE);
+    assert.equal(status.cases[0].state, state);
+    assert.equal(store.values.get(PROFILE).brokers.beenverified.last_observation.state, "indirect_exposure");
+  }
+});
+
 test("approved removal records submission, field names, proof, and due date", async () => {
   const store = memoryStore();
   const ledger = createCaseLedger(store, { now: clock("2026-07-12T10:00:00Z", "2026-07-12T10:00:01Z") });

@@ -77,7 +77,6 @@ test("setup, doctor, reports, and deterministic campaign control are executable 
   assert.equal(doctor.details.checks.brave_discovery, false);
   assert.equal(doctor.details.checks.email_send, false);
   assert.equal(doctor.details.checks.verification, false);
-  assert.equal(doctor.details.checks.managed_openclaw_browser, true);
 
   const parity = await tools.get("rightout_unbroker_parity_health").execute("parity", {});
   assert.equal(parity.details.broker_count, 22);

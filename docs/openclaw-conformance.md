@@ -40,8 +40,7 @@ digest, runtime transport/browser/provider-permission digest, expiry, revocation
 state, and remaining budget. OpenClaw approval descriptions stay within the
 Gateway limit by naming the pinned 22-broker catalog and concrete effect labels;
 the immutable digest remains in the non-PII binding rather than replacing the
-human-readable scope.
-full exact scope is still bound cryptographically.
+human-readable scope. The full exact scope is still bound cryptographically.
 The campaign approval explicitly names the possible subject-field classes,
 recipient/processor classes, and selected browser backend in addition to the
 human-readable pinned target label or explicit short target list, concrete

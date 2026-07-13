@@ -36,9 +36,9 @@ release candidate; tagged publication pending.
 
 ## Closing gate evidence
 
-- `npm run check`: 279/279 plugin tests, typecheck, and build passed on the
+- `npm run check`: 283/283 plugin tests, typecheck, and build passed on the
   source-complete tree.
-- `npm run test:coverage`: 89.95% lines, 76.08% branches, and 90.59%
+- `npm run test:coverage`: 89.96% lines, 76.33% branches, and 90.66%
   functions; all enforced 85/70/85 thresholds passed.
 - Python: 50/50 skill, filesystem, catalog, installer, rollback, lock, and
   workflow-checker tests passed.
@@ -57,6 +57,11 @@ release candidate; tagged publication pending.
   manifest, parity, and documentation checks pass. Release tests make no real
   provider write; authorized deployment canaries remain external
   `needs_evidence`.
+- The ready-for-review GitHub pass surfaced five minor actionable findings.
+  All were closed in source and regression coverage: configured remote-browser
+  selection, protected case transitions, case-insensitive SMTP receipts,
+  approval wording, and one duplicated assertion. Valid cancellation and
+  shared-contract nitpicks were closed in the same pass.
 
 ## Explicit limitations
 

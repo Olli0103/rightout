@@ -66,7 +66,7 @@ export function validateVerificationOpenInput(input) {
 }
 export function resolveVerificationCatalogEntry(catalog, input) {
     const isOpen = Boolean(input && typeof input === "object" && "verificationHandle" in input);
-    const publicInput = input && typeof input === "object" && "verificationHandle" in input
+    const publicInput = isOpen
         ? validateVerificationOpenInput(input)
         : validateVerificationPollInput(input);
     const broker = Array.isArray(catalog?.brokers) ? catalog.brokers.find((entry) => entry?.id === publicInput.brokerId) : undefined;

@@ -69,6 +69,8 @@ export function buildParityMessage({ input, broker, profilePayload, listingUrl }
     };
 }
 export async function runParityEmail({ input, broker, profilePayload, smtpConfig, listingUrl, sendMail, signal, now = () => new Date() }) {
+    if (signal?.aborted)
+        throw new Error("rightout_removal_cancelled");
     const clean = cleanInput(input);
     const route = cleanBroker(broker, clean);
     const profile = parseRemovalProfile(profilePayload);
@@ -94,10 +96,13 @@ export async function runParityEmail({ input, broker, profilePayload, smtpConfig
         });
     }
     catch {
+        if (signal?.aborted)
+            throw new Error("rightout_removal_cancelled");
         throw new Error("rightout_removal_transport_failed");
     }
-    const accepted = Array.isArray(receipt?.accepted) && receipt.accepted.some((item) => String(item?.address ?? item).toLowerCase() === route.recipient);
-    const rejected = Array.isArray(receipt?.rejected) && receipt.rejected.some((item) => String(item?.address ?? item).toLowerCase() === route.recipient);
+    const recipient = route.recipient.toLowerCase();
+    const accepted = Array.isArray(receipt?.accepted) && receipt.accepted.some((item) => String(item?.address ?? item).toLowerCase() === recipient);
+    const rejected = Array.isArray(receipt?.rejected) && receipt.rejected.some((item) => String(item?.address ?? item).toLowerCase() === recipient);
     if (!accepted || rejected)
         throw new Error("rightout_removal_not_accepted");
     const at = now().toISOString();

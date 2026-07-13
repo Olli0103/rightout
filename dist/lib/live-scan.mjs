@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { mapBounded } from "./concurrency.mjs";
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const MAX_RESPONSE_BYTES = 750_000;
 const SAFE_ID = /^[a-z0-9_]{2,24}$/;
@@ -527,20 +528,6 @@ function braveLocaleForCountry(country) {
         search_lang: COUNTRY_SEARCH_LANG[country] ?? "en",
         localization: BRAVE_COUNTRY_TARGETS.has(country) ? "country_targeted" : "worldwide_fallback",
     };
-}
-async function mapBounded(values, limit, worker) {
-    const output = new Array(values.length);
-    let cursor = 0;
-    async function run() {
-        while (true) {
-            const index = cursor++;
-            if (index >= values.length)
-                return;
-            output[index] = await worker(values[index], index);
-        }
-    }
-    await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => run()));
-    return output;
 }
 export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal, operatorAttestations, approvalBoundary = "assisted_allow_once", }) {
     throwIfAborted(signal);
