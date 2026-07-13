@@ -2,6 +2,23 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.8.0 - 2026-07-13
+
+- Replaced minimum/count parity with an exact pinned 22-broker normalized method/route/input contract plus machine-readable `implemented`/`conditional`/`gap`/`human_only` capability evidence.
+- Added finite revocable autonomous campaign grants, deterministic `campaign_next`, one-batch four-worker discovery, parent reverification, and ownership-cluster ordering.
+- Added a separately authorized official-domain publisher-browser fallback after inconclusive index discovery, closing the no-candidate rescan loop without mixing publisher access into Brave authority.
+- Added generic source-bound browser forms, managed/remote/logged-in browser profiles, redacted Gmail send, authenticated Gmail IMAP verification, browser-mail zero-I/O handoff, and link phishing scoring.
+- Added PII-free live refresh of all official parity source URLs with redirect/failure quarantine, encrypted health snapshots, no body capture, and no automatic catalog mutation.
+- Added official California registry ingestion, multi-state portal routing, human-verified DROP tracking, Markdown/JSON/Google Sheets reporting, setup, and doctor tools.
+- Expanded exact reference scanning and verification while preserving SecretRef-only PII, encrypted state, intent-before-write, human hard gates, and scoped outcome semantics.
+- Separated normalized route provenance from exact provider choreography and external availability: all 20 form contracts are represented and generic-fixture tested, only PeopleConnect has a staged provider-specific E2E, and the ClustrMaps/PeekYou contradiction remains explicit.
+- Changed campaign planning so source and human gates are consolidated without blocking later autonomous work; ambiguous provider writes still hard-stop safely.
+- Added an exact 22-route provider-terms catalog: 8 published automation prohibitions, 14 `needs_evidence` routes, and zero public permissions. Form/publisher automation now requires current written provider authorization bound to the terms digest; consent/attestation alone fails closed.
+- Switched Brave scanning to transient-result semantics: neither query/result bodies nor Brave candidate URLs are persisted or returned, and current 400-character/50-word limits fail closed without truncating identity values.
+- Bound campaign scope to browser, transport, catalog, and provider-permission snapshots; post-approval mutations fail before provider I/O.
+- Replaced static-challenge overclaims with host-computed strict arithmetic and human-only distorted text/CAPTCHA handling; browser evidence is a redacted semantic-state receipt, not a screenshot or before/after proof.
+- Corrected OpenClaw documentation for eager activation-time SecretRef resolution, the 35-tool manifest, fail-closed approval timeout behavior, and current Cron CLI syntax.
+
 ## 0.7.1 - 2026-07-12
 
 - Replace fast SHA-256 credential snapshot bindings with domain-separated

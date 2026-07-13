@@ -1,24 +1,115 @@
 # Native OpenClaw approval boundary
 
-RightOut has six provider-I/O tools plus four critical local-state tools: destructive purge, human-reviewed EU/US controller outcome, ambiguous-write reconciliation, and encrypted-state key rotation. Each passes through `before_tool_call`, accepts only `allow-once` or `deny`, times out to deny after two minutes, and binds the decision to the host tool-call ID plus an exact normalized scope. Bindings are deleted on execution and cannot authorize another tool.
+RightOut has two operator-selectable modes.
 
-| Tool | Approval covers | Explicitly does not cover |
-|---|---|---|
-| `rightout_live_scan` | one profile, up to two brokers, pinned Brave policy/profile digest | publisher read, removal, mail, form |
-| `rightout_direct_rescan` | one profile/broker/listing handle, exact encrypted URL set, direct policy | discovery, removal, redirects, other URLs |
-| `rightout_submit_removal` | one catalog email/request kind/profile/SMTP snapshot | retry, other broker, completion claim |
-| `rightout_submit_form_removal` | one catalog browser recipe/profile | CAPTCHA, ID, arbitrary browsing |
-| `rightout_poll_verification` | one profile/broker/read-only mailbox snapshot | link opening or write |
-| `rightout_open_verification` | one short-lived broker-bound link handle | another link, mailbox read, completion claim |
-| `rightout_purge_subject_state` | one opaque subject's encrypted local cases, handles, and dedupe records | provider deletion, OpenClaw config/SecretRef deletion, another subject |
-| `rightout_record_controller_outcome` | one personally reviewed outcome category for one submitted EU/US controller case | raw response content, SMTP acceptance as outcome evidence, another broker |
-| `rightout_reconcile_submission` | one personally reviewed ambiguous write outcome for one subject/broker case | automatic retry, provider claim without review, another case |
-| `rightout_rotate_state_key` | all local encrypted stores, one active plus temporary previous SecretRef key ring | provider calls, PII output, config mutation, deleting previous key refs |
+## Bounded autonomous campaign
 
-Configuration contains revision-bound attestations for each action class. Digests bind the exact profile and, where applicable, SMTP/IMAP transport. Direct scans additionally require publisher-access authority and operator terms review for the selected broker. These deployment attestations are not legal certification and do not replace the interactive native approval.
+`rightout_start_campaign` requires native `allow-once` and binds:
 
-The hook deliberately validates opaque scope and attestations before approval without exposing PII. After approval, execution resolves SecretRefs and repeats snapshot, consent, jurisdiction, transport, catalog, domain, and minimum-disclosure checks before any network effect. Changed or missing values invalidate the call.
+- one opaque profile;
+- an exact canonical broker set;
+- exact effect classes (`discover`, `publisher_discover`, `submit_email`, `submit_form`,
+  `poll_verification`, `open_verification`, `direct_recheck`);
+- a 1-720 hour expiry; and
+- a 1-2,000 broker-effect authorization-unit budget. One unit authorizes one
+  broker/effect session; that bounded session may contain multiple browser,
+  Brave, mail, or verification protocol interactions and is not a raw HTTP
+  request counter.
 
-`/tools/invoke` is a full-operator surface. Production guidance denies all ten approval-gated tools through `gateway.tools.deny` unless direct operator invocation is intended. Read-only case and catalog-health tools can remain available.
+The approval description shows the opaque subject reference, possible PII field
+classes, recipient/embedded-processor classes, selected browser backend, an
+exact broker list while it fits the Gateway limit, effect names, lifetime, and
+budget. The pinned 22-broker set uses the human-readable `Unbroker pinned 22`
+label; all requested effects are always named with readable lifecycle labels.
+The binding contains the complete normalized broker/effect scope, catalog
+digest, and approval-time routing digest rather than relying on display text.
 
-OpenClaw plugins are trusted in-process code. Native approval prevents unintended actions in the normal operator flow but is not a sandbox against a malicious plugin or a mutually untrusted tenant. Use separate Gateways/OS identities for that boundary.
+The grant is encrypted at rest. Each in-scope provider effect revalidates the
+profile, broker, effect class, catalog digest, expiry, revocation status, and
+remaining budget before execution, then atomically consumes budget. It cannot
+authorize another profile/broker/effect, widen itself, renew itself, bypass
+catalog/consent/transport checks, or survive completion, expiry, or revocation.
+
+Form effects have an additional non-delegable gate: each broker needs a current
+written provider authorization bound to the reviewed terms contract digest.
+Current public review records 8 explicit prohibitions and 14 `needs_evidence`
+routes, so the default autonomous form count is zero. Subject/operator consent
+never substitutes for publisher permission.
+
+`rightout_campaign_next` is replay-safe and returns one deterministic in-scope
+command, source/human gate, or `done_for_now` digest. It does not execute network
+effects itself.
+
+## Assisted mode
+
+Without a campaign ID, each provider-I/O tool uses its own `before_tool_call`
+request. Decisions are only `allow-once` or `deny`, time out to deny after two
+minutes, bind the host tool-call ID and exact normalized scope, and are deleted
+on execution. Current OpenClaw rejects unresolved, timed-out, cancelled, denied,
+missing-route, malformed, and mismatched approval decisions. RightOut
+intentionally omits the deprecated and ignored `timeoutBehavior` compatibility
+field.
+
+| Effect | Bound scope | Never authorizes |
+| --- | --- | --- |
+| Live scan | profile and at most 100 exact brokers, Brave policy/profile digest; long approval labels use a count plus immutable set digest while the binding retains every broker ID | publisher read, mail, form, removal |
+| Publisher browser discovery | profile, broker, official main-page origins, current written provider authorization, separate campaign effect | Brave scope, arbitrary top-level navigation, write, identity claim |
+| Direct recheck | profile, broker, encrypted listing handle, publisher policy | other URL, redirect, write |
+| SMTP removal | profile, broker, request kind, recipient, SMTP snapshot | retry, another broker, completion claim |
+| Browser form | profile, broker, catalog route/fields, current written provider authorization | arbitrary browsing, CAPTCHA/ID, a route authorized only by subject consent |
+| Inbox poll | profile, broker, read-only mailbox snapshot | link open or write |
+| Confirmation open | profile, broker, opaque link handle | another link, mailbox read, removal claim |
+| Browser-mail handoff | opaque profile/broker/campaign refs; zero provider I/O | inbox search, message open, link open, campaign budget consumption |
+
+One scan-only campaign can drain all 59 policy-permitted combined catalog lanes
+in deterministic four-broker batches. Within the pinned Unbroker subset, 21 are
+scan-permitted; Spokeo is excluded and remains a durable human gate because its
+published terms prohibit automated queries. This does not reduce the 22/22
+normalized contract inventory. A controller/B2B domain without a public indexed
+person surface remains `inconclusive`, never `not_found`.
+Browser origin checks
+pin the top-level page before and after actions. OpenClaw does not expose a
+RightOut-specific per-session subresource/XHR egress allowlist, so embedded
+provider processors may receive browser requests. Written provider authorization
+must cover that processing; this is not network isolation.
+
+## Dedicated human/local approvals
+
+The following never inherit campaign authority:
+
+- subject-state purge;
+- encrypted-state key rotation;
+- controller-outcome recording;
+- ambiguous-write reconciliation;
+- California DROP filing attestation; and
+- campaign revocation;
+- official parity-source refresh; and
+- official CPPA registry refresh.
+
+DOB is a separate sensitive-disclosure exception: the campaign may plan the
+Intelius form, but `rightout_begin_form_session` cannot expose or fill DOB until
+the host receives one exact critical `allow-once` decision for that profile,
+broker, campaign, route, and disclosure set. The form then continues
+autonomously; the human is not asked to re-enter the data or replace the route.
+
+They record an explicit operator decision or mutate critical local state, but do
+not silently contact a provider.
+
+Configuration attestations bind exact profile and transport snapshots, policy
+revisions, jurisdiction, and minimum disclosure. Separately, provider permission
+records bind a current written-authorization reference to the exact reviewed
+terms contract. Neither is legal certification.
+
+OpenClaw resolves active SecretRefs eagerly at Gateway activation into an
+in-memory snapshot. RightOut does not claim otherwise. External subject-PII or
+credential use starts only after approval or campaign validation and then
+repeats consent, catalog, freshness, permission, domain, transport, and
+state-machine checks. Local setup/status/export/doctor operations may read
+resolved config or encrypted state without an approval but do not disclose it
+or contact a broker with subject data.
+
+`/tools/invoke` is a full-operator surface. Production guidance denies every
+manifest tool with `replaySafe: false` unless direct invocation is intended.
+OpenClaw plugins are trusted in-process code; approval is not a sandbox against
+a malicious plugin or mutually untrusted tenant. Use separate Gateways and OS
+identities for that boundary.

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-07-13",
+  "policy": {
+    "default_publisher_automation": "deny",
+    "permission_requirement": "current_written_provider_authorization",
+    "operator_attestation_alone_is_insufficient": true
+  },
+  "brokers": [
+    { "id": "addresses", "status": "explicit_automation_prohibition", "terms_url": "https://peopleconnect.us/terms-of-use/", "privacy_url": "https://peopleconnect.us/privacy-policy/", "action_url": "https://suppression.peopleconnect.us/login", "last_checked": "2026-07-13" },
+    { "id": "advancedbackgroundchecks", "status": "needs_evidence", "terms_url": "https://www.advancedbackgroundchecks.com/terms", "privacy_url": "https://www.advancedbackgroundchecks.com/privacy", "action_url": "https://www.advancedbackgroundchecks.com/opt-out", "last_checked": "2026-07-13" },
+    { "id": "beenverified", "status": "explicit_automation_prohibition", "terms_url": "https://www.beenverified.com/faq/terms-conditions/", "privacy_url": "https://www.beenverified.com/faq/privacy/", "action_url": "https://www.beenverified.com/svc/optout/search/optouts", "last_checked": "2026-07-13" },
+    { "id": "clustal", "status": "explicit_automation_prohibition", "terms_url": "https://www.clustal.org/terms/", "privacy_url": "https://www.clustal.org/privacy/", "action_url": "https://www.clustal.org/privacy-control/", "last_checked": "2026-07-13" },
+    { "id": "clustrmaps", "status": "needs_evidence", "terms_url": "https://clustrmaps.com/terms", "privacy_url": "https://clustrmaps.com/privacy-policy", "action_url": "https://clustrmaps.com/bl/opt-out", "last_checked": "2026-07-13" },
+    { "id": "cyberbackgroundchecks", "status": "needs_evidence", "terms_url": "https://www.cyberbackgroundchecks.com/terms", "privacy_url": "https://www.cyberbackgroundchecks.com/privacy", "action_url": "https://www.cyberbackgroundchecks.com/removal", "last_checked": "2026-07-13" },
+    { "id": "familytreenow", "status": "needs_evidence", "terms_url": "https://www.familytreenow.com/terms", "privacy_url": "https://www.familytreenow.com/privacy", "action_url": "https://www.familytreenow.com/optout", "last_checked": "2026-07-13" },
+    { "id": "fastpeoplesearch", "status": "needs_evidence", "terms_url": "https://www.fastpeoplesearch.com/terms", "privacy_url": "https://www.fastpeoplesearch.com/privacy", "action_url": "https://www.fastpeoplesearch.com/removal", "last_checked": "2026-07-13" },
+    { "id": "intelius", "status": "explicit_automation_prohibition", "terms_url": "https://peopleconnect.us/terms-of-use/", "privacy_url": "https://peopleconnect.us/privacy-policy/", "action_url": "https://suppression.peopleconnect.us/login", "last_checked": "2026-07-13" },
+    { "id": "mylife", "status": "needs_evidence", "terms_url": "https://www.mylife.com/terms-of-use", "privacy_url": "https://www.mylife.com/privacy-policy", "action_url": "https://www.mylife.com/privacyrequest", "last_checked": "2026-07-13" },
+    { "id": "nuwber", "status": "needs_evidence", "terms_url": "https://nuwber.com/terms", "privacy_url": "https://nuwber.com/privacy", "action_url": "https://nuwber.com/removal/link", "last_checked": "2026-07-13" },
+    { "id": "peekyou", "status": "needs_evidence", "terms_url": "https://www.peekyou.com/about/terms", "privacy_url": "https://www.peekyou.com/about/privacy", "action_url": "https://www.peekyou.com/about/contact/optout/", "last_checked": "2026-07-13" },
+    { "id": "peoplefinders", "status": "explicit_automation_prohibition", "terms_url": "https://www.peoplefinders.com/about/terms", "privacy_url": "https://www.peoplefinders.com/about/privacy", "action_url": "https://www.peoplefinders.com/opt-out", "last_checked": "2026-07-13" },
+    { "id": "radaris", "status": "needs_evidence", "terms_url": "https://radaris.com/page/terms", "privacy_url": "https://radaris.com/page/privacy", "action_url": "https://radaris.com/control-privacy", "last_checked": "2026-07-13" },
+    { "id": "rehold", "status": "explicit_automation_prohibition", "terms_url": "https://rehold.com/page/terms", "privacy_url": "https://rehold.com/page/privacy", "action_url": "https://rehold.com/control/privacy", "last_checked": "2026-07-13" },
+    { "id": "searchpeoplefree", "status": "needs_evidence", "terms_url": "https://www.searchpeoplefree.com/terms", "privacy_url": "https://www.searchpeoplefree.com/privacy", "action_url": "https://www.searchpeoplefree.com/opt-out", "last_checked": "2026-07-13" },
+    { "id": "socialcatfish", "status": "needs_evidence", "terms_url": "https://socialcatfish.com/terms-of-use/", "privacy_url": "https://socialcatfish.com/privacy-policy/", "action_url": "https://socialcatfish.com/opt-out/?id=request_optout", "last_checked": "2026-07-13" },
+    { "id": "spokeo", "status": "explicit_automation_prohibition", "terms_url": "https://www.spokeo.com/terms-of-use-consumer", "privacy_url": "https://www.spokeo.com/privacy-policy", "action_url": "https://www.spokeo.com/optout", "last_checked": "2026-07-13" },
+    { "id": "thatsthem", "status": "explicit_automation_prohibition", "terms_url": "https://thatsthem.com/terms", "privacy_url": "https://thatsthem.com/privacy", "action_url": "https://thatsthem.com/optout", "last_checked": "2026-07-13" },
+    { "id": "truepeoplesearch", "status": "needs_evidence", "terms_url": "https://www.truepeoplesearch.com/terms", "privacy_url": "https://www.truepeoplesearch.com/privacy", "action_url": "https://www.truepeoplesearch.com/removal", "last_checked": "2026-07-13" },
+    { "id": "usphonebook", "status": "needs_evidence", "terms_url": "https://www.usphonebook.com/terms", "privacy_url": "https://www.usphonebook.com/privacy", "action_url": "https://www.usphonebook.com/opt-out", "last_checked": "2026-07-13" },
+    { "id": "whitepages", "status": "needs_evidence", "terms_url": "https://www.whitepages.com/terms-of-service", "privacy_url": "https://www.whitepages.com/privacy-policy", "action_url": "https://www.whitepages.com/privacy/consumer-rights", "last_checked": "2026-07-13" }
+  ]
+}

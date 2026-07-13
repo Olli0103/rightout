@@ -799,7 +799,7 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 isinstance(direct_rescan, dict)
                 and direct_rescan.get("supported") is True
                 and direct_rescan.get("strategy") == "exact_encrypted_index_candidate_urls"
-                and direct_rescan.get("publisher_terms_gate") == "operator_attestation_required"
+                and direct_rescan.get("publisher_terms_gate") == "current_written_provider_authorization"
                 and direct_rescan.get("redirect_policy") == "deny"
                 and direct_rescan.get("confirmation_scope") == "known_listing_set_only"
                 and direct_rescan.get("identity_match") == "full_name_plus_one_configured_corroborator"
@@ -1503,8 +1503,8 @@ def build_report(plan: dict[str, Any], intelligence: dict[str, Any] | None = Non
                 "current_removal_states": removal_summary,
             },
             "next_steps": [
-                "Use rightout_live_scan only for separately approved live discovery.",
-                "Use rightout_submit_removal only for a separately approved catalog email lane; submitted is not confirmed_removed.",
+                "Use rightout_live_scan only through an exact assisted approval or matching finite campaign grant.",
+                "Use removal tools only through an exact assisted approval or matching finite campaign grant; submitted is not confirmed_removed.",
                 "Configure private subject data only through OpenClaw SecretRefs; never paste it into chat or runner files.",
                 "Do not treat synthetic results as evidence of exposure or removal.",
             ],
@@ -1602,6 +1602,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         plugin_root / "lib" / "file-keyed-store.mjs",
         plugin_root / "lib" / "direct-rescan.mjs",
         plugin_root / "lib" / "removal.mjs",
+        plugin_root / "lib" / "campaigns.mjs",
+        plugin_root / "lib" / "parity-autopilot.mjs",
+        plugin_root / "lib" / "parity-catalog.mjs",
+        plugin_root / "lib" / "provider-terms.mjs",
+        plugin_root / "lib" / "registry.mjs",
+        plugin_root / "lib" / "report-export.mjs",
+        skill_dir / "references" / "brokers" / "unbroker-parity.json",
+        plugin_root / "docs" / "unbroker-parity-baseline.json",
+        plugin_root / "docs" / "unbroker-parity-evidence.json",
         plugin_root / "openclaw.plugin.json",
     ]
     missing = [str(p) for p in required if not p.exists()]
@@ -1611,7 +1620,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "missing": missing,
         "broker_count": len(catalog["brokers"]),
         "runner": "openclaw-data-broker-removal",
-        "capability_posture": "minimum_unbroker_workflow_parity_with_separate_native_approvals",
+            "capability_posture": "normalized_unbroker_contract_surface_provider_authorization_gated",
         "public_commands": sorted(PUBLIC_COMMANDS),
         "live_tool": "rightout_live_scan",
         "direct_rescan_tool": "rightout_direct_rescan",
@@ -1623,8 +1632,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "controller_outcome_tool": "rightout_record_controller_outcome",
         "submission_reconciliation_tool": "rightout_reconcile_submission",
         "state_rotation_tool": "rightout_rotate_state_key",
-        "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_catalog_health", "rightout_due_rechecks"],
-        "live_approval_adapter": "native_openclaw_plugin_permission_allow_once",
+        "campaign_tools": ["rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign"],
+        "case_tools": ["rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_due_rechecks"],
+        "live_approval_adapter": "native_openclaw_allow_once_or_bounded_campaign",
         "live_pii_input": "secretref_profile_not_tool_params",
     }, indent=2))
     if missing:
@@ -1707,7 +1717,12 @@ def cmd_validate(args: argparse.Namespace) -> None:
         expected_tools = [
             "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal", "rightout_submit_form_removal", "rightout_poll_verification",
             "rightout_open_verification", "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
-            "rightout_next_actions", "rightout_case_status", "rightout_catalog_health", "rightout_due_rechecks",
+            "rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks",
+            "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign",
+            "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
+            "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step",
+            "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step",
+            "rightout_begin_form_session", "rightout_form_session_step",
         ]
         if manifest.get("id") != "rightout" or manifest.get("contracts", {}).get("tools") != expected_tools:
             errors.append("OpenClaw plugin tool contract is inconsistent")
@@ -1757,7 +1772,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         required_secret_paths = {
             "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
             "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
-            "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*",
+            "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*", "browserControlToken",
         }
         if required_secret_paths - secret_paths:
             errors.append("live secrets must use declared SecretInput contracts")

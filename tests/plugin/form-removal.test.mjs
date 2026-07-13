@@ -20,6 +20,12 @@ const profile = {
   consent: { authorized: true, recordedAt: CONSENT_RECORDED_AT, validUntil: CONSENT_VALID_UNTIL, scope: ["scan", "broker_removal"] },
 };
 const payload = JSON.stringify(profile);
+const browserScope = {
+  browserBackendMode: "managed_openclaw",
+  browserControlTransport: "openclaw_sandbox_browser_bridge",
+  remoteCloudFallback: false,
+  routingDigest: "d".repeat(64),
+};
 const catalog = { brokers: [{
   id: "intelius", name: "Intelius", category: "people_search", lane: "browser_form",
   approval_gate: "send_request", human_only: false,
@@ -81,18 +87,21 @@ test("preflight binds consented profile snapshot and eligible jurisdiction", () 
 
 test("form approval is exact and PII-free", () => {
   const broker = resolveFormCatalogEntry(catalog, input);
-  const text = formApprovalDescription(input, broker);
-  assert.match(text, /suppression initiation/);
-  assert.match(text, /CAPTCHA\/ID fails closed/);
+  const text = formApprovalDescription(input, broker, browserScope);
+  assert.match(text, /browser=managed\/sandbox/);
+  assert.match(text, /embedded processors may receive requests/);
+  assert.match(text, /CAPTCHA\/ID fail closed/);
   assert.doesNotMatch(text, /Avery|avery@example/);
   assert.ok(text.length <= 256);
-  assert.notEqual(formScopeBinding(input, attestations, broker), formScopeBinding({ ...input, brokerId: "otherbroker" }, attestations, broker));
+  assert.notEqual(formScopeBinding(input, attestations, broker, browserScope), formScopeBinding({ ...input, brokerId: "otherbroker" }, attestations, broker, browserScope));
+  assert.notEqual(formScopeBinding(input, attestations, broker, browserScope), formScopeBinding(input, attestations, broker, { ...browserScope, routingDigest: "e".repeat(64) }));
 });
 
 test("successful browser initiation is reported only as verification_pending", async () => {
   let received;
   const report = await runFormRemoval({
     input, catalog, profilePayload: payload, attestations, bridgeUrl: "http://127.0.0.1:3000/browser",
+    browserBackend: "managed_openclaw", browserControlTransport: "openclaw_sandbox_browser_bridge",
     async submitForm(args) {
       received = args;
       return { submitted: true, proof_reference: "form_0123456789abcdef01234567" };
@@ -102,13 +111,18 @@ test("successful browser initiation is reported only as verification_pending", a
   assert.equal(received.values.contact_email, profile.contactEmail);
   assert.equal(report.state, "verification_pending");
   assert.equal(report.delivery.removal_confirmed, false);
+  assert.equal(report.delivery.browser_backend, "managed_openclaw");
+  assert.equal(report.delivery.browser_control_transport, "openclaw_sandbox_browser_bridge");
+  assert.equal(report.delivery.subresource_egress_isolation, false);
   assert.equal(report.invariants.provider_writes, 1);
   assert.equal(JSON.stringify(report).includes(profile.contactEmail), false);
 });
 
 test("missing browser bridge and unconfirmed submission fail closed", async () => {
-  await assert.rejects(runFormRemoval({ input, catalog, profilePayload: payload, attestations, submitForm() {} }), /rightout_browser_bridge_unavailable/);
+  await assert.rejects(runFormRemoval({ input, catalog, profilePayload: payload, attestations, browserBackend: "managed_openclaw", browserControlTransport: "openclaw_sandbox_browser_bridge", submitForm() {} }), /rightout_browser_bridge_unavailable/);
   await assert.rejects(runFormRemoval({
-    input, catalog, profilePayload: payload, attestations, bridgeUrl: "http://127.0.0.1:3000", async submitForm() { return { submitted: false }; },
+    input, catalog, profilePayload: payload, attestations, bridgeUrl: "http://127.0.0.1:3000",
+    browserBackend: "managed_openclaw", browserControlTransport: "openclaw_sandbox_browser_bridge",
+    async submitForm() { return { submitted: false }; },
   }), /rightout_form_submission_unconfirmed/);
 });

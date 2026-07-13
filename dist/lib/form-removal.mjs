@@ -157,26 +157,49 @@ export function validateFormPreflight({ input, catalog, profilePayload, attestat
         throw new Error("profile_not_eligible_for_form_lane");
     return { input: publicInput, broker, profile, attestations: cleanAttestations };
 }
-export function formApprovalDescription(input, broker) {
+function validateBrowserApprovalScope(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)
+        || !["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"].includes(value.browserBackendMode)
+        || !["openclaw_sandbox_browser_bridge", "standalone_loopback_http_opt_in"].includes(value.browserControlTransport)
+        || typeof value.remoteCloudFallback !== "boolean"
+        || typeof value.routingDigest !== "string" || !SAFE_SHA256.test(value.routingDigest))
+        throw new Error("rightout_browser_approval_scope_invalid");
+    return value;
+}
+export function formApprovalDescription(input, broker, browserScope) {
     const publicInput = cleanInput(input);
     const cleanBroker = broker ?? { name: publicInput.brokerId, disclosureFields: ["contact_email"], allowedDomains: [] };
-    const text = `P ${publicInput.profileId}; ${cleanBroker.name}. Fill ${cleanBroker.disclosureFields.join(",")} at ${cleanBroker.allowedDomains.join(",")}; accept site terms and submit suppression initiation. External write; CAPTCHA/ID fails closed.`;
+    const scope = validateBrowserApprovalScope(browserScope);
+    const backend = scope.browserBackendMode === "managed_openclaw" ? "managed"
+        : scope.browserBackendMode === "remote_cloud_cdp" ? "remote-CDP" : "logged-in-CDP";
+    const transport = scope.browserControlTransport === "openclaw_sandbox_browser_bridge" ? "sandbox" : "loopback";
+    const fallback = scope.remoteCloudFallback ? "+remote-fallback" : "";
+    const text = `P ${publicInput.profileId}; ${cleanBroker.name}; fill ${cleanBroker.disclosureFields.join(",")} at ${cleanBroker.allowedDomains.join(",")}; browser=${backend}${fallback}/${transport}; publisher/embedded processors may receive requests; top-level origins pinned, subresources not isolated; external write; CAPTCHA/ID fail closed.`;
     if (text.length > 256)
         throw new Error("approval_description_too_long");
     return text;
 }
-export function formScopeBinding(input, attestations, broker) {
-    return JSON.stringify(["browser_form_removal", cleanInput(input), attestations, broker]);
+export function formScopeBinding(input, attestations, broker, browserScope) {
+    const scope = validateBrowserApprovalScope(browserScope);
+    return JSON.stringify(["browser_form_removal_v2", cleanInput(input), attestations, broker, scope.routingDigest]);
 }
-export async function runFormRemoval({ input, catalog, profilePayload, attestations, bridgeUrl, submitForm, signal, now = () => new Date() }) {
+export async function runFormRemoval({ input, catalog, profilePayload, attestations, bridgeUrl, browserProfile, browserAuthToken, browserBackend, browserControlTransport, approvalBoundary = "assisted_allow_once", submitForm, signal, now = () => new Date(), }) {
     const preflight = validateFormPreflight({ input, catalog, profilePayload, attestations });
     if (typeof submitForm !== "function" || typeof bridgeUrl !== "string")
         throw new Error("rightout_browser_bridge_unavailable");
+    if (!["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"].includes(browserBackend))
+        throw new Error("rightout_browser_backend_invalid");
+    if (!["openclaw_sandbox_browser_bridge", "standalone_loopback_http_opt_in"].includes(browserControlTransport))
+        throw new Error("rightout_browser_backend_invalid");
+    if (!["assisted_allow_once", "finite_campaign_grant"].includes(approvalBoundary))
+        throw new Error("rightout_approval_boundary_invalid");
     const result = await submitForm({
         bridgeUrl,
         formUrl: preflight.broker.formUrl,
         recipe: preflight.broker.recipe,
         values: { contact_email: preflight.profile.contactEmail },
+        browserProfile,
+        browserAuthToken,
         signal,
     });
     if (result?.submitted !== true || typeof result.proof_reference !== "string")
@@ -189,9 +212,14 @@ export async function runFormRemoval({ input, catalog, profilePayload, attestati
         request_kind: preflight.input.requestKind,
         state: "verification_pending",
         generated_at: now().toISOString(),
-        approval_boundary: "openclaw_plugin_permission_allow_once_separate_browser_form_tool",
+        approval_boundary: approvalBoundary,
         delivery: {
-            channel: "openclaw_sandbox_browser_form",
+            channel: "openclaw_browser_form",
+            browser_backend: browserBackend,
+            browser_control_transport: browserControlTransport,
+            top_level_origins_pinned: true,
+            subresource_egress_isolation: false,
+            embedded_processors_may_receive_requests: true,
             form_domain: preflight.broker.allowedDomains[0],
             form_submitted: true,
             removal_confirmed: false,

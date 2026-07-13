@@ -6,6 +6,7 @@ import {
   extractBoundVerificationLink,
   imapTransportDigest,
   newVerificationHandle,
+  scoreVerificationLink,
   validateImapConfig,
   __test,
 } from "../../lib/imap.mjs";
@@ -98,6 +99,15 @@ test("verification links require both a broker sender and broker HTTPS link", ()
   assert.equal(extractBoundVerificationLink({ ...base, senderDomains: ["beenverified.com"], text: "Confirm https://attacker.invalid/confirm" }), undefined);
   assert.equal(extractBoundVerificationLink({ ...base, senderDomains: ["beenverified.com"], text: "Visit https://www.beenverified.com/home" }), undefined);
   assert.equal(extractBoundVerificationLink({ ...base, senderDomains: ["beenverified.com"], text: "http://www.beenverified.com/confirm" }), undefined);
+});
+
+test("anti-phishing scoring denies credentials, foreign domains, and non-HTTPS links", () => {
+  assert.deepEqual(scoreVerificationLink("https://www.beenverified.com/privacy/confirm?id=opaque", ["beenverified.com"]), {
+    decision: "allow", score: 100, signals: ["verification_intent_token"],
+  });
+  assert.equal(scoreVerificationLink("https://attacker.invalid/confirm", ["beenverified.com"]).decision, "deny");
+  assert.equal(scoreVerificationLink("http://beenverified.com/confirm", ["beenverified.com"]).decision, "deny");
+  assert.equal(scoreVerificationLink("https://u:%70" + "@beenverified.com/confirm", ["beenverified.com"]).decision, "deny");
 });
 
 test("verification link entity decoding is single-pass", () => {

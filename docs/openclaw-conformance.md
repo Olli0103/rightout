@@ -1,20 +1,100 @@
 # OpenClaw conformance
 
-Review date: 2026-07-12. Target: stable OpenClaw `2026.6.11` / Plugin API `>=2026.6.11`, additionally compatibility-tested against `2026.7.1-beta.5`, using pinned package documentation, types, runtime, and isolated packaged-installer tests.
+Review date: 2026-07-13. Target: stable OpenClaw `2026.6.11` / Plugin API
+`>=2026.6.11`, with compatibility inspection against npm beta
+`2026.7.1-beta.6`.
 
-- `openclaw.plugin.json` declares all fourteen registered tools, exact optional/replay metadata, lazy config signals, SecretInput paths, the two fixed removal request kinds, closed config schema, skill directory, and `onStartup: false`.
-- `definePluginEntry`, `api.registerTool`, typed `before_tool_call`, `api.registerSecurityAuditCollector`, `api.resolvePath`, and `api.runtime.state.resolveStateDir` are public plugin APIs used by the community plugin.
-- HTTP uses the public SSRF runtime. The sandbox browser form uses only the official tool-factory `browser.sandboxBridgeUrl`; no internal browser runtime import is used.
-- Six provider-I/O tools plus local destructive purge, human-reviewed controller outcome, ambiguous-write reconciliation, and state-key rotation use critical `requireApproval`, `allow-once`/`deny`, 120-second timeout, explicit deny on timeout, and `onResolution` bindings. Four state/report tools are replay-safe and make no network request.
-- OpenClaw SecretRefs keep raw values out of public schemas. Source-config audits detect plaintext while runtime code validates resolved values after approval.
-- OpenClaw `2026.6.11` documents `openKeyedStore` as bundled-plugin-only and rejects it for an ordinary community install. RightOut therefore uses the public state-directory resolver plus its own private, contained, AES-256-GCM encrypted, atomic file stores. They provide bounded entry counts/TTLs, owner-token cross-process locks, persisted TTL pruning, and serialized updates without importing an internal OpenClaw state module.
+## Manifest and runtime
 
-The plugin cannot call the bundled-only session-turn scheduler. Recurring work is exposed through deterministic `rightout_due_rechecks` and documented for official OpenClaw Cron instead of importing an internal scheduler or pretending to self-schedule.
+- `openclaw.plugin.json` declares exactly the 35 registered tools, optional and
+  replay-safety metadata, lazy config signals, SecretInput paths, strict closed
+  JSON Schema, skill directory, and `onStartup: false`.
+- `definePluginEntry`, `api.registerTool`, typed `before_tool_call`,
+  `api.registerSecurityAuditCollector`, `api.resolvePath`, and
+  `api.runtime.state.resolveStateDir` are the public APIs used by the plugin.
+- The official SSRF-aware HTTP runtime is used for remote HTTP. Production
+  sandboxed agents use OpenClaw's `toolContext.browser.sandboxBridgeUrl`
+  contract backed by `agents.defaults.sandbox.browser`. Unsandboxed/host-profile
+  lanes use the public standalone loopback API; only that mode requires the
+  Gateway service to set `OPENCLAW_EAGER_BROWSER_CONTROL_SERVER=1`, restart,
+  expose `gateway.port + 2`, and provide bearer-token auth. Tests mock the
+  sandbox bridge but do not redefine its production contract.
+- AI snapshots and `/act` require Playwright plus an available Chromium-based
+  browser. `rightout_doctor` uses `/doctor?deep=true&profile=...`; reachability
+  alone is insufficient and both operational and deep-snapshot checks must pass.
+- Browser refs are treated as page- and snapshot-scoped. A fresh snapshot and
+  exact semantic binding are required before every action.
 
-OpenClaw's `plugins build` generator applies to entries that expose `defineToolPlugin` static metadata. RightOut needs `definePluginEntry` because it combines tools, approval hooks, and a security-audit collector, as the official tool-plugin and hook documentation directs. Its manifest is therefore explicit and is checked against runtime registration, config schema, tool contracts, optional/replay metadata, and isolated `plugins inspect` output instead of misusing the simple-tool generator.
+## Approval behavior
 
-The installer validates the source, builds or syntax-checks it, packs the actual npm archive, installs that archive into an isolated OpenClaw home/state, checks all fourteen tools plus `before_tool_call`, and runs `plugins doctor` before target mutation. Release verification repeats runtime inspection, config/SecretRef/security audits, stable/beta compatibility, coverage, and transactional rollback tests. Installation records are explicitly enabled and an unmanaged Gateway must be restarted before live use. Recurring monitors use the official `cron create` isolated agent-turn interface with a read-only tool allow-list. Tag publication requires an annotated version-matching tag and produces checksum, machine-readable release evidence, and a signed GitHub/Sigstore build-provenance attestation.
+Assisted provider I/O, campaign creation/revocation, DOB disclosure, and
+critical local decisions use `before_tool_call.requireApproval` with only
+`allow-once`/`deny`, a 120-second timeout, and typed `onResolution` bindings.
+Current OpenClaw fails closed for missing, malformed, cancelled, denied,
+unroutable, unresolved, and timed-out decisions. RightOut intentionally omits
+the deprecated and ignored `timeoutBehavior` compatibility field.
 
-Official references: [plugin manifest](https://docs.openclaw.ai/plugins/manifest), [building plugins](https://docs.openclaw.ai/plugins/building-plugins), [plugin hooks](https://docs.openclaw.ai/plugins/hooks), [plugin permission requests](https://docs.openclaw.ai/plugins/plugin-permission-requests), [SDK runtime](https://docs.openclaw.ai/plugins/sdk-runtime), [secrets](https://docs.openclaw.ai/gateway/secrets), and [Cron](https://docs.openclaw.ai/cli/cron).
+Campaign-authorized calls do not request a second prompt, but they must match
+the immutable profile, exact brokers/effects, combined catalog/provider-terms
+digest, runtime transport/browser/provider-permission digest, expiry, revocation
+state, and remaining budget. OpenClaw approval descriptions stay within the
+Gateway limit by naming the pinned 22-broker catalog and concrete effect labels;
+the immutable digest remains in the non-PII binding rather than replacing the
+human-readable scope. The full exact scope is still bound cryptographically.
+The campaign approval explicitly names the possible subject-field classes,
+recipient/processor classes, and selected browser backend in addition to the
+human-readable pinned target label or explicit short target list, concrete
+effect names, lifetime, and effect budget. The full exact scope remains in the
+approval binding.
 
-Installed plugins are trusted in-process code. Approval is an operator guardrail, not a hostile-plugin or multi-tenant sandbox; mutually untrusted users require separate Gateways and OS identities.
+## SecretRef truth
+
+OpenClaw resolves active SecretRefs **eagerly during Gateway activation** into
+an in-memory snapshot. Startup fails when an active ref cannot resolve; reload
+atomically swaps a complete new snapshot or keeps the last known good one.
+RightOut does not claim lazy post-approval SecretRef resolution.
+
+Its actual guarantee is narrower: RightOut does not send subject PII or provider
+credentials to an external provider before an exact assisted approval or a
+validated campaign grant. Local setup/status/export/doctor operations may read
+resolved configuration or the state key to validate profiles, decrypt encrypted
+state, and probe the configured loopback browser service; they never return
+those values. Campaign preapproval itself binds only opaque scope and does not
+read profile/transport/key secrets. Since plugins run in-process, SecretRefs and
+approvals are not isolation against a malicious plugin.
+
+## Cron
+
+RightOut does not self-schedule. Operators use the official `openclaw cron add`
+interface (the documented `cron create` alias is also accepted) and inspect
+runs with:
+
+```bash
+openclaw cron run <job-id> --wait --wait-timeout 10m
+openclaw cron runs --id <job-id> --limit 50
+```
+
+Read-only monitoring jobs should allow only health/status/report/planning tools.
+A provider effect must still pass its own assisted approval or a still-active
+finite campaign. Campaigns expire after at most 720 hours; Cron never silently
+renews authority.
+
+## Package verification
+
+The installer validates source, packs the real npm archive, installs that
+archive into an isolated OpenClaw home/state directory, checks the exact
+manifest/runtime tools and approval hook, and runs plugin doctor before target
+mutation. Release verification repeats stable/beta inspection, config and
+SecretRef audits, deep security audit, coverage, Python/installer matrices,
+package inspection, SBOM comparison, provenance, and transactional rollback.
+
+Official references: [manifest](https://docs.openclaw.ai/plugins/manifest),
+[building plugins](https://docs.openclaw.ai/plugins/building-plugins),
+[hooks](https://docs.openclaw.ai/plugins/hooks),
+[permission requests](https://docs.openclaw.ai/plugins/plugin-permission-requests),
+[browser control](https://docs.openclaw.ai/tools/browser-control),
+[SecretRefs](https://docs.openclaw.ai/gateway/secrets), and
+[Cron](https://docs.openclaw.ai/cli/cron).
+
+Installed plugins are trusted code. Mutually untrusted users require separate
+Gateways and OS identities.

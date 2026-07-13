@@ -1,8 +1,8 @@
 {
   "id": "rightout",
   "name": "RightOut",
-  "description": "Separately approval-gated live data-broker scans and broker removal requests",
-  "version": "0.7.1",
+  "description": "Bounded autonomous and assisted data-broker discovery, removal, verification, registry, and recheck campaigns",
+  "version": "0.8.0",
   "skills": [
     "./skills"
   ],
@@ -23,8 +23,29 @@
       "rightout_reconcile_submission",
       "rightout_next_actions",
       "rightout_case_status",
+      "rightout_export_report",
       "rightout_catalog_health",
-      "rightout_due_rechecks"
+      "rightout_setup",
+      "rightout_doctor",
+      "rightout_due_rechecks",
+      "rightout_start_campaign",
+      "rightout_campaign_status",
+      "rightout_campaign_next",
+      "rightout_revoke_campaign",
+      "rightout_refresh_registries",
+      "rightout_registry_status",
+      "rightout_record_drop_filed",
+      "rightout_registry_search",
+      "rightout_unbroker_parity_health",
+      "rightout_refresh_parity_sources",
+      "rightout_submit_parity_email",
+      "rightout_begin_webmail_session",
+      "rightout_webmail_session_step",
+      "rightout_begin_webmail_verification",
+      "rightout_begin_discovery_session",
+      "rightout_discovery_session_step",
+      "rightout_begin_form_session",
+      "rightout_form_session_step"
     ]
   },
   "toolMetadata": {
@@ -49,7 +70,7 @@
       "configSignals": [
         {
           "rootPath": "plugins.entries.rightout.config",
-          "required": ["stateEncryptionKey", "profiles", "directScanAttestations"]
+          "required": ["stateEncryptionKey", "profiles", "directScanAttestations", "publisherAutomationPermissions"]
         }
       ]
     },
@@ -77,7 +98,8 @@
           "required": [
             "profiles",
             "stateEncryptionKey",
-            "formAttestations"
+            "formAttestations",
+            "publisherAutomationPermissions"
           ]
         }
       ]
@@ -172,7 +194,25 @@
         }
       ]
     },
+    "rightout_export_report": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
     "rightout_catalog_health": {
+      "optional": true,
+      "replaySafe": true
+    },
+    "rightout_setup": {
+      "optional": true,
+      "replaySafe": true
+    },
+    "rightout_doctor": {
       "optional": true,
       "replaySafe": true
     },
@@ -183,6 +223,174 @@
         {
           "rootPath": "plugins.entries.rightout.config",
           "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_start_campaign": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_campaign_status": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_campaign_next": {
+      "optional": true,
+      "replaySafe": true
+    },
+    "rightout_revoke_campaign": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_refresh_registries": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_registry_status": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_record_drop_filed": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_registry_search": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_unbroker_parity_health": {
+      "optional": true,
+      "replaySafe": true
+    },
+    "rightout_refresh_parity_sources": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey", "publisherAutomationPermissions"]
+        }
+      ]
+    },
+    "rightout_submit_parity_email": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "smtpTransport"]
+        }
+      ]
+    },
+    "rightout_begin_webmail_session": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "browserProfile"]
+        }
+      ]
+    },
+    "rightout_webmail_session_step": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "browserProfile"]
+        }
+      ]
+    },
+    "rightout_begin_webmail_verification": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey"]
+        }
+      ]
+    },
+    "rightout_begin_discovery_session": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "directScanAttestations", "publisherAutomationPermissions"]
+        }
+      ]
+    },
+    "rightout_discovery_session_step": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "directScanAttestations", "publisherAutomationPermissions"]
+        }
+      ]
+    },
+    "rightout_begin_form_session": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "formAttestations", "publisherAutomationPermissions"]
+        }
+      ]
+    },
+    "rightout_form_session_step": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["profiles", "stateEncryptionKey", "formAttestations", "publisherAutomationPermissions"]
         }
       ]
     }
@@ -230,6 +438,10 @@
         {
           "path": "previousStateEncryptionKeys.*",
           "expected": "string"
+        },
+        {
+          "path": "browserControlToken",
+          "expected": "string"
         }
       ]
     }
@@ -237,7 +449,7 @@
   "uiHints": {
     "braveApiKey": {
       "label": "Brave Search API key",
-      "help": "Used only after a scan-specific allow-once approval. Configure as an OpenClaw SecretRef.",
+      "help": "Used only after an assisted scan-specific allow-once approval or validation of a matching finite campaign grant. Configure as an OpenClaw SecretRef.",
       "sensitive": true
     },
     "profiles.*.payload": {
@@ -300,7 +512,7 @@
     },
     "formAttestations": {
       "label": "Browser-form attestations",
-      "help": "Separate exact scope for subject consent, minimum disclosure, sandbox-browser form writes, and the form policy.",
+      "help": "Separate exact scope for subject consent, minimum disclosure, configured OpenClaw browser-backend form writes, and the form policy.",
       "advanced": true
     },
     "stateEncryptionKey": {
@@ -322,6 +534,37 @@
     "directScanAttestations": {
       "label": "Direct-rescan attestations",
       "help": "Separate exact scope for subject consent, publisher access, publisher terms review, and direct-rescan policy.",
+      "advanced": true
+    },
+    "browserControlBaseUrl": {
+      "label": "OpenClaw browser control URL",
+      "help": "Optional loopback-only standalone OpenClaw browser-control HTTP URL for unsandboxed/host-profile lanes. Production sandboxed agents may use toolContext.browser.sandboxBridgeUrl instead. Host mode requires OPENCLAW_EAGER_BROWSER_CONTROL_SERVER=1 and uses gateway.port + 2.",
+      "advanced": true
+    },
+    "browserProfile": {
+      "label": "RightOut browser profile",
+      "help": "Optional OpenClaw browser profile name. Use a managed profile, a remote CDP cloud-browser profile, or an attach-only raw-CDP profile signed into webmail.",
+      "advanced": true
+    },
+    "browserBackendMode": {
+      "label": "RightOut browser backend mode",
+      "help": "Classify the backend as OpenClaw-managed (production sandbox bridge or standalone host transport), remote/cloud CDP, or existing logged-in CDP. browser_control_transport reports the actual transport; webmail is enabled only for the last backend.",
+      "advanced": true
+    },
+    "remoteCloudBrowserProfile": {
+      "label": "Remote cloud fallback profile",
+      "help": "Optional distinct OpenClaw remote-CDP browser profile used once after a blocked primary browser route.",
+      "advanced": true
+    },
+    "browserControlToken": {
+      "label": "Browser control API token",
+      "help": "Required Gateway bearer token whenever browserControlBaseUrl enables the standalone loopback browser API. Configure only as an OpenClaw SecretRef; the sandbox bridge does not need this field.",
+      "sensitive": true,
+      "advanced": true
+    },
+    "publisherAutomationPermissions": {
+      "label": "Provider automation permissions",
+      "help": "Fail-closed per-broker records for current written provider authorization, exact allowed effects, and allowed browser backend classes. User consent or a RightOut attestation alone is never sufficient.",
       "advanced": true
     }
   },
@@ -357,6 +600,58 @@
         "minimum": 30,
         "maximum": 730,
         "default": 365
+      },
+      "browserControlBaseUrl": {
+        "type": "string",
+        "pattern": "^http://(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{2,5})?(?:/[A-Za-z0-9._/-]*)?$",
+        "maxLength": 2048
+      },
+      "browserProfile": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "browserBackendMode": {
+        "type": "string",
+        "enum": ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"]
+      },
+      "remoteCloudBrowserProfile": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "browserControlToken": {
+        "type": ["string", "object"],
+        "minLength": 8,
+        "maxLength": 4096
+      },
+      "publisherAutomationPermissions": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 22,
+        "propertyNames": { "pattern": "^[a-z0-9_]{2,24}$" },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authorizationReferenceSha256", "termsContractDigest", "reviewedAt", "validUntil", "allowedEffects", "allowedBrowserBackends"],
+          "properties": {
+            "authorizationReferenceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "termsContractDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "reviewedAt": { "type": "string", "format": "date-time" },
+            "validUntil": { "type": "string", "format": "date-time" },
+            "allowedEffects": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": { "type": "string", "enum": ["source_refresh", "publisher_discover", "direct_recheck", "submit_form", "open_verification"] }
+            },
+            "allowedBrowserBackends": {
+              "type": "array",
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": { "type": "string", "enum": ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"] }
+            }
+          }
+        }
       },
       "profiles": {
         "type": "object",
@@ -522,7 +817,7 @@
           "authorizedBrokerIds": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 50,
+            "maxItems": 100,
             "uniqueItems": true,
             "items": {
               "type": "string",

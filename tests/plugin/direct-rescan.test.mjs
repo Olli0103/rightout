@@ -29,7 +29,7 @@ const catalog = { brokers: [{
   direct_rescan: {
     supported: true,
     strategy: "exact_encrypted_index_candidate_urls",
-    publisher_terms_gate: "operator_attestation_required",
+    publisher_terms_gate: "current_written_provider_authorization",
   },
 }] };
 const token = {

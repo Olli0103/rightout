@@ -17,15 +17,15 @@ Use only `.invalid` synthetic identities, mocked HTTP responses, and mocked SMTP
 
 ## Live plugin changes
 
-- Keep all six provider-I/O tools and the local subject-purge tool optional and non-replay-safe; keep the three ledger/report tools optional and replay-safe.
+- Keep provider-I/O, campaign creation/revocation, DROP attestation, and critical local/human-decision tools optional and non-replay-safe. Keep pure setup/doctor/planning/status/report tools optional and replay-safe; tests must compare manifest metadata to runtime registration.
 - Keep opaque profile/broker IDs and fixed enums as the complete public parameter surface.
 - Keep `allow-once`/`deny` native approval and fail-closed behavior.
 - Keep scan, direct read, removal, form, inbox, and link-open attestations/bindings separate; cross-action approval is P0.
 - Keep SecretInput contracts and security-audit findings.
 - Use OpenClaw's guarded SSRF runtime. Brave discovery stays fixed-host/index-only; a publisher request is allowed only for an encrypted exact candidate URL in a catalog `direct_rescan` lane, with redirects denied and a separate native approval.
 - Keep Brave terms revision/customer-responsibility attestations inside the single-use approval binding.
-- Keep direct publisher-access and terms-review attestations in their own single-use approval binding. Never infer permission from public reachability or search indexing.
-- Store candidate URLs only through the AES-256-GCM listing-token vault; reports and durable case records remain URL- and PII-free.
+- Keep direct publisher-access attestations and current written provider authorization records separate. A form/publisher route must bind the written authorization hash to the exact reviewed terms digest; a terms-review attestation alone is insufficient. Never infer permission from public reachability, subject consent, or search indexing.
+- Never persist or return Brave result URLs. Store only a separately authorized publisher-browser candidate through the AES-256-GCM listing-token vault; reports and durable case records remain URL- and PII-free.
 - For removal, lock recipient, request kind, jurisdiction, and minimum disclosure in the catalog; never accept body, recipient, URL, or SMTP host from tool arguments.
 - Keep the static SMTP endpoint/port/TLS matrix, sender/profile equality, recorded consent check, transport timeouts, and file/URL access denial.
 - Report SMTP acceptance only as `submitted` and form initiation only as `verification_pending`; never infer broker receipt or removal.

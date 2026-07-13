@@ -3,34 +3,64 @@
 ```text
 opaque tool input
       |
-before_tool_call: catalog scope + policy snapshot + native allow-once
+before_tool_call: catalog scope + native allow-once OR encrypted campaign scope
       |
-SecretRef resolution and post-approval digest/preflight checks
+OpenClaw activation-time SecretRef snapshot; RightOut post-approval use/preflight
       |
       +-- Brave POST discovery ----------------> indirect signal
+      +-- publisher browser discovery ---------> encrypted indirect candidate
       |       +-- exact official URL -> AES-GCM opaque listing handle
       |
       +-- encrypted exact URL direct read -----> present / absent-known-set / inconclusive
-      +-- pinned SMTP email -------------------> submitted
-      +-- sandbox browser recipe --------------> verification_pending / human task
-      +-- read-only pinned IMAP ----------------> opaque verification handle
+      +-- pinned SMTP / redacted webmail ------> submitted
+      +-- managed/remote browser session ------> verification_pending / human task
+      |       +-- blocked primary -> one distinct remote-CDP profile retry
+      +-- pinned IMAP --------------------------> opaque verification / provider page
+      +-- browser-mail handoff -----------------> zero-I/O human task
       +-- domain-bound confirmation GET --------> awaiting_processing
       |
 durable encrypted PII-safe case ledger in the OpenClaw state directory
       +-- next actions
       +-- case status
       +-- due rechecks for official OpenClaw Cron
+      +-- Markdown / JSON / Google Sheets rows
 ```
 
 ## Trust boundaries
 
-The model sees only opaque profile/broker/handle references and sanitized reports. OpenClaw resolves SecretRefs inside trusted plugin execution. The plugin hook owns single-use approval bindings keyed to host tool-call IDs; caller JSON, HMAC receipts, prose consent, or a prior approval are never security boundaries.
+The model sees only opaque profile/broker/handle references, catalog field names,
+ARIA refs, and sanitized reports. OpenClaw resolves active SecretRefs eagerly at
+Gateway activation into an in-memory snapshot. RightOut reads/uses those values
+only after an exact assisted binding or matching campaign. The plugin hook owns
+single-use bindings keyed to host tool-call IDs. Autonomous effects match an
+encrypted finite campaign containing exact profile, brokers, effect classes,
+combined catalog/provider-terms digest, runtime-scope digest, expiry, and budget.
+Caller JSON, prose consent, or an unrelated approval are never security boundaries.
 
-Brave discovery and every subsequent live step are separate tools. Exact candidate URLs are transiently inspected from Brave results, encrypted with AES-256-GCM under an operator SecretRef, and stored as ciphertext in RightOut's private OpenClaw state-directory store. The durable case ledger never stores them.
+Brave discovery and every subsequent live step are separate tools. Core scan,
+exact-listing read, SMTP, closed-form, IMAP, and link-open tools may be assisted
+individually or consume one matching campaign effect. Generic form/outbound
+webmail sessions and publisher-browser discovery are campaign-bound. Form and
+publisher access additionally require a current written provider authorization
+bound to the reviewed terms contract; operator attestation alone is insufficient.
+Brave result URLs are transient and are neither persisted nor returned. Only a
+separately authorized bounded publisher-browser session may encrypt its current
+official-domain URL into an AES-256-GCM opaque listing handle. The durable case
+ledger stores the opaque handle, never plaintext URLs or page bodies.
 
 Direct publisher reads use only decrypted exact candidate URLs, official-domain SSRF policy, HTTPS, no credentials, no redirects, one-megabyte response limits, and no captured/raw output. A presence match requires the configured full name plus one configured location/address/email/phone corroborator. CAPTCHA, access denial, redirects, or partial absence are inconclusive.
 
-Email/form/verification implementations are independently catalog-locked. The browser lane uses only the host-supplied sandbox bridge and a closed ARIA recipe. IMAP opens INBOX read-only and returns an opaque handle only when both sender and HTTPS link domains match. SMTP has a provider/port/TLS allowlist and minimum-disclosure template.
+Email/form/verification implementations are independently catalog-locked.
+Browser sessions use only the OpenClaw bridge, named managed/remote/logged-in
+profiles, current ARIA refs, and internal catalog/profile values. The doctor
+deep-probes the selected profile; a blocked primary may retry once through a
+separate remote-CDP profile, without claiming challenge clearance. DOB is
+disclosed only after an additional exact native human approval. Outbound webmail
+snapshots redact compose content. Browser-only inbound mail is not searched;
+that tool returns a zero-I/O human gate. IMAP opens INBOX read-only and returns
+an opaque handle only after intended-recipient and aligned-DKIM checks; links
+also pass fail-closed phishing scoring. SMTP has a provider/port/TLS allowlist
+and minimum-disclosure template.
 
 ## State and evidence
 

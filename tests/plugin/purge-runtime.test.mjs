@@ -58,7 +58,24 @@ test("subject purge is separately approved and removes only local encrypted subj
   approved.requireApproval.onResolution("allow-once");
   const result = await tools.get("rightout_purge_subject_state").execute("purge-approved", input);
   assert.equal(result.details.state, "local_subject_state_purged");
-  assert.deepEqual(result.details.deleted, { case_record: 1, verification_handles: 1, listing_handles: 1, dedupe_records: 1 });
+  assert.deepEqual(result.details.deleted, {
+    case_record: 1,
+    profile_snapshot: 0,
+    verification_handles: 1,
+    verification_open_guards: 0,
+    verified_portal_flows: 0,
+    listing_handles: 1,
+    dedupe_records: 1,
+    campaigns: 0,
+    active_sessions: 0,
+    active_verified_portal_flows: 0,
+    webmail_drafts_discarded: 0,
+    webmail_drafts_needing_manual_cleanup: 0,
+    form_provider_intents_marked_uncertain: 0,
+    form_provider_intents_needing_manual_reconciliation: 0,
+    browser_tabs_closed: 0,
+    browser_tabs_needing_manual_cleanup: 0,
+  });
   assert.equal(result.details.config_profile_deleted, false);
   assert.equal(result.details.provider_writes, 0);
   assert.equal(await cases.lookup(profileId), undefined);

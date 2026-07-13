@@ -1,6 +1,51 @@
 # Provider access and retention review
 
-Review date: 2026-07-12. This is an engineering release gate, not legal advice or a compliance certification.
+Review date: 2026-07-13. This is an engineering release gate, not legal advice or a compliance certification.
+
+## Exact 22-route form-automation gate
+
+Current public terms were reviewed route by route. `explicit prohibition` means
+the publisher currently forbids the relevant automated access class. `needs_evidence`
+means no current public permission for RightOut's automation was found; it does
+not mean permission is implied. In both cases the production default is deny.
+
+| Broker | Public automation status | Primary terms |
+| --- | --- | --- |
+| Addresses | explicit prohibition | [PeopleConnect](https://peopleconnect.us/terms-of-use/) |
+| Advanced Background Checks | `needs_evidence` | [terms](https://www.advancedbackgroundchecks.com/terms) |
+| BeenVerified | explicit prohibition | [terms](https://www.beenverified.com/faq/terms-conditions/) |
+| Clustal | explicit prohibition | [terms](https://www.clustal.org/terms/) |
+| ClustrMaps | `needs_evidence` | [terms](https://clustrmaps.com/terms) |
+| CyberBackgroundChecks | `needs_evidence` | [terms](https://www.cyberbackgroundchecks.com/terms) |
+| FamilyTreeNow | `needs_evidence` | [terms](https://www.familytreenow.com/terms) |
+| FastPeopleSearch | `needs_evidence` | [terms](https://www.fastpeoplesearch.com/terms) |
+| Intelius | explicit prohibition | [PeopleConnect](https://peopleconnect.us/terms-of-use/) |
+| MyLife | `needs_evidence` | [terms](https://www.mylife.com/terms-of-use) |
+| Nuwber | `needs_evidence` | [terms](https://nuwber.com/terms) |
+| PeekYou | `needs_evidence` | [terms](https://www.peekyou.com/about/terms) |
+| PeopleFinders | explicit prohibition | [terms](https://www.peoplefinders.com/about/terms) |
+| Radaris | `needs_evidence` | [terms](https://radaris.com/page/terms) |
+| Rehold | explicit prohibition | [terms](https://rehold.com/page/terms) |
+| SearchPeopleFree | `needs_evidence` | [terms](https://www.searchpeoplefree.com/terms) |
+| SocialCatfish | `needs_evidence` | [terms](https://socialcatfish.com/terms-of-use/) |
+| Spokeo | explicit prohibition | [terms](https://www.spokeo.com/terms-of-use-consumer) |
+| ThatsThem | explicit prohibition | [terms](https://thatsthem.com/terms) |
+| TruePeopleSearch | `needs_evidence` | [terms](https://www.truepeoplesearch.com/terms) |
+| USPhoneBook | `needs_evidence` | [terms](https://www.usphonebook.com/terms) |
+| Whitepages | `needs_evidence` | [terms](https://www.whitepages.com/terms-of-service) |
+
+Totals: 8 explicit prohibitions, 14 `needs_evidence`, and zero evidenced public
+automation permissions. PeopleConnect's terms expressly include the Suppression
+Tool and prohibit robots, scripts, algorithms, and similar automated processes.
+Subject consent or operator preference does not grant a publisher license.
+
+RightOut therefore accepts a form lane only when configuration contains a
+current written provider authorization reference hash, the exact current
+provider-terms contract digest, review time, and expiry. The record is capped at
+one year; expired, future-dated, mutated, Boolean, or generic-attestation values
+fail before campaign approval, SecretRef use, or provider I/O. Written permission
+may be a provider-specific exception to public terms, but the underlying document
+must be obtained and retained by the operator outside RightOut.
 
 ## Brave Search API
 
@@ -18,7 +63,7 @@ Release-relevant facts:
 - customers accessing result URLs remain responsible for complying with the publishers' terms;
 - the privacy notice states that standard-plan search-query logs may be retained for up to 90 days; Zero Data Retention is an enterprise option subject to the applicable agreement and legal obligations.
 
-RightOut therefore uses the officially documented Web Search POST body rather than putting PII in a query URL, returns no raw Search Results, stores no query/result body, discloses the 90-day maximum in the native approval, and blocks live use until the operator attests terms revision `2026-02-11` plus Brave's customer/end-user responsibilities. An official-domain result URL can be encrypted into an opaque host token. Accessing it is a different tool, policy, attestation, and native approval.
+RightOut therefore uses the officially documented Web Search POST body rather than putting PII in a query URL, returns no raw Search Results or result URLs, stores no query/result body or Brave candidate URL, discloses the 90-day maximum in the native approval, and blocks live use until the operator attests terms revision `2026-02-11` plus Brave's customer/end-user responsibilities. A later publisher-browser discovery is a separate provider access with its own permission, campaign effect, and policy; it does not reuse or persist a Brave result URL.
 
 ## Spokeo
 
@@ -31,6 +76,20 @@ The published consumer terms prohibit scraping, crawling, data mining, automated
 
 Decision: `scan.supported: false`, `human_only: true`. RightOut performs no automated Spokeo request and does not permit an agent fallback.
 
+## Rehold current route
+
+Reviewed 2026-07-13 from Rehold's own [home page](https://rehold.com/) and
+[privacy policy](https://rehold.com/page/privacy). The current footer points to
+`/control/privacy`; the older pinned Unbroker `/optout` route now returns 404.
+The privacy policy says the quickest path is the `Information Control` link on
+the exact property listing and says an email address is required to verify and
+manage the opt-out. RightOut therefore maps the pinned `profile_url` contract to
+an encrypted `listing_url` handle and uses only `listing_url` plus
+`contact_email`; it does not invent the previously unevidenced `full_name`
+field. The current control route presents an anti-bot challenge from this
+environment, so execution remains browser-gated and never claims a successful
+submission from the source check alone.
+
 ## TruePeopleSearch
 
 Official site and removal entry point:
@@ -40,7 +99,16 @@ Official site and removal entry point:
 
 The official terms and robots endpoints returned access-denied responses during the non-PII review. The controlled browser surface also rejected navigation under its safety policy. No public automated-access permission was evidenced, and no permission is inferred from public reachability, search indexing, or subject authorization alone.
 
-Decision: Brave discovery never accesses TruePeopleSearch. A separate direct-rescan lane may read only an exact encrypted candidate URL after the operator independently reviews publisher terms and attests access authority. It denies redirects and fails closed on CAPTCHA/blocking/ambiguity. Public automated-access permission remains `needs_evidence`; RightOut does not infer it, and the lane must not be configured where the operator cannot establish permission.
+Decision: Brave discovery never accesses TruePeopleSearch. A distinct bounded
+`publisher_discover` effect may drive an official-domain browser only after a
+current written provider authorization is bound to the reviewed terms contract;
+operator attestation alone is insufficient. A later direct-rescan lane may read
+only the resulting exact encrypted URL under its separate access contract. Both
+paths fail closed on foreign top-level navigation observed before or after an
+action, hard challenges, blocking, or ambiguity. This is not subresource/XHR
+network isolation: embedded provider processors may receive requests, so written
+authorization must cover that processing.
+Public automated-access permission remains `needs_evidence`.
 
 ## BeenVerified
 
@@ -53,7 +121,12 @@ The current official policy states that privacy requests, including deletion and
 
 Decision: `removal.supported: true` for one email lane and `delete_and_opt_out` request, restricted to an attested `US-CA` profile. The message uses only name, contact email, region, and country. It does not claim protected-person status, attach authorization documents, or volunteer age/address/ID. A follow-up request for additional verification is human-only. SMTP acceptance remains `submitted` until independent evidence exists.
 
-BeenVerified discovery remains Brave index-only. A separately configured and approved direct-rescan lane may later read only exact encrypted candidate URLs under the same operator terms/authority gate; it is not part of discovery or email approval.
+BeenVerified discovery defaults to Brave index-only. Because its published terms
+prohibit automation, publisher-browser discovery or form access remains disabled
+unless BeenVerified supplies a current written exception that is bound to the
+exact reviewed terms contract. A direct-rescan lane may later read only an exact
+encrypted candidate under its own separately authorized policy. Neither publisher
+path is part of Brave or email approval.
 
 ## EU and EEA controller requests and quick preferences
 
@@ -82,17 +155,17 @@ Official source:
 
 - [Microsoft Exchange Online Basic authentication deprecation](https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/deprecation-of-basic-authentication-exchange-online).
 
-RightOut 0.7.1 supports app-password SMTP/IMAP only and has no OAuth 2.0 token contract. Microsoft documents permanent removal of Basic authentication for SMTP AUTH client submission beginning in March 2026; Microsoft 365 does not fit this password-only contract. SMTP remains pinned to Gmail, Yahoo, iCloud, and Fastmail. IMAP verification is Gmail-only and accepts exactly one receiver-added `mx.google.com` authentication result; Yahoo, iCloud, Fastmail, and Microsoft 365 IMAP remain unsupported until their authserv/OAuth behavior is separately evidenced and implemented.
+RightOut 0.7.1 and 0.8.0 support app-password SMTP/IMAP only and have no OAuth 2.0 token contract. Microsoft documents permanent removal of Basic authentication for SMTP AUTH client submission beginning in March 2026; Microsoft 365 does not fit this password-only contract. SMTP remains pinned to Gmail, Yahoo, iCloud, and Fastmail. IMAP verification is Gmail-only and accepts exactly one receiver-added `mx.google.com` authentication result; Yahoo, iCloud, Fastmail, and Microsoft 365 IMAP remain unsupported until their authserv/OAuth behavior is separately evidenced and implemented.
 
 ## Stable-release meaning
 
 A stable RightOut package can prove that its software boundaries are deterministic and fail closed. It cannot certify a deployer's legal basis or private provider agreement. Stable readiness therefore requires all of the following:
 
-1. no catalog entry with a published automation prohibition is live-enabled;
-2. Brave discovery makes no publisher request; direct publisher reads require an exact encrypted candidate, explicit catalog support, operator terms/authority attestation, and a separate approval;
+1. every form/publisher automation route has a current written provider authorization bound to the exact reviewed terms contract; public prohibition or missing permission defaults to a human gate;
+2. Brave discovery makes no publisher request; publisher-browser discovery requires a distinct bounded campaign effect, official-domain restriction, and current written provider authorization; direct publisher reads additionally require an exact encrypted candidate and explicit catalog support;
 3. Brave terms revision, customer responsibilities, and subject authorization are explicit scan gates;
-4. each scan receives its own native approval showing data disclosure and retention;
-5. each removal receives a different native approval showing broker, recipient, and field categories;
+4. assisted scans receive their own native approval showing data disclosure and retention; autonomous scans must match a finite campaign grant;
+5. assisted removals receive a different native approval showing broker, recipient, and field categories; autonomous removals consume the exact campaign effect budget;
 6. removal destinations and minimum fields are independently verified from official sources and catalog-locked;
 7. SMTP acceptance is never presented as broker receipt or removal;
 8. search-index behavior may return `inconclusive` without being presented as proof of absence;

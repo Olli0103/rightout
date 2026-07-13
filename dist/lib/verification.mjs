@@ -65,7 +65,8 @@ export function validateVerificationOpenInput(input) {
     };
 }
 export function resolveVerificationCatalogEntry(catalog, input) {
-    const publicInput = input && typeof input === "object" && "verificationHandle" in input
+    const isOpen = Boolean(input && typeof input === "object" && "verificationHandle" in input);
+    const publicInput = isOpen
         ? validateVerificationOpenInput(input)
         : validateVerificationPollInput(input);
     const broker = Array.isArray(catalog?.brokers) ? catalog.brokers.find((entry) => entry?.id === publicInput.brokerId) : undefined;
@@ -73,7 +74,8 @@ export function resolveVerificationCatalogEntry(catalog, input) {
         || broker.category !== "people_search"
         || broker.verification?.supported !== true
         || broker.verification.channel !== "imap"
-        || broker.verification.open_link !== "approval_gated_https_get") {
+        || !["approval_gated_https_get", "browser_same_profile_required", "human_only"].includes(broker.verification.open_link)
+        || (isOpen && !["approval_gated_https_get", "browser_same_profile_required"].includes(broker.verification.open_link))) {
         throw new Error("unsupported_verification_lane");
     }
     return {
@@ -82,6 +84,7 @@ export function resolveVerificationCatalogEntry(catalog, input) {
         senderDomains: cleanDomains(broker.verification.sender_domains),
         linkDomains: cleanDomains(broker.verification.link_domains),
         processingDays: Number.isInteger(broker.verification.processing_days) ? broker.verification.processing_days : 14,
+        openLinkMode: broker.verification.open_link,
         raw: broker,
     };
 }

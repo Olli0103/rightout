@@ -87,8 +87,9 @@ jobs:
             RELEASE-EVIDENCE.json
             SBOM.spdx.json
             docs/catalog-provenance.json
+            docs/unbroker-upstream-refresh.json
           if-no-files-found: error
-      - name: Publish immutable release assets
+      - name: Publish versioned release assets
         env:
           GH_TOKEN: ${{ github.token }}
           ARCHIVE: ${{ steps.pack.outputs.archive }}
@@ -97,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
-            "$ARCHIVE" RELEASE-SHA256SUMS RELEASE-EVIDENCE.json SBOM.spdx.json docs/catalog-provenance.json \
+            "$ARCHIVE" RELEASE-SHA256SUMS RELEASE-EVIDENCE.json SBOM.spdx.json docs/catalog-provenance.json docs/unbroker-upstream-refresh.json \
             --verify-tag \
             --title "RightOut v${VERSION}" \
             --notes-file "docs/release-notes-v${VERSION}.md"

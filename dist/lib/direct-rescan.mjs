@@ -40,8 +40,18 @@ function cleanDigests(value, profiles) {
 export function validateDirectScanInput(input) {
     return cleanInput(input);
 }
-export function validateDirectScanAttestations(input, value) {
-    const clean = cleanInput(input);
+function cleanPublisherInput(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["profileId", "brokerId"].includes(key))) {
+        throw new Error("invalid_direct_scan_input");
+    }
+    if (!SAFE_PROFILE_ID.test(input.profileId))
+        throw new Error("invalid_profile_ref");
+    if (!SAFE_BROKER_ID.test(input.brokerId))
+        throw new Error("invalid_broker_id");
+    return { profileId: input.profileId, brokerId: input.brokerId };
+}
+export function validatePublisherAccessAttestations(input, value) {
+    const clean = cleanPublisherInput(input);
     const allowed = new Set([
         "rightoutDirectScanPolicyAccepted", "rightoutDirectScanPolicyVersion", "subjectConsentReviewed",
         "publisherAccessAuthorized", "publisherTermsReviewed", "authorizedProfileIds", "authorizedProfileDigests",
@@ -72,12 +82,16 @@ export function validateDirectScanAttestations(input, value) {
         authorizedBrokerIds,
     };
 }
+export function validateDirectScanAttestations(input, value) {
+    const clean = cleanInput(input);
+    return validatePublisherAccessAttestations({ profileId: clean.profileId, brokerId: clean.brokerId }, value);
+}
 export function resolveDirectScanCatalogEntry(catalog, input) {
     const clean = cleanInput(input);
     const broker = Array.isArray(catalog?.brokers) ? catalog.brokers.find((item) => item?.id === clean.brokerId) : undefined;
     if (!broker || broker.category !== "people_search" || broker.direct_rescan?.supported !== true
         || broker.direct_rescan.strategy !== "exact_encrypted_index_candidate_urls"
-        || broker.direct_rescan.publisher_terms_gate !== "operator_attestation_required")
+        || broker.direct_rescan.publisher_terms_gate !== "current_written_provider_authorization")
         throw new Error("unsupported_direct_rescan_lane");
     return { id: broker.id, name: String(broker.name).slice(0, 80), raw: broker };
 }
