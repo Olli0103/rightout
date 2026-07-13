@@ -53,10 +53,10 @@
   },
   "devDependencies": {
     "@types/mailparser": "3.4.6",
-    "@types/node": "24.10.1",
+    "@types/node": "26.1.1",
     "@types/nodemailer": "^8.0.1",
     "openclaw": "2026.6.11",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "yaml": "2.9.0"
   },
   "openclaw": {
