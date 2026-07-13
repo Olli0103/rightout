@@ -21,11 +21,12 @@ repository and GitHub release history.
 - [Unbroker parity contract](unbroker-parity-contract.md)
 - [Pinned Unbroker baseline](unbroker-parity-baseline.json)
 - [Machine-readable parity evidence and release verdict](unbroker-parity-evidence.json)
+- [Machine-readable runtime scan coverage](scan-coverage.json)
 
 ## Repository-only evidence
 
 Files named `audit-*`, `release-checklist-*`, `release-notes-*`, and
-`parity-matrix-*` are immutable historical or release-process evidence. They are
-not runtime instructions and are deliberately excluded from the distributable
-plugin archive to prevent an older audit verdict from being presented as the
-current product posture.
+`release-correction-*`, and `parity-matrix-*` are immutable historical or
+release-process evidence. They are not runtime instructions and are
+deliberately excluded from the distributable plugin archive to prevent an older
+audit verdict from being presented as the current product posture.

@@ -176,6 +176,11 @@ test("input validation accepts opaque refs and ISO-country profiles including DE
     () => validateLiveScanInput({ ...scanInput, subject: JSON.stringify({ ...privateProfile, country: "XX" }) }),
     /unsupported_country/,
   );
+  const { country: _country, ...countrylessProfile } = privateProfile;
+  assert.throws(
+    () => validateLiveScanInput({ ...scanInput, subject: JSON.stringify(countrylessProfile) }),
+    /invalid_profile/,
+  );
   assert.throws(() => validateLiveScanInput({ ...scanInput, profileId: "Avery Example" }), /invalid_profile_ref/);
   assert.throws(() => validateLiveScanInput({ ...scanInput, brokerIds: ["../escape"] }), /invalid_broker_ids/);
   assert.equal(
@@ -239,6 +244,33 @@ test("valid ISO countries without a Brave country target use worldwide targeting
   assert.deepEqual(__test.braveLocaleForCountry("IS"), {
     country: "ALL", search_lang: "en", localization: "worldwide_fallback",
   });
+});
+
+test("localized non-US scans remain explicitly inconclusive public-index signals", async () => {
+  for (const country of ["DE", "JP", "BR"]) {
+    const payload = JSON.stringify({ ...privateProfile, city: "Example City", region: "Example Region", country });
+    const localizedInput = { ...toolInput, subject: payload };
+    const localizedAttestations = {
+      ...operatorAttestations,
+      authorizedProfileDigests: { [toolInput.profileId]: scanProfileDigest(payload) },
+    };
+    const guardedFetch = mockGuardedFetch([{
+      response: response(JSON.stringify({ web: { results: [] } }), { headers: { "content-type": "application/json" } }),
+    }]);
+    const report = await runLiveScan({
+      input: localizedInput,
+      catalog,
+      apiKey: "dummy-test-key",
+      guardedFetch,
+      operatorAttestations: localizedAttestations,
+    });
+    assert.equal(report.results[0].state, "inconclusive", country);
+    assert.equal(report.summary.indirect_exposure, 0, country);
+    assert.equal(report.coverage_scope.source, "public_web_search_index_only", country);
+    assert.equal(report.coverage_scope.discovery_effectiveness, "needs_evidence", country);
+    assert.equal(report.coverage_scope.private_broker_inventory_visibility, false, country);
+    assert.ok(report.summary.coverage_gaps.includes("country_localization_does_not_establish_broker_discovery_effectiveness"), country);
+  }
 });
 
 test("index absence is inconclusive rather than not-found", async () => {

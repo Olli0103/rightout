@@ -6,6 +6,8 @@ const SAFE_LISTING_HANDLE = /^listing_[a-f0-9]{24}$/;
 const MAX_HISTORY = 100;
 const DEFAULT_PROCESSING_DAYS = 14;
 const DEFAULT_RESCAN_DAYS = 120;
+const SCAN_REPORT_MODES = new Set(["approval_gated_live_scan", "campaign_gated_live_scan"]);
+const SCAN_MUTABLE_STATES = new Set(["new", "searching", "inconclusive", "indirect_exposure"]);
 export const CASE_STATES = Object.freeze([
     "new",
     "searching",
@@ -260,7 +262,7 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
         });
     }
     async function recordScan(report) {
-        if (!report || report.mode !== "approval_gated_live_scan" || !Array.isArray(report.results)) {
+        if (!report || !SCAN_REPORT_MODES.has(report.mode) || !Array.isArray(report.results)) {
             throw new Error("invalid_scan_report");
         }
         const profileId = safeProfileId(report.subject_ref);
@@ -288,7 +290,10 @@ export function createCaseLedger(store, { now = () => new Date() } = {}) {
                     // Search-index results can be stale and cannot prove reappearance.
                     transition(brokerCase, "confirmed_removed", scanAt, "index_observation_did_not_change_confirmed_state");
                 }
-                else if (!["submitted", "verification_pending", "awaiting_processing"].includes(brokerCase.state)) {
+                else if (!SCAN_MUTABLE_STATES.has(brokerCase.state)) {
+                    transition(brokerCase, brokerCase.state, scanAt, "index_observation_did_not_change_protected_state");
+                }
+                else {
                     transition(brokerCase, result.state, scanAt, result.reason);
                 }
                 profile.brokers[brokerId] = brokerCase;

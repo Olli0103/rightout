@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mapBounded } from "./concurrency.mjs";
+import { ISO_COUNTRIES } from "./countries.mjs";
+import { isBraveScanLane } from "./scan-catalog.mjs";
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const MAX_RESPONSE_BYTES = 750_000;
 const SAFE_ID = /^[a-z0-9_]{2,24}$/;
@@ -14,7 +16,6 @@ const MAX_SEARCH_VECTORS = 12;
 const BRAVE_MAX_QUERY_CHARACTERS = 400;
 const BRAVE_MAX_QUERY_WORDS = 50;
 const MAX_CONSENT_DURATION_MS = 365 * 24 * 60 * 60_000;
-const ISO_COUNTRIES = new Set(("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW").split(" "));
 const BRAVE_COUNTRY_TARGETS = new Set(("AR AU AT BE BR CA CL DK FI FR DE HK IN ID IT JP KR MY MX NL NZ NO CN PL PT PH RU ZA ES SE CH TW TR GB US").split(" "));
 const COUNTRY_SEARCH_LANG = Object.freeze({
     AR: "es", AT: "de", AU: "en", BE: "nl", BR: "pt", CA: "en", CH: "de", CL: "es", CN: "zh-hans",
@@ -141,7 +142,7 @@ function parseSubjectProfile(value) {
     const fullName = cleanInput(profile.fullName, "profile", 3, 120);
     const city = cleanInput(profile.city, "profile", 1, 80);
     const region = cleanInput(profile.region, "profile", 2, 40);
-    const country = cleanInput(profile.country || "US", "profile", 2, 2).toUpperCase();
+    const country = cleanInput(profile.country, "profile", 2, 2).toUpperCase();
     if (!ISO_COUNTRIES.has(country))
         throw new Error("unsupported_country");
     const alsoKnownAs = cleanOptionalStrings(profile.alsoKnownAs, "alias", 2, 120, 5);
@@ -179,7 +180,7 @@ function parseSubjectProfile(value) {
         consent,
     };
 }
-function cleanAddress(value, defaultCountry = "US") {
+function cleanAddress(value, defaultCountry) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("profile_invalid");
     if (Object.keys(value).some((key) => !["line1", "line2", "city", "region", "postal", "country"].includes(key)))
@@ -194,7 +195,7 @@ function cleanAddress(value, defaultCountry = "US") {
         throw new Error("unsupported_country");
     return { line1, ...(line2 ? { line2 } : {}), city, region, postal, country };
 }
-function cleanPriorAddresses(values, defaultCountry = "US") {
+function cleanPriorAddresses(values, defaultCountry) {
     if (values === undefined)
         return [];
     if (!Array.isArray(values) || values.length > 5)
@@ -226,7 +227,7 @@ function cleanOptionalStrings(values, label, min, max, maxItems) {
         throw new Error("profile_invalid");
     return cleaned;
 }
-function cleanPriorLocations(values, defaultCountry = "US") {
+function cleanPriorLocations(values, defaultCountry) {
     if (values === undefined)
         return [];
     if (!Array.isArray(values) || values.length > 5)
@@ -546,10 +547,7 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
     }
     const catalogEntries = Array.isArray(catalog?.brokers) ? catalog.brokers : [];
     const selected = validated.brokerIds.map((id) => catalogEntries.find((entry) => entry.id === id));
-    if (selected.some((entry) => (!entry
-        || !["people_search", "data_broker"].includes(entry.category)
-        || entry.scan?.supported !== true
-        || entry.scan?.automated_access_policy !== "search_index_only_no_publisher_access"))) {
+    if (selected.some((entry) => !isBraveScanLane(entry))) {
         throw new Error("unsupported_broker");
     }
     const scanId = `scan_${randomUUID().replaceAll("-", "")}`;
@@ -618,6 +616,14 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
             country_target: braveLocale.country,
             search_language: braveLocale.search_lang,
         },
+        coverage_scope: {
+            source: "public_web_search_index_only",
+            selected_catalog_lanes: selected.length,
+            country_localization: braveLocale.localization,
+            discovery_effectiveness: "needs_evidence",
+            private_broker_inventory_visibility: false,
+            identity_or_absence_proof: false,
+        },
         disclosures: {
             to_search_provider: ["full_name", "aliases_if_configured", "current_and_prior_locations_and_addresses", "emails_if_configured", "phones_if_configured"],
             to_broker_pages: [],
@@ -637,6 +643,7 @@ export async function runLiveScan({ input, catalog, apiKey, guardedFetch, signal
                 "publisher_pages_are_never_fetched",
                 "only_catalog_brokers_with_supported_live_scan_policy_are_checked",
                 "controller_and_b2b_broker_domains_may_have_no_public_person_profile_surface",
+                "country_localization_does_not_establish_broker_discovery_effectiveness",
                 "unsupported_brave_country_targets_use_worldwide_index_targeting",
                 "provider_query_limits_can_omit_oversized_vectors_without_truncating_identity_values",
             ],

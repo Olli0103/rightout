@@ -133,6 +133,22 @@ test("public input is opaque and the private profile requires recorded removal c
     () => parseRemovalProfile(JSON.stringify({ ...privateProfile, dateOfBirth: "2999-01-01" })),
     /profile_invalid/,
   );
+  assert.throws(
+    () => parseRemovalProfile(JSON.stringify({ ...privateProfile, country: "XX" })),
+    /profile_invalid/,
+  );
+  const german = parseRemovalProfile(JSON.stringify({
+    ...privateProfile,
+    country: "DE",
+    region: "BE",
+    jurisdictions: ["DE", "EU"],
+    priorLocations: [{ city: "Hamburg", region: "HH" }],
+    currentAddress: { line1: "1 Beispielweg", city: "Berlin", region: "BE", postal: "10115" },
+    priorAddresses: [{ line1: "2 Altweg", city: "Bonn", region: "NW", postal: "53111" }],
+  }));
+  assert.equal(german.priorLocations[0].country, "DE");
+  assert.equal(german.currentAddress.country, "DE");
+  assert.equal(german.priorAddresses[0].country, "DE");
 });
 
 test("SMTP is restricted to pinned TLS endpoints and the subject sender address", () => {

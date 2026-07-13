@@ -77,12 +77,19 @@ def main() -> None:
     parity_baseline = read_json(ROOT / "docs/unbroker-parity-baseline.json")
     parity_evidence = read_json(ROOT / "docs/unbroker-parity-evidence.json")
     upstream_refresh = read_json(ROOT / "docs/unbroker-upstream-refresh.json")
+    scan_coverage = read_json(ROOT / "docs/scan-coverage.json")
     sbom = read_json(ROOT / "SBOM.spdx.json")
     skill_version = (ROOT / "skills/data-broker-removal/VERSION").read_text(encoding="utf-8").strip()
-    if not (ROOT / f"docs/release-notes-v{version}.md").is_file():
+    release_notes_path = ROOT / f"docs/release-notes-v{version}.md"
+    if not release_notes_path.is_file():
         fail(errors, "versioned release notes are missing")
+    elif re.search(r"status:\s*(?:release candidate|prerelease)|tagged publication gates pending", release_notes_path.read_text(encoding="utf-8"), re.I):
+        fail(errors, "release notes contain a prerelease status that would contradict a final GitHub release")
     if not (ROOT / f"docs/parity-matrix-v{version}.md").is_file():
         fail(errors, "versioned Unbroker parity matrix is missing")
+    correction_path = ROOT / "docs/release-correction-v0.8.0.md"
+    if not correction_path.is_file():
+        fail(errors, "audited v0.8.0 public release correction is missing")
     audit_path = ROOT / f"docs/audit-v{version}.md"
     checklist_path = ROOT / f"docs/release-checklist-v{version}.md"
     parity_path = ROOT / f"docs/parity-matrix-v{version}.md"
@@ -101,6 +108,15 @@ def main() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     if f"## {version} - Unreleased" in changelog or not re.search(rf"^## {re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.M):
         fail(errors, "changelog version is not release-dated")
+    benchmark = (ROOT / "docs/feature-benchmark.md").read_text(encoding="utf-8")
+    for invariant in [
+        "Vendor-published inventory/features",
+        "https://petsymposium.org/popets/2025/popets-2025-0125.pdf",
+        "real-provider effectiveness remains `needs_evidence`",
+        "Inventory size is therefore not treated as an effectiveness proxy",
+    ]:
+        if invariant not in benchmark:
+            fail(errors, f"competitive evidence invariant missing: {invariant}")
 
     brokers = catalog.get("brokers", [])
     parity_counts = {
@@ -221,6 +237,19 @@ def main() -> None:
     )
     if upstream_check.returncode != 0:
         fail(errors, f"live Unbroker upstream refresh failed: {upstream_check.stderr.strip()}")
+    scan_coverage_check = subprocess.run(
+        ["node", "scripts/verify-scan-coverage.mjs"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if scan_coverage_check.returncode != 0:
+        detail = scan_coverage_check.stderr.strip() or scan_coverage_check.stdout.strip()
+        fail(errors, f"runtime/documented scan coverage mismatch: {detail}")
+    if scan_coverage.get("human_only_controller_portal_lanes") != 3:
+        fail(errors, "scan coverage must preserve the three reviewed human-only controller portal lanes")
     for test_file in [
         "cases.test.mjs", "direct-rescan.test.mjs", "file-keyed-store.test.mjs", "form-runtime.test.mjs",
         "listing-tokens.test.mjs", "verification-runtime.test.mjs", "adversarial-input-property.test.mjs",
@@ -231,7 +260,8 @@ def main() -> None:
         "registry.test.mjs", "report-export.test.mjs", "parity-form-matrix.test.mjs", "parity-source-refresh.test.mjs",
         "feature-runtime.test.mjs", "webmail-runtime.test.mjs", "discovery-session-runtime.test.mjs", "drop-runtime.test.mjs",
         "browser-backend-runtime.test.mjs", "full-autonomy-runtime.test.mjs", "form-session-runtime.test.mjs",
-        "provider-terms.test.mjs", "peopleconnect-runtime.test.mjs",
+        "provider-terms.test.mjs", "peopleconnect-runtime.test.mjs", "scan-catalog.test.mjs",
+        "campaign-live-scan-runtime.test.mjs", "upstream-contract.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -295,7 +325,7 @@ def main() -> None:
         if sbom_versions.get(dependency) != declared_version:
             fail(errors, f"production dependency SBOM mismatch: {dependency}")
     for path in [
-        ROOT / "dist/index.js", ROOT / "dist/lib/live-scan.mjs", ROOT / "dist/lib/direct-rescan.mjs",
+        ROOT / "dist/index.js", ROOT / "dist/lib/live-scan.mjs", ROOT / "dist/lib/scan-catalog.mjs", ROOT / "dist/lib/countries.mjs", ROOT / "dist/lib/direct-rescan.mjs",
         ROOT / "dist/lib/file-keyed-store.mjs", ROOT / "dist/lib/catalog-health.mjs",
         ROOT / "dist/lib/listing-tokens.mjs", ROOT / "dist/lib/removal.mjs", ROOT / "dist/lib/form-removal.mjs",
         ROOT / "dist/lib/browser-form.mjs", ROOT / "dist/lib/imap.mjs", ROOT / "dist/lib/verification.mjs",
@@ -406,7 +436,7 @@ def main() -> None:
                 fail(errors, f"clean TypeScript build failed: {build.stderr.strip()}")
             else:
                 for relative in [
-                    Path("index.js"), Path("lib/live-scan.mjs"), Path("lib/direct-rescan.mjs"), Path("lib/file-keyed-store.mjs"),
+                    Path("index.js"), Path("lib/live-scan.mjs"), Path("lib/scan-catalog.mjs"), Path("lib/countries.mjs"), Path("lib/direct-rescan.mjs"), Path("lib/file-keyed-store.mjs"),
                     Path("lib/catalog-health.mjs"),
                     Path("lib/listing-tokens.mjs"), Path("lib/removal.mjs"), Path("lib/form-removal.mjs"),
                     Path("lib/browser-form.mjs"), Path("lib/imap.mjs"), Path("lib/verification.mjs"),
@@ -735,6 +765,8 @@ def main() -> None:
     for invariant in [
         "workflow_call:", 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main', "actions/attest@",
         "RELEASE-EVIDENCE.json", "rightout.release-evidence.v1", "npm run test:coverage",
+        'verification.verified', 'gh attestation verify "$ARCHIVE"',
+        "docs/release-correction-v0.8.0.md", "--json isPrerelease", "--json body",
     ]:
         if invariant not in release_workflow:
             fail(errors, f"release workflow invariant missing: {invariant}")
@@ -780,7 +812,8 @@ def main() -> None:
                 "CONTRIBUTING.md", "docs/README.md", "docs/authorized-canary.md",
                 "docs/broker-coverage.md", "docs/catalog-provenance.json",
                 "docs/deployment-compliance.md", "docs/unbroker-parity-baseline.json", "docs/unbroker-parity-evidence.json",
-                "docs/unbroker-upstream-refresh.json", "scripts/verify-unbroker-upstream.mjs",
+                "docs/unbroker-upstream-refresh.json", "docs/scan-coverage.json", "scripts/verify-unbroker-upstream.mjs",
+                "scripts/unbroker-upstream-contract.mjs", "scripts/verify-scan-coverage.mjs", "dist/lib/scan-catalog.mjs",
                 "skills/data-broker-removal/references/brokers/unbroker-parity.json",
                 "skills/data-broker-removal/references/brokers/provider-terms.json",
             ]:

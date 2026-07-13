@@ -1,3 +1,4 @@
+import { isBraveScanLane } from "./scan-catalog.mjs";
 const SAFE_CAMPAIGN_ID = /^campaign_[a-f0-9]{32}$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_BROKER_ID = /^[a-z0-9_]{2,80}$/;
@@ -38,9 +39,7 @@ export function planGlobalScanCampaignNext({ campaign, caseStatus, scanCatalog }
         throw new Error("rightout_autopilot_scope_invalid");
     }
     const rows = Array.isArray(scanCatalog?.brokers) ? scanCatalog.brokers : [];
-    const eligible = new Set(rows.filter((row) => (row && ["people_search", "data_broker"].includes(row.category)
-        && row.scan?.supported === true
-        && row.scan?.automated_access_policy === "search_index_only_no_publisher_access")).map((row) => row.id));
+    const eligible = new Set(rows.filter(isBraveScanLane).map((row) => row.id));
     if (campaign.broker_ids.some((id) => !eligible.has(id)))
         throw new Error("rightout_autopilot_catalog_invalid");
     const caseById = new Map(caseStatus.cases.map((item) => [item.broker_id, item]));

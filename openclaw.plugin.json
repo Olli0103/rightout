@@ -2,7 +2,7 @@
   "id": "rightout",
   "name": "RightOut",
   "description": "Bounded autonomous and assisted data-broker discovery, removal, verification, registry, and recheck campaigns",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "skills": [
     "./skills"
   ],

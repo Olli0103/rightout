@@ -86,6 +86,57 @@ test("scan observations persist without raw PII", async () => {
   assert.equal(serialized.includes("@example"), false);
 });
 
+test("campaign-gated scan reports persist through the same PII-safe ledger boundary", async () => {
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-13T10:00:00Z") });
+  await ledger.recordScan({
+    mode: "campaign_gated_live_scan",
+    scan_id: "scan_0123456789abcdef",
+    subject_ref: PROFILE,
+    generated_at: "2026-07-13T10:00:00Z",
+    results: [{ broker_id: "beenverified", state: "inconclusive", reason: "no_index_candidates_not_proof_of_absence" }],
+  });
+  assert.equal((await ledger.status(PROFILE)).counts.inconclusive, 1);
+});
+
+test("mixed scan batches preserve workflow states while persisting every other broker", async () => {
+  const store = memoryStore();
+  const ledger = createCaseLedger(store, { now: () => new Date("2026-07-13T10:00:00Z") });
+  const protectedStates = [
+    "not_found", "found",
+    "action_selected", "submission_pending", "submission_uncertain", "submitted",
+    "verification_pending", "awaiting_processing", "identity_verification_required",
+    "partially_removed", "request_rejected", "reappeared", "human_task_queued", "blocked",
+  ];
+  const protectedIds = protectedStates.map((_, index) => `protected${index}`);
+  await ledger.ensure(PROFILE, [...protectedIds, "freshbroker"]);
+  for (let index = 0; index < protectedStates.length; index += 1) {
+    store.values.get(PROFILE).brokers[protectedIds[index]].state = protectedStates[index];
+  }
+
+  await ledger.recordScan({
+    mode: "campaign_gated_live_scan",
+    scan_id: "scan_0123456789abcdef",
+    subject_ref: PROFILE,
+    generated_at: "2026-07-13T10:00:00Z",
+    results: [
+      ...protectedIds.map((broker_id) => ({ broker_id, state: "inconclusive", reason: "no_index_candidates_not_proof_of_absence" })),
+      { broker_id: "freshbroker", state: "indirect_exposure", reason: "search_index_candidate_observed" },
+    ],
+  });
+
+  const byId = new Map((await ledger.status(PROFILE)).cases.map((item) => [item.broker_id, item]));
+  const storedById = store.values.get(PROFILE).brokers;
+  for (let index = 0; index < protectedStates.length; index += 1) {
+    assert.equal(byId.get(protectedIds[index]).state, protectedStates[index]);
+    assert.equal(storedById[protectedIds[index]].last_observation.state, "inconclusive");
+    assert.equal(storedById[protectedIds[index]].updated_at, "2026-07-13T10:00:00.000Z");
+    assert.equal(storedById[protectedIds[index]].history.at(-1).from, protectedStates[index]);
+    assert.equal(storedById[protectedIds[index]].history.at(-1).to, protectedStates[index]);
+    assert.equal(storedById[protectedIds[index]].history.at(-1).reason, "index_observation_did_not_change_protected_state");
+  }
+  assert.equal(byId.get("freshbroker").state, "indirect_exposure");
+});
+
 test("opaque listing handles persist for later campaign resumption", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await ledger.recordScan({

@@ -61,12 +61,17 @@ field.
 | Confirmation open | profile, broker, opaque link handle | another link, mailbox read, removal claim |
 | Browser-mail handoff | opaque profile/broker/campaign refs; zero provider I/O | inbox search, message open, link open, campaign budget consumption |
 
-One scan-only campaign can drain all 59 policy-permitted combined catalog lanes
-in deterministic four-broker batches. Within the pinned Unbroker subset, 21 are
+One scan-only campaign scoped to all lanes with an effect budget of at least 56
+can drain all 56 code-enforced combined catalog lanes in deterministic
+four-broker batches: 30 people-search plus 26 controller/B2B
+public-index domains. Three controller portal lanes remain `human_only` and
+cannot be promoted by the runtime overlay. Within the pinned Unbroker subset, 21 are
 scan-permitted; Spokeo is excluded and remains a durable human gate because its
 published terms prohibit automated queries. This does not reduce the 22/22
 normalized contract inventory. A controller/B2B domain without a public indexed
-person surface remains `inconclusive`, never `not_found`.
+person surface remains `inconclusive`, never `not_found`. Country localization
+does not establish real-world discovery effectiveness or private-inventory
+visibility; both remain `needs_evidence`.
 Browser origin checks
 pin the top-level page before and after actions. OpenClaw does not expose a
 RightOut-specific per-session subresource/XHR egress allowlist, so embedded

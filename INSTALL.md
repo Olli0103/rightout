@@ -7,7 +7,7 @@ SHA-256 utility. Install the versioned, attested release archive rather than mov
 `main`:
 
 ```bash
-VERSION=0.8.0
+VERSION=0.8.1
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 shasum -a 256 -c RELEASE-SHA256SUMS
@@ -163,9 +163,9 @@ node scripts/compute-removal-bindings.mjs \
   profile_a1b2c3d4e5f60718 /secure/profile.json /secure/smtp.json /secure/imap.json
 ```
 
-The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. Scan digests support ISO-country profiles, including DE/EU profiles. RightOut sends a directly supported Brave country/language target where available (for example `DE/de`) and otherwise uses explicit worldwide targeting; it never silently falls back to US. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
+The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. Scan digests support profiles with an explicit ISO country, including EU profiles that use a member-country code such as `DE`. RightOut sends a directly supported Brave country/language target where available (for example `DE/de`) and otherwise uses explicit worldwide targeting; it never silently falls back to US. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. RightOut 0.8.0
+Back up the state encryption key through the secret provider. RightOut 0.8.1
 keeps the v1 encrypted-store schema and forced upgrades preserve it. Encrypted
 subject cases expire after `stateRetentionDays` without an update; the range is
 30-730 days and the default is 365. Verification/listing/dedupe records retain
@@ -249,7 +249,7 @@ Write each attestation JSON object to its matching config path: `operatorAttesta
 
 ## 5. Tool, Gateway, and Cron policy
 
-Allow only needed RightOut tools in the applicable agent policy. Unless full-operator direct invocation is intended, deny every tool whose manifest metadata has `replaySafe: false`. In 0.8.0 that includes provider effects plus campaign creation/revocation, DROP attestation, purge, outcome/reconciliation, and key rotation. Keep the deny list synchronized from `openclaw.plugin.json`; do not copy a stale partial list.
+Allow only needed RightOut tools in the applicable agent policy. Unless full-operator direct invocation is intended, deny every tool whose manifest metadata has `replaySafe: false`. In 0.8.1 that includes provider effects plus campaign creation/revocation, DROP attestation, purge, outcome/reconciliation, and key rotation. Keep the deny list synchronized from `openclaw.plugin.json`; do not copy a stale partial list.
 
 ```json5
 {

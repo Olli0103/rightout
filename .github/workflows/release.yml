@@ -29,6 +29,23 @@ jobs:
       - run: make test
       - run: npm run test:coverage
       - run: make installer-test
+      - name: Require the audited v0.8.0 public correction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view v0.8.0 --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')" = "true"
+          test "$(gh release view v0.8.0 --repo "$GITHUB_REPOSITORY" --json body --jq '.body')" = "$(cat docs/release-correction-v0.8.0.md)"
+      - name: Require a GitHub-verified signed release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_object_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}" --jq '.object.sha')"
+          test "$(git cat-file -t "$tag_object_sha")" = "tag"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}" --jq '.verification.verified')" = "true"
       - name: Build clean release archive
         id: pack
         shell: bash
@@ -77,6 +94,11 @@ jobs:
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: ${{ steps.pack.outputs.archive }}
+      - name: Verify release archive attestation before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.pack.outputs.archive }}
+        run: gh attestation verify "$ARCHIVE" --repo "$GITHUB_REPOSITORY"
       - name: Upload workflow evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

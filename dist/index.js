@@ -20,6 +20,7 @@ import { parseCaliforniaRegistryCsv, readBoundedText, REGISTRY_PORTALS, registry
 import { assertParityCatalogFresh, assertParityCatalogRouteFresh, parityCatalogHealth, resolveParityBroker, validateParityCatalog, } from "./lib/parity-catalog.mjs";
 import { buildParityMessage, runParityEmail } from "./lib/parity-email.mjs";
 import { planGlobalScanCampaignNext, planParityCampaignNext } from "./lib/parity-autopilot.mjs";
+import { buildCombinedScanCatalog } from "./lib/scan-catalog.mjs";
 import { assertPublisherAutomationPermission, providerTermsHealth, validateProviderTermsCatalog, } from "./lib/provider-terms.mjs";
 import { createReportExport } from "./lib/report-export.mjs";
 import { refreshParitySources } from "./lib/parity-source-refresh.mjs";
@@ -867,46 +868,7 @@ export default definePluginEntry({
         }
         async function combinedScanCatalog() {
             const [core, parity] = await Promise.all([catalogPromise, parityCatalogPromise]);
-            const rows = new Map();
-            for (const row of Array.isArray(core.brokers) ? core.brokers : []) {
-                if (row && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string") {
-                    const entry = row;
-                    if (entry.category === "data_broker" && entry.scan?.supported !== true) {
-                        rows.set(entry.id, {
-                            ...entry,
-                            scan: {
-                                supported: true,
-                                automated_access_policy: "search_index_only_no_publisher_access",
-                                provider: "brave_search_api",
-                                visibility_semantics: "public_index_signal_only_not_controller_inventory",
-                            },
-                        });
-                    }
-                    else
-                        rows.set(entry.id, entry);
-                }
-            }
-            for (const route of parity.brokers) {
-                const existing = rows.get(route.id);
-                if (existing?.scan?.supported === true)
-                    continue;
-                if (existing?.human_only === true
-                    || existing?.scan?.manual_only === true
-                    || existing?.scan?.automated_access_policy === "prohibited_by_published_terms")
-                    continue;
-                rows.set(route.id, {
-                    id: route.id,
-                    name: route.name,
-                    category: "people_search",
-                    official_domains: route.official_domains,
-                    scan: {
-                        supported: true,
-                        automated_access_policy: "search_index_only_no_publisher_access",
-                        provider: "brave_search_api",
-                    },
-                });
-            }
-            return { schema_version: 1, brokers: [...rows.values()] };
+            return buildCombinedScanCatalog(core, parity);
         }
         async function assertAutonomousCampaignScope(input) {
             if (input.effects.length === 1 && input.effects[0] === "discover") {
@@ -4441,7 +4403,11 @@ export default definePluginEntry({
                     || approval.binding !== campaignScopeBinding(input, digest, routingScope.routingDigest))
                     throw new Error("rightout_approval_binding_failed");
                 assertConfiguredProfile(input.profileId);
-                parseRemovalProfile(api.pluginConfig.profiles[input.profileId].payload);
+                const profilePayload = api.pluginConfig.profiles[input.profileId].payload;
+                if (input.effects.includes("discover"))
+                    scanProfileDigest(profilePayload);
+                if (input.effects.some((effect) => effect !== "discover"))
+                    parseRemovalProfile(profilePayload);
                 const profileDigest = await ensureImmutableProfileSnapshot(input.profileId);
                 const runtimeScopeDigest = configuredRuntimeScopeDigest();
                 const report = await campaignLedger.start(input, { catalogDigest: digest, profileDigest, runtimeScopeDigest });

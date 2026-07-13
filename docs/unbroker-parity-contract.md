@@ -25,7 +25,7 @@ RightOut never collapses these into one “100%” number:
    contract. Current public evidence permits zero reference form routes, while
    8 explicitly prohibit automation and 14 remain `needs_evidence`.
 
-Only the first claim is complete in 0.8.0. Capability classifications include
+Only the first claim is complete in 0.8.1. Capability classifications include
 explicit `conditional`, `gap`, and `human_only` states; exact provider-specific
 form choreography is independently staged only for PeopleConnect. The third
 claim is deliberately not called complete. A product cannot infer a publisher
