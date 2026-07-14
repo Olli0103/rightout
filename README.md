@@ -11,9 +11,10 @@ RightOut turns OpenClaw into a self-hosted privacy operator. It scans public
 search indexes for possible exposure, runs authorized removal workflows, handles
 supported verification, tracks uncertain outcomes, and checks again later.
 
-Inside OpenClaw, subject data stays behind opaque references in SecretRefs and
-encrypted local state. Every external action is scoped. Every write is approved.
-Every result says exactly what is known — and what is not.
+Public tool inputs and reports use opaque references, and persisted subject state
+is encrypted. Active SecretRefs are resolved into the Gateway's in-memory runtime
+snapshot. External actions are scoped, writes require approval, and every result
+says exactly what is known — and what is not.
 
 > **The rule is simple:** if RightOut cannot prove it, RightOut does not claim it.
 
@@ -170,7 +171,11 @@ an untagged `main` checkout into production.
 VERSION=0.8.1
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
-shasum -a 256 -c RELEASE-SHA256SUMS
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum -c RELEASE-SHA256SUMS
+else
+  shasum -a 256 -c RELEASE-SHA256SUMS
+fi
 gh attestation verify "olli0103-openclaw-rightout-${VERSION}.tgz" \
   --repo Olli0103/rightout \
   --signer-workflow Olli0103/rightout/.github/workflows/release.yml \
