@@ -2,11 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  classifyWorkerExecutionResult,
   createAutonomyWorkerLedger,
   validateWorkerCommand,
   workerPolicyDigest,
   workerSessionBindingDigest,
 } from "../../lib/autonomy-worker.mjs";
+
+test("worker result receipts gate inconclusive direct rescans", () => {
+  assert.deepEqual(classifyWorkerExecutionResult("rightout_direct_rescan", {
+    details: { state: "submitted", observation: "inconclusive", tracking: { durable_case_recorded: true } },
+  }), { state: "human_gate", resultState: "direct_rescan_inconclusive" });
+  assert.deepEqual(classifyWorkerExecutionResult("rightout_direct_rescan", {
+    details: { state: "submitted", observation: "direct_absent_known_listing_set", tracking: { durable_case_recorded: true } },
+  }), { state: "completed", resultState: "submitted" });
+  assert.deepEqual(classifyWorkerExecutionResult("rightout_direct_rescan", {
+    details: { state: "submitted", observation: "direct_present", tracking: { durable_case_recorded: false } },
+  }), { state: "human_gate", resultState: "submitted" });
+});
 
 function memoryStore() {
   const values = new Map();

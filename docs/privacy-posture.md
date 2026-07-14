@@ -69,7 +69,10 @@ excludes profile values, queries, candidate URLs, messages, page bodies,
 credentials, Message-IDs, and raw receipts. Durable workers store only opaque
 campaign/profile/broker references, policy/session digests, lease state, and
 sanitized reasons. Optional evidence records accept only sanitized bounded
-state facts; custom target facts remain encrypted behind random opaque handles.
+state facts. Managed redacted exports are tracked in encrypted state, scheduled
+for idle expiry, anchored to the original evidence retention window, and fail
+purge closed without losing their tracking record when unlink is not confirmed.
+Custom target facts remain encrypted behind random opaque handles.
 
 Encrypted subject cases expire after the configured 30-730 day inactivity
 period (365 days by default). Short-lived verification, listing, and dedupe

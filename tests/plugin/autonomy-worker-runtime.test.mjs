@@ -78,8 +78,14 @@ async function runtimeFixture({ schedulerAvailable = true, stateDir = mkdtempSyn
     tools,
     scheduled,
     stateDir,
-    beforeToolCall: (event, context = trusted) => beforeToolCall(event, { ...context, toolName: event.toolName, toolCallId: event.toolCallId }),
-    afterToolCall: (event, context = trusted) => afterToolCall(event, { ...context, toolName: event.toolName, toolCallId: event.toolCallId }),
+    beforeToolCall: (event, context = trusted) => {
+      const runId = event.runId ?? "run-worker-runtime-0001";
+      return beforeToolCall({ ...event, runId }, { ...context, runId, toolName: event.toolName, toolCallId: event.toolCallId });
+    },
+    afterToolCall: (event, context = trusted) => {
+      const runId = event.runId ?? "run-worker-runtime-0001";
+      return afterToolCall({ ...event, runId }, { ...context, runId, toolName: event.toolName, toolCallId: event.toolCallId });
+    },
   };
 }
 
@@ -138,6 +144,36 @@ test("durable worker schedules, executes one evidenced effect, survives a turn b
     assert.equal(effect.details.mode, "campaign_gated_live_scan");
     assert.equal(effect.details.results.length, 1);
     assert.ok(effect.details.results[0].vectors_attempted > 0);
+    await runtime.afterToolCall({
+      toolName: "rightout_submit_removal",
+      params: tick.details.command.parameters,
+      toolCallId: "worker-effect",
+      result: effect,
+    });
+    await runtime.afterToolCall({
+      toolName: tick.details.command.tool,
+      params: tick.details.command.parameters,
+      toolCallId: "worker-effect",
+      runId: "run-foreign-runtime-0002",
+      result: effect,
+    });
+    await runtime.afterToolCall({
+      toolName: tick.details.command.tool,
+      params: tick.details.command.parameters,
+      toolCallId: "worker-effect",
+      result: effect,
+    }, { sessionKey: "agent:other:rightout-worker-test", agentId: "other", browser: {} });
+    await runtime.afterToolCall({
+      toolName: tick.details.command.tool,
+      params: { ...tick.details.command.parameters, brokerIds: ["advancedbackgroundchecks"] },
+      toolCallId: "worker-effect",
+      result: effect,
+    });
+    await assert.rejects(runtime.tools.get("rightout_worker_complete").execute("worker-premature-complete", {
+      workerId: enabled.details.worker_id,
+      leaseId: tick.details.lease_id,
+      outcome: "action_succeeded",
+    }), /rightout_worker_success_evidence_missing/);
     await runtime.afterToolCall({
       toolName: tick.details.command.tool,
       params: tick.details.command.parameters,
@@ -267,4 +303,27 @@ test("worker startup recovery re-registers a lease watchdog after restart", asyn
   assert.equal(restarted.scheduled[0].sessionKey, trusted.sessionKey);
   assert.ok(restarted.scheduled[0].delayMs >= 1_000);
   assert.doesNotMatch(restarted.scheduled[0].message, /Avery|Exampleville|profile_/u);
+});
+
+test("worker startup recovery moves an unwakeable active worker to a human gate", async () => {
+  const runtime = await runtimeFixture();
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "lost-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("lost-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "lost-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("lost-enable", enableInput);
+
+  const restarted = await runtimeFixture({ stateDir: runtime.stateDir, schedulerAvailable: false });
+  let status;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    status = await restarted.tools.get("rightout_worker_status").execute("lost-status", { workerId: enabled.details.worker_id });
+    if (status.details.status === "human_gate") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(status.details.status, "human_gate");
+  assert.equal(status.details.last_reason, "scheduler_recovery_unavailable");
+  assert.equal(status.details.next_wake_at, null);
 });

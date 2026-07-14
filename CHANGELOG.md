@@ -36,9 +36,16 @@ All notable changes to RightOut are documented here.
 - Fixed durable-worker crash recovery with lease watchdogs and startup wake
   reconstruction, and bound success to the host-observed terminal result of the
   exact issued command rather than any campaign activity.
+- Hardened worker recovery and result correlation: unconfirmed replacement
+  schedules become durable human gates; receipts bind session, run, call ID,
+  tool, normalized parameters, lease, and execution digest; inconclusive direct
+  rescans never count as completed actions.
 - Fixed evidence-export lifecycle tracking so managed artifacts honor stricter
   deduplicated retention, interrupted-export cleanup, subject purge, and state
   key rotation.
+- Anchored stricter evidence retention to original creation, added idle
+  next-expiry cleanup, and retained encrypted tracking whenever artifact unlink
+  cannot be confirmed.
 - Tightened external recipe trust to the Ed25519 key type and 64-byte signatures,
   and made qualified or negated controller completion text fail closed to manual
   review.

@@ -15,9 +15,11 @@ Review date: 2026-07-14. Target: stable OpenClaw `2026.6.11` / Plugin API
   Durable workers additionally use `api.session.workflow` only to schedule or
   unschedule the exact current trusted session after native approval. A lease
   watchdog covers every issued action and startup reconstructs active wakes
-  from encrypted worker routing state; hosts without that capability receive an
-  explicit Cron handoff. `after_tool_call` records only an exact issued-command
-  terminal result and cannot widen the campaign.
+  from encrypted worker routing state; unconfirmed recovery scheduling moves
+  the worker to a human gate, and hosts without that capability receive an
+  explicit Cron handoff on interactive enable. `after_tool_call` records only a
+  terminal result re-bound to the exact session, run, call ID, tool, normalized
+  parameters, lease, and execution digest and cannot widen the campaign.
 - The official SSRF-aware HTTP runtime is used for remote HTTP. Production
   sandboxed agents use OpenClaw's `toolContext.browser.sandboxBridgeUrl`
   contract backed by `agents.defaults.sandbox.browser`. Unsandboxed/host-profile
@@ -77,7 +79,9 @@ trusted OpenClaw session. The scheduled turn still receives only one
 grammar-bound command under the unchanged finite campaign; scheduling never
 renews or widens authority. The worker replaces its same-tag wake atomically,
 keeps an expiry watchdog while a command is unresolved, and reconstructs active
-wakes after Gateway restart. If the host does not expose the supported workflow
+wakes after Gateway restart. If replacement registration cannot be confirmed,
+the active worker becomes a durable human gate rather than silently losing its
+wake. If the host does not expose the supported workflow
 scheduler, RightOut returns a deterministic PII-free handoff for the official
 `openclaw cron add` interface (the documented `cron create` alias is also
 accepted). Inspect fallback runs with:

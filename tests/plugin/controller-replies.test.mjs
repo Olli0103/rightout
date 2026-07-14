@@ -115,6 +115,10 @@ test("literal controller classifications remain candidates and conflicting or qu
   }).outcome_candidate, "needs_manual_check");
   for (const text of [
     "We have not deleted your data.",
+    "No data has been deleted.",
+    "None of your data has been deleted.",
+    "Nothing has been successfully deleted.",
+    "We have deleted none of your data.",
     "We have deleted some records, but retained the remaining profile.",
     "Ihre Daten wurden nicht gelöscht.",
     "Ihre Daten wurden gelöscht, jedoch werden bestimmte Datensätze aufbewahrt.",

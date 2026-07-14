@@ -28,7 +28,7 @@ import { buildCombinedScanCatalog } from "./lib/scan-catalog.mjs";
 import { assertPublisherAutomationPermission, providerTermsHealth, validateProviderTermsCatalog, } from "./lib/provider-terms.mjs";
 import { createReportExport } from "./lib/report-export.mjs";
 import { refreshParitySources } from "./lib/parity-source-refresh.mjs";
-import { createAutonomyWorkerLedger, workerPolicyDigest, workerSessionBindingDigest, } from "./lib/autonomy-worker.mjs";
+import { classifyWorkerExecutionResult, createAutonomyWorkerLedger, workerPolicyDigest, workerSessionBindingDigest, } from "./lib/autonomy-worker.mjs";
 import { assessRecipeSnapshot, compileBuiltinRecipePack, recipeDigest, } from "./lib/recipes.mjs";
 import { buildEffectivenessReport } from "./lib/effectiveness.mjs";
 import { resolveTeamMember, teamSessionBindingDigest, validateTeamAccess, } from "./lib/team-access.mjs";
@@ -1250,7 +1250,11 @@ export default definePluginEntry({
             namespace: "rightout-evidence-export-index-v1",
             maxEntries: 1_000,
         });
-        const evidenceVault = createEvidenceVault(evidenceStore, { exportStore: evidenceExportStore, exportRoot: stateDir });
+        const evidenceVault = createEvidenceVault(evidenceStore, {
+            exportStore: evidenceExportStore,
+            exportRoot: stateDir,
+            onCleanupError: () => api.logger?.warn?.("RightOut scheduled evidence retention cleanup failed; managed exports remain tracked and fail closed"),
+        });
         void evidenceVault.cleanupExpiredEvidence().catch(() => {
             api.logger?.warn?.("RightOut evidence retention cleanup failed; evidence export is blocked until cleanup succeeds");
         });
@@ -1517,45 +1521,19 @@ export default definePluginEntry({
             "rightout_begin_form_session",
             "rightout_begin_webmail_verification",
         ]);
-        function workerExecutionReceipt(toolName, result, error) {
-            if (typeof error === "string" && error.length > 0)
-                return { state: "human_gate", resultState: "tool_error" };
-            const details = result && typeof result === "object" && !Array.isArray(result)
-                ? result.details
-                : undefined;
-            if (!details || typeof details !== "object" || Array.isArray(details))
-                return { state: "human_gate", resultState: "missing_structured_result" };
-            const resultState = typeof details.state === "string"
-                ? details.state
-                : typeof details.mode === "string" ? details.mode : "unclassified_result";
-            if (!/^[a-z0-9_]{2,120}$/.test(resultState))
-                return { state: "human_gate", resultState: "invalid_result_state" };
-            if (details.retry_blocked === true || details.tracking?.durable_case_recorded === false
-                || /(?:blocked|uncertain|human_gate|manual|failed|error|cancelled)/u.test(resultState))
-                return { state: "human_gate", resultState };
-            if (toolName === "rightout_live_scan") {
-                return Array.isArray(details.results)
-                    ? { state: "completed", resultState }
-                    : { state: "human_gate", resultState: "live_scan_result_incomplete" };
+        function workerHookRunId(event, context) {
+            const eventRunId = event.runId;
+            const contextRunId = context?.runId;
+            if (typeof eventRunId !== "string" || !/^[A-Za-z0-9._:-]{8,160}$/.test(eventRunId)
+                || typeof contextRunId !== "string" || contextRunId !== eventRunId)
+                throw new Error("rightout_worker_run_required");
+            return eventRunId;
+        }
+        function workerEffectCallKey(sessionBindingDigest, runId, toolCallId) {
+            if (!/^[a-f0-9]{64}$/.test(sessionBindingDigest) || typeof toolCallId !== "string" || toolCallId.length < 1 || toolCallId.length > 240) {
+                throw new Error("rightout_worker_call_ref_invalid");
             }
-            if (toolName === "rightout_submit_removal" || toolName === "rightout_submit_parity_email") {
-                return resultState === "submitted"
-                    ? { state: "completed", resultState }
-                    : { state: "human_gate", resultState };
-            }
-            if (toolName === "rightout_poll_verification") {
-                return ["verification_pending", "verification_not_observed"].includes(resultState)
-                    ? { state: "completed", resultState }
-                    : { state: "human_gate", resultState };
-            }
-            if (toolName === "rightout_open_verification") {
-                return resultState === "awaiting_processing"
-                    ? { state: "completed", resultState }
-                    : { state: "human_gate", resultState };
-            }
-            if (toolName === "rightout_direct_rescan")
-                return { state: "completed", resultState };
-            return { state: "human_gate", resultState: "non_terminal_worker_tool" };
+            return createHash("sha256").update(JSON.stringify(["rightout-worker-call-v1", sessionBindingDigest, runId, toolCallId])).digest("hex");
         }
         async function scheduleWorkerRoute(session, workerId, delayMs) {
             const boundedDelay = Math.max(1_000, Math.min(30 * 24 * 60 * 60_000, Math.ceil(delayMs)));
@@ -1611,7 +1589,17 @@ export default definePluginEntry({
                 const wakeAt = worker.lease_expires_at ?? worker.next_wake_at;
                 if (typeof wakeAt !== "string" || !Number.isFinite(Date.parse(wakeAt)))
                     continue;
-                await scheduleWorkerRoute({ sessionKey: worker.session_key, agentId: worker.agent_id }, worker.worker_id, Math.max(1_000, Date.parse(wakeAt) - Date.now() + (worker.unresolved_action ? 1_000 : 0)));
+                try {
+                    const scheduled = await scheduleWorkerRoute({ sessionKey: worker.session_key, agentId: worker.agent_id }, worker.worker_id, Math.max(1_000, Date.parse(wakeAt) - Date.now() + (worker.unresolved_action ? 1_000 : 0)));
+                    if (scheduled.scheduled_job_registered !== true) {
+                        await workerLedger.gateRecovery(worker.worker_id, "scheduler_recovery_unavailable");
+                        api.logger?.warn?.("RightOut could not restore a durable-worker wake; the worker was moved to a human gate");
+                    }
+                }
+                catch {
+                    await workerLedger.gateRecovery(worker.worker_id, "scheduler_recovery_failed");
+                    api.logger?.warn?.("RightOut worker schedule recovery failed; the worker was moved to a human gate");
+                }
             }
         }
         void recoverWorkerSchedules().catch(() => {
@@ -2354,10 +2342,17 @@ export default definePluginEntry({
                     const session = trustedWorkerSession(hookContext);
                     const matched = await workerLedger.matchExecution(event.toolName, event.params, session.sessionBindingDigest);
                     if (matched) {
-                        workerEffectCalls.set(event.toolCallId, {
+                        const runId = workerHookRunId(event, hookContext);
+                        const key = workerEffectCallKey(session.sessionBindingDigest, runId, event.toolCallId);
+                        if (workerEffectCalls.has(key))
+                            throw new Error("rightout_worker_call_ref_duplicate");
+                        workerEffectCalls.set(key, {
                             workerId: matched.worker_id,
                             leaseId: matched.lease_id,
                             executionDigest: matched.execution_digest,
+                            sessionBindingDigest: session.sessionBindingDigest,
+                            runId,
+                            toolName: event.toolName,
                         });
                     }
                 }
@@ -3067,14 +3062,35 @@ export default definePluginEntry({
                 return { block: true, blockReason: "invalid, expired, mismatched, or unattested RightOut verification-link scope" };
             }
         });
-        api.on("after_tool_call", async (event) => {
+        api.on("after_tool_call", async (event, hookContext) => {
             if (!event.toolCallId)
                 return;
-            const pending = workerEffectCalls.get(event.toolCallId);
-            if (!pending)
+            let session;
+            let runId;
+            let key;
+            try {
+                session = trustedWorkerSession(hookContext);
+                runId = workerHookRunId(event, hookContext);
+                key = workerEffectCallKey(session.sessionBindingDigest, runId, event.toolCallId);
+            }
+            catch {
                 return;
-            workerEffectCalls.delete(event.toolCallId);
-            const receipt = workerExecutionReceipt(event.toolName, event.result, event.error);
+            }
+            const pending = workerEffectCalls.get(key);
+            if (!pending || pending.toolName !== event.toolName || pending.runId !== runId || pending.sessionBindingDigest !== session.sessionBindingDigest)
+                return;
+            let matched;
+            try {
+                matched = await workerLedger.matchExecution(event.toolName, event.params, session.sessionBindingDigest);
+            }
+            catch {
+                return;
+            }
+            if (!matched || matched.worker_id !== pending.workerId || matched.lease_id !== pending.leaseId
+                || matched.execution_digest !== pending.executionDigest)
+                return;
+            workerEffectCalls.delete(key);
+            const receipt = classifyWorkerExecutionResult(event.toolName, event.result, event.error);
             try {
                 await workerLedger.recordExecutionResult(pending.workerId, pending.leaseId, {
                     executionDigest: pending.executionDigest,
