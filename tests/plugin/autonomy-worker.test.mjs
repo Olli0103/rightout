@@ -22,6 +22,7 @@ function memoryStore() {
       if (next === undefined) values.delete(key); else values.set(key, structuredClone(next));
       return true;
     },
+    async entries() { return [...values].map(([key, value]) => ({ key, value: structuredClone(value) })); },
     values,
   };
 }
@@ -45,6 +46,7 @@ const campaign = {
 const effectBaseline = { campaignUsedEffects: 0, campaignLastEffectReference: null };
 const digest = "a".repeat(64);
 const sessionDigest = workerSessionBindingDigest({ sessionKey: "session:test:01234567", agentId: "main" });
+const session = { sessionKey: "session:test:01234567", agentId: "main" };
 const policyDigest = workerPolicyDigest({ catalogDigest: digest, recipeDigest: "b".repeat(64), runtimeScopeDigest: "c".repeat(64) });
 
 function fixture({ nowRef = { value: Date.parse("2026-07-14T15:00:00Z") } } = {}) {
@@ -63,6 +65,7 @@ async function createWorker(ledger, overrides = {}) {
     campaign,
     policyDigest,
     sessionBindingDigest: sessionDigest,
+    session,
   });
 }
 
@@ -85,6 +88,17 @@ test("durable worker claims, issues, and completes one exact allowlisted command
   const pending = await ledger.pending(workerId, claim.lease_id);
   assert.equal(pending.campaign_used_effects_baseline, 0);
   assert.equal(pending.command_reference, issued.command_reference);
+  const matched = await ledger.matchExecution("rightout_live_scan", {
+    campaignId: campaign.campaign_id,
+    brokerIds: ["spokeo"],
+    profileId,
+  }, sessionDigest);
+  assert.equal(matched.execution_digest, pending.execution_digest);
+  await ledger.recordExecutionResult(workerId, claim.lease_id, {
+    executionDigest: pending.execution_digest,
+    state: "completed",
+    resultState: "campaign_gated_live_scan",
+  });
   const completed = await ledger.complete(workerId, claim.lease_id, { outcome: "action_succeeded" });
   assert.equal(completed.worker.actions_completed, 1);
   assert.equal(completed.worker.lease_active, false);

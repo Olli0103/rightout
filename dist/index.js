@@ -950,6 +950,7 @@ export default definePluginEntry({
     description: "Bounded autonomous and assisted data-broker discovery, removal, verification, registry, and recheck campaigns",
     register(api) {
         const approvalBindings = new Map();
+        const workerEffectCalls = new Map();
         const submittedScopes = new Map();
         const approvalTtlMs = 120_000;
         const duplicateCooldownMs = 24 * 60 * 60_000;
@@ -1245,7 +1246,14 @@ export default definePluginEntry({
             namespace: "rightout-evidence-vault-v1",
             maxEntries: 500,
         });
-        const evidenceVault = createEvidenceVault(evidenceStore);
+        const evidenceExportStore = openRightOutStore({
+            namespace: "rightout-evidence-export-index-v1",
+            maxEntries: 1_000,
+        });
+        const evidenceVault = createEvidenceVault(evidenceStore, { exportStore: evidenceExportStore, exportRoot: stateDir });
+        void evidenceVault.cleanupExpiredEvidence().catch(() => {
+            api.logger?.warn?.("RightOut evidence retention cleanup failed; evidence export is blocked until cleanup succeeds");
+        });
         const customTargetStore = openRightOutStore({
             namespace: "rightout-custom-targets-v1",
             maxEntries: 500,
@@ -1503,10 +1511,58 @@ export default definePluginEntry({
                 throw new Error("rightout_worker_ref_invalid");
             return `Advance ${workerId}: call rightout_worker_tick with exactly this workerId. If action_ready, execute exactly command.tool with command.parameters, then call rightout_worker_complete with the returned workerId and leaseId. Use action_succeeded only after a successful tool result; otherwise use transient_failure or human_gate. Never invent tools or parameters.`;
         }
-        async function scheduleWorkerTurn(context, workerId, delayMs) {
-            const session = trustedWorkerSession(context);
+        const interactiveWorkerTools = new Set([
+            "rightout_begin_discovery_session",
+            "rightout_begin_webmail_session",
+            "rightout_begin_form_session",
+            "rightout_begin_webmail_verification",
+        ]);
+        function workerExecutionReceipt(toolName, result, error) {
+            if (typeof error === "string" && error.length > 0)
+                return { state: "human_gate", resultState: "tool_error" };
+            const details = result && typeof result === "object" && !Array.isArray(result)
+                ? result.details
+                : undefined;
+            if (!details || typeof details !== "object" || Array.isArray(details))
+                return { state: "human_gate", resultState: "missing_structured_result" };
+            const resultState = typeof details.state === "string"
+                ? details.state
+                : typeof details.mode === "string" ? details.mode : "unclassified_result";
+            if (!/^[a-z0-9_]{2,120}$/.test(resultState))
+                return { state: "human_gate", resultState: "invalid_result_state" };
+            if (details.retry_blocked === true || details.tracking?.durable_case_recorded === false
+                || /(?:blocked|uncertain|human_gate|manual|failed|error|cancelled)/u.test(resultState))
+                return { state: "human_gate", resultState };
+            if (toolName === "rightout_live_scan") {
+                return Array.isArray(details.results)
+                    ? { state: "completed", resultState }
+                    : { state: "human_gate", resultState: "live_scan_result_incomplete" };
+            }
+            if (toolName === "rightout_submit_removal" || toolName === "rightout_submit_parity_email") {
+                return resultState === "submitted"
+                    ? { state: "completed", resultState }
+                    : { state: "human_gate", resultState };
+            }
+            if (toolName === "rightout_poll_verification") {
+                return ["verification_pending", "verification_not_observed"].includes(resultState)
+                    ? { state: "completed", resultState }
+                    : { state: "human_gate", resultState };
+            }
+            if (toolName === "rightout_open_verification") {
+                return resultState === "awaiting_processing"
+                    ? { state: "completed", resultState }
+                    : { state: "human_gate", resultState };
+            }
+            if (toolName === "rightout_direct_rescan")
+                return { state: "completed", resultState };
+            return { state: "human_gate", resultState: "non_terminal_worker_tool" };
+        }
+        async function scheduleWorkerRoute(session, workerId, delayMs) {
             const boundedDelay = Math.max(1_000, Math.min(30 * 24 * 60 * 60_000, Math.ceil(delayMs)));
+            const tag = `rightout-worker-${workerId.slice("worker_".length)}`;
+            let replaced = { removed: 0, failed: 0 };
             try {
+                replaced = await api.session.workflow.unscheduleSessionTurnsByTag({ sessionKey: session.sessionKey, tag });
                 const handle = await api.session.workflow.scheduleSessionTurn({
                     sessionKey: session.sessionKey,
                     agentId: session.agentId,
@@ -1514,7 +1570,7 @@ export default definePluginEntry({
                     deleteAfterRun: true,
                     deliveryMode: "none",
                     name: `RightOut worker ${workerId.slice(-8)}`,
-                    tag: `rightout-worker-${workerId.slice("worker_".length)}`,
+                    tag,
                     message: workerScheduleMessage(workerId),
                 });
                 if (handle) {
@@ -1522,6 +1578,7 @@ export default definePluginEntry({
                         scheduler_state: "host_scheduled",
                         scheduled_job_registered: true,
                         scheduled_delay_ms: boundedDelay,
+                        replaced_scheduled_turns: replaced.removed,
                         raw_session_key_in_report: false,
                     };
                 }
@@ -1533,6 +1590,7 @@ export default definePluginEntry({
                 scheduler_state: "explicit_handoff_required",
                 scheduled_job_registered: false,
                 scheduled_delay_ms: boundedDelay,
+                replaced_scheduled_turns: replaced.removed,
                 cron_handoff: {
                     target: "current_trusted_session",
                     delay_ms: boundedDelay,
@@ -1544,6 +1602,21 @@ export default definePluginEntry({
                 raw_session_key_in_report: false,
             };
         }
+        async function scheduleWorkerTurn(context, workerId, delayMs) {
+            const session = trustedWorkerSession(context);
+            return scheduleWorkerRoute(session, workerId, delayMs);
+        }
+        async function recoverWorkerSchedules() {
+            for (const worker of await workerLedger.recoverable()) {
+                const wakeAt = worker.lease_expires_at ?? worker.next_wake_at;
+                if (typeof wakeAt !== "string" || !Number.isFinite(Date.parse(wakeAt)))
+                    continue;
+                await scheduleWorkerRoute({ sessionKey: worker.session_key, agentId: worker.agent_id }, worker.worker_id, Math.max(1_000, Date.parse(wakeAt) - Date.now() + (worker.unresolved_action ? 1_000 : 0)));
+            }
+        }
+        void recoverWorkerSchedules().catch(() => {
+            api.logger?.warn?.("RightOut worker schedule recovery failed; durable workers remain fail-closed until an operator resumes them");
+        });
         function browserVerificationTransportReady(config, browser) {
             if (!browser.webmail_ready || typeof config?.verificationAttestations?.browserProfileDigest !== "string")
                 return false;
@@ -2276,6 +2349,22 @@ export default definePluginEntry({
                     }
                 }
             }
+            if (event.toolCallId && event.toolName.startsWith("rightout_") && typeof hookContext?.sessionKey === "string" && typeof hookContext?.agentId === "string") {
+                try {
+                    const session = trustedWorkerSession(hookContext);
+                    const matched = await workerLedger.matchExecution(event.toolName, event.params, session.sessionBindingDigest);
+                    if (matched) {
+                        workerEffectCalls.set(event.toolCallId, {
+                            workerId: matched.worker_id,
+                            leaseId: matched.lease_id,
+                            executionDigest: matched.execution_digest,
+                        });
+                    }
+                }
+                catch {
+                    return { block: true, blockReason: "RightOut could not bind this provider action to the exact pending durable-worker command" };
+                }
+            }
             const approvalTools = new Set([
                 "rightout_live_scan",
                 "rightout_submit_removal",
@@ -2976,6 +3065,25 @@ export default definePluginEntry({
             }
             catch {
                 return { block: true, blockReason: "invalid, expired, mismatched, or unattested RightOut verification-link scope" };
+            }
+        });
+        api.on("after_tool_call", async (event) => {
+            if (!event.toolCallId)
+                return;
+            const pending = workerEffectCalls.get(event.toolCallId);
+            if (!pending)
+                return;
+            workerEffectCalls.delete(event.toolCallId);
+            const receipt = workerExecutionReceipt(event.toolName, event.result, event.error);
+            try {
+                await workerLedger.recordExecutionResult(pending.workerId, pending.leaseId, {
+                    executionDigest: pending.executionDigest,
+                    state: receipt.state,
+                    resultState: receipt.resultState,
+                });
+            }
+            catch {
+                api.logger?.warn?.("RightOut could not persist an exact durable-worker execution receipt; completion will fail closed");
             }
         });
         api.registerTool((toolContext) => ({
@@ -4740,12 +4848,13 @@ export default definePluginEntry({
                 const config = api.pluginConfig;
                 if (!stateRotationReady(config))
                     throw new Error("rightout_state_rotation_not_configured");
-                const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
+                const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceEntries, evidenceExportEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
                     caseStore.reencrypt(),
                     profileSnapshotStore.reencrypt(),
                     verificationTokens.reencrypt(),
                     controllerReplyCandidates.reencrypt(),
                     evidenceStore.reencrypt(),
+                    evidenceExportStore.reencrypt(),
                     customTargetStore.reencrypt(),
                     verificationOpenDedupe.reencrypt(),
                     portalFlowStore.reencrypt(),
@@ -4766,6 +4875,7 @@ export default definePluginEntry({
                         verification_handles: verificationHandles,
                         controller_reply_candidates: controllerReplyHandles,
                         evidence_entries: evidenceEntries,
+                        evidence_export_index_entries: evidenceExportEntries,
                         custom_target_entries: customTargetEntries,
                         verification_open_guards: verificationOpenGuards,
                         verified_portal_flows: portalFlows,
@@ -4808,11 +4918,12 @@ export default definePluginEntry({
                     throw new Error("rightout_not_configured");
                 const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
                 const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
-                const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
+                const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceExports, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
                     caseLedger.purge(input.profileId),
                     profileSnapshotStore.delete(input.profileId),
                     purgeProfileEntries(verificationTokens, input.profileId),
                     purgeProfileEntries(controllerReplyCandidates, input.profileId),
+                    evidenceVault.purgeExports(input.profileId),
                     purgeProfileEntries(evidenceStore, input.profileId),
                     purgeProfileEntries(customTargetStore, input.profileId),
                     purgeProfileEntries(verificationOpenDedupe, input.profileId),
@@ -4833,6 +4944,7 @@ export default definePluginEntry({
                         profile_snapshot: profileSnapshotDeleted ? 1 : 0,
                         verification_handles: verificationHandles,
                         controller_reply_candidates: controllerReplyHandles,
+                        evidence_exports: evidenceExports,
                         evidence_entries: evidenceEntries,
                         custom_target_entries: customTargetEntries,
                         verification_open_guards: verificationOpenGuards,
@@ -5869,6 +5981,7 @@ export default definePluginEntry({
                     campaign,
                     policyDigest,
                     sessionBindingDigest: session.sessionBindingDigest,
+                    session: { sessionKey: session.sessionKey, agentId: session.agentId },
                 });
                 const scheduler = await scheduleWorkerTurn(toolContext, worker.worker_id, 1_000);
                 const report = {
@@ -5922,12 +6035,34 @@ export default definePluginEntry({
                     ? planned.reason
                     : "campaign_human_gate";
                 if (planned.state === "action_ready") {
+                    if (interactiveWorkerTools.has(planned.command?.tool)) {
+                        const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
+                            outcome: "human_gate",
+                            reason: "interactive_session_requires_operator_continuation",
+                        });
+                        const report = {
+                            report_version: 1,
+                            ...completed,
+                            deferred_command_tool: planned.command.tool,
+                            provider_reads: 0,
+                            provider_writes: 0,
+                            raw_pii_in_report: false,
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
                     const baseline = await campaignLedger.status(context.campaign.campaign_id);
                     const issued = await workerLedger.issue(input.workerId, claim.lease_id, planned.command, {
                         campaignUsedEffects: baseline.used_effects,
                         campaignLastEffectReference: baseline.last_effect_reference,
                     });
-                    const report = { report_version: 1, ...issued, recipe_pack_digest: (await loadRecipePack()).recipe_digest };
+                    const watchdog = await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(claim.lease_expires_at) - Date.now() + 1_000));
+                    const report = {
+                        report_version: 1,
+                        ...issued,
+                        recipe_pack_digest: (await loadRecipePack()).recipe_digest,
+                        lease_watchdog_registered: watchdog.scheduled_job_registered === true,
+                        ...watchdog,
+                    };
                     return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
                 const deferredHumanGates = Number(planned.consolidated_digest?.human_gates ?? 0);
@@ -5969,15 +6104,17 @@ export default definePluginEntry({
                 const input = validateWorkerCompleteInput(params);
                 const context = await workerExecutionContext(input.workerId, toolContext);
                 const pending = await workerLedger.pending(input.workerId, input.leaseId);
-                const campaign = await campaignLedger.status(pending.campaign_id);
-                const effectObserved = campaign.used_effects > pending.campaign_used_effects_baseline
-                    && campaign.last_effect_reference !== pending.campaign_last_effect_reference_baseline;
-                if (input.outcome === "action_succeeded" && !effectObserved)
+                const receipt = pending.execution_receipt;
+                const exactCommandCompleted = receipt?.state === "completed" && receipt.executionDigest === pending.execution_digest;
+                if (input.outcome === "action_succeeded" && !exactCommandCompleted)
                     throw new Error("rightout_worker_success_evidence_missing");
-                const outcome = input.outcome !== "action_succeeded" && effectObserved ? "human_gate" : input.outcome;
-                const reason = input.outcome !== "action_succeeded" && effectObserved
-                    ? "effect_consumed_outcome_uncertain"
-                    : input.reason;
+                const receiptRequiresHuman = receipt?.state === "human_gate" || (input.outcome !== "action_succeeded" && exactCommandCompleted);
+                const outcome = receiptRequiresHuman ? "human_gate" : input.outcome;
+                const reason = receipt?.state === "human_gate"
+                    ? `exact_command_${receipt.resultState}`.slice(0, 120)
+                    : input.outcome !== "action_succeeded" && exactCommandCompleted
+                        ? "exact_command_completed_outcome_uncertain"
+                        : input.reason;
                 const completed = await workerLedger.complete(input.workerId, input.leaseId, { outcome, ...(reason ? { reason } : {}) });
                 const scheduler = completed.state === "active" && completed.worker.next_wake_at
                     ? await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()))
@@ -5985,8 +6122,9 @@ export default definePluginEntry({
                 const report = {
                     report_version: 1,
                     ...completed,
-                    campaign_effect_observed: effectObserved,
-                    completion_evidence: effectObserved ? "new_campaign_effect_reference" : "no_campaign_effect_observed",
+                    exact_command_receipt_observed: Boolean(receipt),
+                    exact_command_completed: exactCommandCompleted,
+                    completion_evidence: exactCommandCompleted ? "host_observed_exact_terminal_tool_result" : "no_exact_terminal_tool_result",
                     policy_digest_current: context.policyDigest === await currentWorkerPolicyDigest(),
                     ...scheduler,
                     raw_pii_in_report: false,

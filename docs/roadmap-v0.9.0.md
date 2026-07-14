@@ -44,11 +44,15 @@ provider permission or ambiguous evidence into success.
 
 - A1/A2/A4 implemented: encrypted deterministic workers, exact campaign/session/
   policy binding, atomic leases, unresolved-action gates, evidence-backed
-  completion, exponential backoff, native session scheduling, deterministic
-  Cron handoff, resume approval, and revocation. Evidence:
-  `autonomy-worker.test.mjs` and `autonomy-worker-runtime.test.mjs`.
+  completion from exact host-observed command receipts, lease watchdogs,
+  startup schedule recovery, exponential backoff, native session scheduling,
+  deterministic Cron handoff, resume approval, and revocation. Interactive
+  multi-step commands stop for an operator instead of claiming completion.
+  Evidence: `autonomy-worker.test.mjs` and
+  `autonomy-worker-runtime.test.mjs`.
 - A3 implemented: the release-attested 22-route pack binds the exact source and
-  compiled digests, external packs require trusted Ed25519 signatures, packs
+  compiled digests, external packs require trusted strict Ed25519 key types and
+  64-byte signatures, packs
   expire, and live form sessions quarantine domain, sensitive-control, policy,
   and semantic drift before provider writes. Evidence: `recipes.test.mjs`, form
   runtime suites.
@@ -68,7 +72,9 @@ provider permission or ambiguous evidence into success.
   inside the authenticated encrypted store, use bounded retention, fail on
   tamper or sensitive keys/values, return metadata only, purge and rotate with
   the subject, and require a separate native approval for a private contained
-  redacted export. Evidence: `evidence-vault.test.mjs` and
+  redacted export. An encrypted export index makes artifacts expire and purge
+  with the subject, removes interrupted exports, and carries forward the
+  strictest deduplicated retention. Evidence: `evidence-vault.test.mjs` and
   `evidence-runtime.test.mjs`.
 - C1 implemented as a safe intake boundary, not a new write lane: the local CLI
   accepts raw target facts out of band, stores them encrypted, and returns only
@@ -95,7 +101,7 @@ provider permission or ambiguous evidence into success.
   route health, evidence-reference counts, and effectiveness aggregates. Files
   are contained, content-addressed, mode 0600, strict-CSP/no-script, and start no
   service. Evidence: `dashboard.test.mjs` and `team-runtime.test.mjs`.
-- R1 currently passes on the source-complete pre-review tree: technical parity,
+- R1 passed on the source-complete pre-review tree: technical parity,
   TypeScript, the complete 338/338 plugin suite, compiled build, package
   preflight and archive inspection, clean/force install and rollback, 50 Python
   tests, scan-only and end-to-end dummy runs, workflow hardening, and the
@@ -103,6 +109,11 @@ provider permission or ambiguous evidence into success.
   branches, and 91.34% functions. The release checker has no implementation,
   package, privacy, provenance, or security finding; it intentionally remains
   open only for the requested independent review and final versioned audit.
+  After the first review fixes, technical parity, typecheck, build, and the
+  complete 342/342 plugin suite are green; coverage is 90.34% lines, 74.75%
+  branches, and 91.14% functions. The full Python, installer, dummy, package,
+  workflow, dependency, and release-check matrix will be rerun after the final
+  independent re-review.
 - R2 remains open until the explicitly requested autonomous independent review
   runs against the source-complete tree, all findings are fixed, and a second
   reviewer confirms the post-fix tree.

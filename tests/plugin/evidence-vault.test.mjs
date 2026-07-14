@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,7 +17,18 @@ function fixture({ mutableNow } = {}) {
     stateDir, namespace: "rightout-evidence-vault-v1", maxEntries: 500,
     getSecret: () => stateKey, ...(mutableNow ? { now: () => mutableNow.value } : {}),
   });
-  return { stateDir, store, vault: createEvidenceVault(store, { now: () => new Date(mutableNow?.value ?? Date.now()) }) };
+  const exportStore = createEncryptedFileKeyedStore({
+    stateDir, namespace: "rightout-evidence-export-index-v1", maxEntries: 1_000,
+    getSecret: () => stateKey, ...(mutableNow ? { now: () => mutableNow.value } : {}),
+  });
+  return {
+    stateDir,
+    store,
+    exportStore,
+    vault: createEvidenceVault(store, {
+      now: () => new Date(mutableNow?.value ?? Date.now()), exportStore, exportRoot: stateDir,
+    }),
+  };
 }
 
 const content = {
@@ -53,13 +64,31 @@ test("evidence rejects sensitive values, suspicious keys, tampering, and expires
   await store.update(saved.evidence_ref, (record) => ({ ...record, content: { ...record.content, state: "confirmed_removed" } }));
   await assert.rejects(vault.metadata(saved.evidence_ref, profileId), /tampered/);
 
-  const fresh = await vault.put({ profileId, brokerId, kind: "route_health_snapshot", retentionDays: 1, content: { state: "fresh", raw_pii_in_snapshot: false } });
+  const expiringFixture = fixture({ mutableNow });
+  const fresh = await expiringFixture.vault.put({ profileId, brokerId, kind: "route_health_snapshot", retentionDays: 1, content: { state: "fresh", raw_pii_in_snapshot: false } });
   mutableNow.value += 25 * 60 * 60_000;
-  await assert.rejects(vault.metadata(fresh.evidence_ref, profileId), /record_invalid/);
+  await assert.rejects(expiringFixture.vault.metadata(fresh.evidence_ref, profileId), /record_invalid/);
+});
+
+test("evidence dedupe atomically keeps the stricter retention", async () => {
+  const mutableNow = { value: Date.parse("2026-07-14T10:00:00Z") };
+  const { stateDir, vault } = fixture({ mutableNow });
+  const first = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 365, content });
+  const exported = await vault.exportRedacted(first.evidence_ref, profileId, stateDir, "json");
+  mutableNow.value += 60_000;
+  const stricter = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
+  const attemptedExtension = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 365, content });
+  assert.equal(first.evidence_ref, stricter.evidence_ref);
+  assert.equal(stricter.retention_days, 30);
+  assert.equal(attemptedExtension.retention_days, 30);
+  assert.equal(attemptedExtension.expires_at, stricter.expires_at);
+  mutableNow.value += 31 * 24 * 60 * 60_000;
+  await vault.cleanupExpiredEvidence();
+  assert.equal(existsSync(exported.artifact_path), false);
 });
 
 test("redacted export is separately invoked, private, contained, and rejects a symlink directory", async () => {
-  const { stateDir, vault } = fixture();
+  const { stateDir, store, exportStore, vault } = fixture();
   const saved = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
   const exported = await vault.exportRedacted(saved.evidence_ref, profileId, stateDir, "json");
   assert.equal(exported.state, "redacted_evidence_exported");
@@ -70,5 +99,26 @@ test("redacted export is separately invoked, private, contained, and rejects a s
 
   const unsafeRoot = mkdtempSync(join(tmpdir(), "rightout-evidence-export-symlink-"));
   symlinkSync(tmpdir(), join(unsafeRoot, "rightout-evidence-exports-v1"));
-  await assert.rejects(vault.exportRedacted(saved.evidence_ref, profileId, unsafeRoot, "markdown"), /export_path_invalid/);
+  const unsafeVault = createEvidenceVault(store, { exportStore, exportRoot: unsafeRoot });
+  await assert.rejects(unsafeVault.exportRedacted(saved.evidence_ref, profileId, unsafeRoot, "markdown"), /export_path_invalid/);
+});
+
+test("managed evidence exports are deleted on subject purge and retention expiry", async () => {
+  const mutableNow = { value: Date.parse("2026-07-14T10:00:00Z") };
+  const { stateDir, vault } = fixture({ mutableNow });
+  const first = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
+  const purged = await vault.exportRedacted(first.evidence_ref, profileId, stateDir, "json");
+  assert.equal(existsSync(purged.artifact_path), true);
+  assert.equal(await vault.purgeExports(profileId), 1);
+  assert.equal(existsSync(purged.artifact_path), false);
+
+  const expiring = await vault.put({ profileId, brokerId, kind: "route_health_snapshot", retentionDays: 1, content: { state: "fresh", raw_pii_in_snapshot: false } });
+  const expiredExport = await vault.exportRedacted(expiring.evidence_ref, profileId, stateDir, "json");
+  const staleTemp = join(stateDir, "rightout-evidence-exports-v1", `.${expiring.evidence_ref}.0123456789abcdef.tmp`);
+  writeFileSync(staleTemp, "interrupted export", { mode: 0o600 });
+  mutableNow.value += 25 * 60 * 60_000;
+  await vault.cleanupExpiredEvidence();
+  assert.equal(existsSync(expiredExport.artifact_path), false);
+  assert.equal(existsSync(staleTemp), false);
+  await assert.rejects(vault.metadata(expiring.evidence_ref, profileId), /record_invalid|expired/);
 });
