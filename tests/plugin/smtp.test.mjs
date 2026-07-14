@@ -84,6 +84,49 @@ test("port 587 requires STARTTLS and abort closes the active transport", async (
   assert.ok(closeCalls >= 1);
 });
 
+test("OAuth2 SMTP uses only a short-lived bearer token and never maps it to a password", async () => {
+  let options;
+  const sender = createSmtpSender((value) => {
+    options = value;
+    return {
+      async sendMail() { return { accepted: [message.to], rejected: [] }; },
+      close() {},
+    };
+  });
+  const token = "ya29.synthetic-short-lived-token";
+  await sender({
+    transport: {
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      username: "smtp-user",
+      authMode: "oauth2",
+      oauthAccessToken: token,
+      oauthExpiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    },
+    message,
+  });
+  assert.deepEqual(options.auth, { type: "OAuth2", user: "smtp-user", accessToken: token });
+  assert.equal("pass" in options.auth, false);
+});
+
+test("SMTP rejects mixed and incomplete authentication material before creating a transport", async () => {
+  let factories = 0;
+  const sender = createSmtpSender(() => {
+    factories += 1;
+    return { async sendMail() {}, close() {} };
+  });
+  await assert.rejects(sender({
+    transport: { authMode: "oauth2", username: "u", oauthAccessToken: "long-enough-token", password: "mixed" },
+    message,
+  }), /rightout_smtp_not_configured/);
+  await assert.rejects(sender({
+    transport: { authMode: "password", username: "u" },
+    message,
+  }), /rightout_smtp_not_configured/);
+  assert.equal(factories, 0);
+});
+
 test("invalid SMTP client factory fails before a message call", async () => {
   const sender = createSmtpSender(() => ({}));
   await assert.rejects(

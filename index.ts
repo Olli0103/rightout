@@ -30,7 +30,14 @@ import {
 import { createSmtpSender } from "./lib/smtp.mjs";
 import { createCaseLedger } from "./lib/cases.mjs";
 import { createBrowserFormSubmitter, createBrowserSessionDriver } from "./lib/browser-form.mjs";
-import { createImapPoller, newVerificationHandle } from "./lib/imap.mjs";
+import { createControllerReplyPoller, createImapPoller, newVerificationHandle } from "./lib/imap.mjs";
+import {
+  RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION,
+  classifyControllerReply,
+  controllerReplyScopeBinding,
+  validateControllerReplyAttestations,
+  validateControllerReplyPreflight,
+} from "./lib/controller-replies.mjs";
 import { createListingTokenVault } from "./lib/listing-tokens.mjs";
 import { createEncryptedFileKeyedStore } from "./lib/file-keyed-store.mjs";
 import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
@@ -134,23 +141,51 @@ type RemovalAttestations = {
   smtpTransportDigest: string;
 };
 
-type SmtpTransportConfig = {
+type PasswordSmtpTransportConfig = {
   host: string;
   port: number;
   secure: boolean;
   username: string;
   password: string;
   fromAddress: string;
+  authMode?: "password";
 };
 
-type ImapTransportConfig = {
+type OauthSmtpTransportConfig = {
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  authMode: "oauth2";
+  oauthAccessToken: string;
+  oauthExpiresAt: string;
+  fromAddress: string;
+};
+
+type SmtpTransportConfig = PasswordSmtpTransportConfig | OauthSmtpTransportConfig;
+
+type PasswordImapTransportConfig = {
   host: string;
   port: number;
   secure: boolean;
   username: string;
   password: string;
   address: string;
+  authMode?: "password";
 };
+
+type OauthImapTransportConfig = {
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  authMode: "oauth2";
+  oauthAccessToken: string;
+  oauthExpiresAt: string;
+  address: string;
+};
+
+type ImapTransportConfig = PasswordImapTransportConfig | OauthImapTransportConfig;
 
 type VerificationAttestations = {
   rightoutVerificationPolicyAccepted: boolean;
@@ -163,6 +198,17 @@ type VerificationAttestations = {
   authorizedBrokerIds: string[];
   imapTransportDigest?: string;
   browserProfileDigest?: string;
+};
+
+type ControllerReplyAttestations = {
+  rightoutControllerReplyPolicyAccepted: boolean;
+  rightoutControllerReplyPolicyVersion: string;
+  subjectConsentReviewed: boolean;
+  inboxReadAuthorized: boolean;
+  authorizedProfileIds: string[];
+  authorizedProfileDigests: Record<string, string>;
+  authorizedBrokerIds: string[];
+  imapTransportDigest: string;
 };
 
 type FormAttestations = {
@@ -195,6 +241,7 @@ type RightOutConfig = {
   removalAttestations?: RemovalAttestations;
   imapTransport?: ImapTransportConfig;
   verificationAttestations?: VerificationAttestations;
+  controllerReplyAttestations?: ControllerReplyAttestations;
   formAttestations?: FormAttestations;
   stateEncryptionKey?: string;
   previousStateEncryptionKeys?: string[];
@@ -492,6 +539,18 @@ const ControllerOutcomeParameters = Type.Object(
       Type.Literal("identity_required"),
       Type.Literal("request_rejected"),
     ], { description: "Human-reviewed controller response outcome; never inferred from SMTP acceptance." }),
+    candidateHandle: Type.Optional(Type.String({
+      pattern: "^reply_[a-f0-9]{24}$",
+      description: "Optional encrypted authenticated-reply candidate that the operator reviewed before approving this outcome.",
+    })),
+  },
+  { additionalProperties: false },
+);
+
+const ControllerReplyPollParameters = Type.Object(
+  {
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU or US controller with an already submitted email request." }),
   },
   { additionalProperties: false },
 );
@@ -750,7 +809,9 @@ type PublicCaseInput = { profileId: string };
 type PublicControllerOutcomeInput = PublicCaseInput & {
   brokerId: string;
   outcome: "processing_acknowledged" | "erasure_confirmed" | "partial_erasure" | "deletion_confirmed" | "partial_deletion" | "identity_required" | "request_rejected";
+  candidateHandle?: string;
 };
+type PublicControllerReplyInput = PublicCaseInput & { brokerId: string };
 type PublicSubmissionReconciliationInput = PublicCaseInput & {
   brokerId: string;
   outcome: "provider_write_not_started" | "provider_write_confirmed";
@@ -815,6 +876,17 @@ type VerificationToken = {
   messageReference: string;
   submissionAt: string;
   submissionReference: string;
+  createdAt: string;
+};
+type ControllerReplyCandidate = {
+  profileId: string;
+  brokerId: string;
+  outcome: PublicControllerOutcomeInput["outcome"];
+  messageReference: string;
+  submissionReference: string;
+  terminal: boolean;
+  evidenceSignals: string[];
+  authenticationSignals: string[];
   createdAt: string;
 };
 
@@ -1088,17 +1160,29 @@ function isSecretRef(value: unknown): boolean {
 function validateControllerOutcomeInput(value: unknown): PublicControllerOutcomeInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid_controller_outcome");
   const input = value as Record<string, unknown>;
-  if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome"].includes(key))) throw new Error("invalid_controller_outcome");
+  if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome", "candidateHandle"].includes(key))) throw new Error("invalid_controller_outcome");
   if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("invalid_controller_outcome");
   if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId)) throw new Error("invalid_controller_outcome");
   if (!["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"].includes(String(input.outcome))) {
     throw new Error("invalid_controller_outcome");
   }
+  if (input.candidateHandle !== undefined && (typeof input.candidateHandle !== "string" || !/^reply_[a-f0-9]{24}$/.test(input.candidateHandle))) {
+    throw new Error("invalid_controller_outcome");
+  }
   return input as PublicControllerOutcomeInput;
 }
 
-function controllerOutcomeScopeBinding(input: PublicControllerOutcomeInput, broker: unknown): string {
-  return JSON.stringify(["controller-outcome", input, broker]);
+function controllerOutcomeScopeBinding(input: PublicControllerOutcomeInput, broker: unknown, candidate?: ControllerReplyCandidate): string {
+  return JSON.stringify(["controller-outcome", input, broker, candidate ?? null]);
+}
+
+function validateControllerReplyInput(value: unknown): PublicControllerReplyInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("rightout_controller_reply_input_invalid");
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some((key) => !["profileId", "brokerId"].includes(key))) throw new Error("rightout_controller_reply_input_invalid");
+  if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("rightout_controller_reply_input_invalid");
+  if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId)) throw new Error("rightout_controller_reply_input_invalid");
+  return input as PublicControllerReplyInput;
 }
 
 function validateSubmissionReconciliationInput(value: unknown): PublicSubmissionReconciliationInput {
@@ -1416,6 +1500,7 @@ export default definePluginEntry({
     }
     const sendSmtpMail = createSmtpSender();
     const pollImapVerification = createImapPoller();
+    const pollControllerReply = createControllerReplyPoller({ classifier: classifyControllerReply });
     const submitBrowserForm = createBrowserFormSubmitter();
     const browserSessionDriver = createBrowserSessionDriver();
     const browserSessions = new Map<string, Record<string, any>>();
@@ -1469,6 +1554,11 @@ export default definePluginEntry({
       namespace: "rightout-verification-tokens-v1",
       maxEntries: 200,
       defaultTtlMs: 7 * 24 * 60 * 60_000,
+    });
+    const controllerReplyCandidates = openRightOutStore<ControllerReplyCandidate>({
+      namespace: "rightout-controller-reply-candidates-v1",
+      maxEntries: 500,
+      defaultTtlMs: 30 * 24 * 60 * 60_000,
     });
     const verificationOpenDedupe = openRightOutStore<{ createdAt: string; profileId: string; brokerId: string; submissionReference: string; phase: string }>({
       namespace: "rightout-verification-open-dedupe-v1",
@@ -2049,6 +2139,24 @@ export default definePluginEntry({
       return validateVerificationAttestations(input, config?.verificationAttestations) as VerificationAttestations;
     }
 
+    function controllerReplyAttestationSnapshot(
+      config: RightOutConfig | undefined,
+      input: PublicControllerReplyInput,
+    ): ControllerReplyAttestations {
+      return validateControllerReplyAttestations(input, config?.controllerReplyAttestations) as ControllerReplyAttestations;
+    }
+
+    async function controllerCandidateForOutcome(input: PublicControllerOutcomeInput): Promise<ControllerReplyCandidate | undefined> {
+      if (!input.candidateHandle) return undefined;
+      const candidate = await controllerReplyCandidates.lookup(input.candidateHandle);
+      if (
+        !candidate || candidate.profileId !== input.profileId || candidate.brokerId !== input.brokerId
+        || candidate.outcome !== input.outcome || !/^mail_[a-f0-9]{24}$/.test(candidate.messageReference)
+        || !/^(?:smtp|webmail)_[a-f0-9]{16,64}$/.test(candidate.submissionReference)
+      ) throw new Error("rightout_controller_reply_candidate_invalid");
+      return candidate;
+    }
+
     function formAttestationSnapshot(config: RightOutConfig | undefined, input: PublicRemovalInput): FormAttestations {
       return validateFormAttestations(input, config?.formAttestations) as FormAttestations;
     }
@@ -2103,9 +2211,11 @@ export default definePluginEntry({
         secretFinding(rightout, "braveApiKey", "RightOut Brave key is stored as plaintext"),
         secretFinding(rightout, "smtpTransport.username", "RightOut SMTP username is stored as plaintext"),
         secretFinding(rightout, "smtpTransport.password", "RightOut SMTP password is stored as plaintext"),
+        secretFinding(rightout, "smtpTransport.oauthAccessToken", "RightOut SMTP OAuth access token is stored as plaintext"),
         secretFinding(rightout, "smtpTransport.fromAddress", "RightOut sender address is stored as plaintext"),
         secretFinding(rightout, "imapTransport.username", "RightOut IMAP username is stored as plaintext"),
         secretFinding(rightout, "imapTransport.password", "RightOut IMAP password is stored as plaintext"),
+        secretFinding(rightout, "imapTransport.oauthAccessToken", "RightOut IMAP OAuth access token is stored as plaintext"),
         secretFinding(rightout, "imapTransport.address", "RightOut IMAP mailbox address is stored as plaintext"),
         secretFinding(rightout, "stateEncryptionKey", "RightOut durable-state encryption key is stored as plaintext"),
         secretFinding(rightout, "browserControlToken", "RightOut browser-control token is stored as plaintext"),
@@ -2227,6 +2337,30 @@ export default definePluginEntry({
           remediation: "Review the verification policy and configure exact revision-bound verificationAttestations out of band.",
         });
       }
+      const controllerReplyAttestations = rightout?.controllerReplyAttestations;
+      if (controllerReplyAttestations !== undefined && (
+        controllerReplyAttestations?.rightoutControllerReplyPolicyAccepted !== true
+        || controllerReplyAttestations?.rightoutControllerReplyPolicyVersion !== RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION
+        || controllerReplyAttestations?.subjectConsentReviewed !== true
+        || controllerReplyAttestations?.inboxReadAuthorized !== true
+        || !Array.isArray(controllerReplyAttestations?.authorizedProfileIds)
+        || controllerReplyAttestations.authorizedProfileIds.length < 1
+        || !controllerReplyAttestations?.authorizedProfileDigests
+        || typeof controllerReplyAttestations.authorizedProfileDigests !== "object"
+        || controllerReplyAttestations.authorizedProfileIds.some((profileId: string) => !/^[a-f0-9]{64}$/.test(controllerReplyAttestations.authorizedProfileDigests?.[profileId]))
+        || !Array.isArray(controllerReplyAttestations?.authorizedBrokerIds)
+        || controllerReplyAttestations.authorizedBrokerIds.length < 1
+        || typeof controllerReplyAttestations?.imapTransportDigest !== "string"
+        || !/^[a-f0-9]{64}$/.test(controllerReplyAttestations.imapTransportDigest)
+      )) {
+        findings.push({
+          checkId: "rightout.controller_reply_attestations",
+          severity: "critical" as const,
+          title: "RightOut controller-reply attestations are incomplete",
+          detail: `Authenticated reply candidates require exact subject, broker, IMAP, and policy scope ${RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION}.`,
+          remediation: "Review the read-only controller-reply policy and configure exact revision-bound controllerReplyAttestations out of band.",
+        });
+      }
       const formAttestations = rightout?.formAttestations;
       if (formAttestations !== undefined && (
         formAttestations?.rightoutFormPolicyAccepted !== true
@@ -2280,6 +2414,7 @@ export default definePluginEntry({
         "rightout_submit_removal",
         "rightout_submit_form_removal",
         "rightout_poll_verification",
+        "rightout_poll_controller_reply",
         "rightout_open_verification",
         "rightout_direct_rescan",
         "rightout_purge_subject_state",
@@ -2322,6 +2457,7 @@ export default definePluginEntry({
         "rightout_submit_removal",
         "rightout_submit_form_removal",
         "rightout_poll_verification",
+        "rightout_poll_controller_reply",
         "rightout_open_verification",
         "rightout_direct_rescan",
         "rightout_purge_subject_state",
@@ -2567,13 +2703,14 @@ export default definePluginEntry({
           if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.processClass) || broker.confirmationPolicy !== "submitted_until_controller_response") {
             throw new Error("unsupported_controller_outcome_lane");
           }
-          const binding = controllerOutcomeScopeBinding(input, broker);
+          const candidate = await controllerCandidateForOutcome(input);
+          const binding = controllerOutcomeScopeBinding(input, broker, candidate);
           const toolCallId = event.toolCallId;
           return {
             params: input,
             requireApproval: {
               title: "Record reviewed controller outcome",
-              description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed the official controller response and record '${input.outcome}'. This can change removal status; no provider write.`,
+              description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed the official controller response${candidate ? " behind the authenticated encrypted candidate" : ""} and record '${input.outcome}'. This can change removal status; no provider write.`,
               severity: "critical" as const,
               allowedDecisions: ["allow-once", "deny"] as const,
               timeoutMs: approvalTtlMs,
@@ -2792,6 +2929,42 @@ export default definePluginEntry({
           };
         } catch {
           return { block: true, blockReason: "invalid, unsupported, or unattested RightOut inbox-verification scope" };
+        }
+      }
+
+      if (event.toolName === "rightout_poll_controller_reply") {
+        try {
+          const input = validateControllerReplyInput(event.params);
+          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.imapTransport) {
+            throw new Error("rightout_not_configured");
+          }
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
+          const attestations = controllerReplyAttestationSnapshot(config, input);
+          const preflight = validateControllerReplyPreflight({
+            input,
+            catalog,
+            profilePayload: config.profiles[input.profileId].payload,
+            imapTransport: config.imapTransport,
+            attestations,
+          });
+          const binding = controllerReplyScopeBinding(input, attestations, preflight.broker);
+          const toolCallId = event.toolCallId;
+          return {
+            params: input,
+            requireApproval: {
+              title: "Poll authenticated controller reply",
+              description: `P ${input.profileId}; ${input.brokerId}. Read up to 30 recent INBOX messages, accept only exact-recipient, aligned-DKIM, official-domain, exact-thread replies; return no body or address.`,
+              severity: "critical" as const,
+              allowedDecisions: ["allow-once", "deny"] as const,
+              timeoutMs: approvalTtlMs,
+              onResolution(decision: PluginApprovalResolution) {
+                if (decision === "allow-once") approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                else approvalBindings.delete(toolCallId);
+              },
+            },
+          };
+        } catch {
+          return { block: true, blockReason: "invalid, unsupported, unconsented, or unattested RightOut controller-reply scope" };
         }
       }
 
@@ -4402,6 +4575,124 @@ export default definePluginEntry({
 
     api.registerTool(
       {
+        name: "rightout_poll_controller_reply",
+        label: "RightOut poll controller reply",
+        description: "Read recent approved IMAP mail for an exact thread-bound, receiver-authenticated official controller reply. Returns only a bounded outcome candidate; never records a legal or terminal outcome automatically.",
+        parameters: ControllerReplyPollParameters,
+        async execute(toolCallId, params, signal) {
+          let input: PublicControllerReplyInput;
+          try { input = validateControllerReplyInput(params); }
+          catch { throw new Error("rightout_approval_binding_failed"); }
+          await pruneTransientState();
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          const catalog = await catalogPromise;
+          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.imapTransport) {
+            throw new Error("rightout_not_configured");
+          }
+          assertFreshCatalogEntries(catalog, [input.brokerId]);
+          const attestations = controllerReplyAttestationSnapshot(config, input);
+          const preflight = validateControllerReplyPreflight({
+            input,
+            catalog,
+            profilePayload: config.profiles[input.profileId].payload,
+            imapTransport: config.imapTransport,
+            attestations,
+          });
+          const approval = approvalBindings.get(toolCallId);
+          approvalBindings.delete(toolCallId);
+          if (
+            !approval || approval.toolName !== "rightout_poll_controller_reply"
+            || approval.binding !== controllerReplyScopeBinding(input, attestations, preflight.broker)
+          ) throw new Error("rightout_approval_binding_failed");
+          const caseContext = await caseLedger.verificationContext(input.profileId, input.brokerId, [
+            "submitted", "awaiting_processing", "identity_verification_required", "partially_removed",
+          ]);
+          const result = await pollControllerReply({
+            transport: preflight.imap,
+            expectedAddress: preflight.profile.contactEmail,
+            broker: preflight.broker.raw,
+            expectedMessageId: preflight.expectedMessageId,
+            notBefore: caseContext.submitted_at,
+            sinceDays: 30,
+            signal,
+          });
+          if (!result.found) {
+            const deferred = await caseLedger.deferRecheck(input.profileId, input.brokerId, {
+              reason: "authenticated_controller_reply_not_observed",
+              days: 1,
+            });
+            const report = {
+              report_version: 1,
+              subject_ref: input.profileId,
+              broker_id: input.brokerId,
+              state: "controller_reply_not_observed",
+              generated_at: new Date().toISOString(),
+              next_recheck_at: deferred.next_recheck_at,
+              provider_writes: 0,
+              invariants: { raw_mail_in_report: false, raw_pii_in_report: false, inferred_controller_outcome: false },
+            };
+            return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+          }
+          if (
+            typeof result.message_reference !== "string" || !/^mail_[a-f0-9]{24}$/.test(result.message_reference)
+            || !Array.isArray(result.authentication_signals) || !Array.isArray(result.evidence_signals)
+          ) throw new Error("rightout_controller_reply_poll_failed");
+          if (result.outcome_candidate === "needs_manual_check") {
+            const report = {
+              report_version: 1,
+              subject_ref: input.profileId,
+              broker_id: input.brokerId,
+              state: "controller_reply_needs_manual_check",
+              message_reference: result.message_reference,
+              authentication_signals: result.authentication_signals,
+              classifier_signals: result.evidence_signals,
+              generated_at: new Date().toISOString(),
+              next_action: "inspect_the_exact_message_in_the_authorized_mailbox_then_record_only_a_personally_reviewed_outcome",
+              provider_writes: 0,
+              invariants: { raw_mail_in_report: false, raw_pii_in_report: false, inferred_controller_outcome: false },
+            };
+            return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+          }
+          const allowedOutcomes = new Set(["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"]);
+          if (!allowedOutcomes.has(result.outcome_candidate) || result.confidence !== "high") throw new Error("rightout_controller_reply_poll_failed");
+          const candidateHandle = `reply_${randomBytes(12).toString("hex")}`;
+          const candidate: ControllerReplyCandidate = {
+            profileId: input.profileId,
+            brokerId: input.brokerId,
+            outcome: result.outcome_candidate as ControllerReplyCandidate["outcome"],
+            messageReference: result.message_reference,
+            submissionReference: caseContext.submission_proof_reference,
+            terminal: result.terminal === true,
+            evidenceSignals: result.evidence_signals,
+            authenticationSignals: result.authentication_signals,
+            createdAt: new Date().toISOString(),
+          };
+          await controllerReplyCandidates.register(candidateHandle, candidate);
+          const report = {
+            report_version: 1,
+            subject_ref: input.profileId,
+            broker_id: input.brokerId,
+            state: "authenticated_controller_reply_candidate",
+            candidate_handle: candidateHandle,
+            outcome_candidate: candidate.outcome,
+            terminal_candidate: candidate.terminal,
+            confidence: "high",
+            message_reference: candidate.messageReference,
+            authentication_signals: candidate.authenticationSignals,
+            classifier_signals: candidate.evidenceSignals,
+            generated_at: candidate.createdAt,
+            next_action: "personally_review_the_exact_mailbox_message_then_call_rightout_record_controller_outcome_with_this_candidate_handle",
+            provider_writes: 0,
+            invariants: { raw_mail_in_report: false, raw_pii_in_report: false, outcome_recorded_automatically: false },
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
         name: "rightout_rotate_state_key",
         label: "RightOut rotate state key",
         description: "Re-encrypt all local RightOut state under the active SecretRef key while temporary previous SecretRef keys remain configured. Requires native allow-once approval and performs no provider call.",
@@ -4418,10 +4709,11 @@ export default definePluginEntry({
           }
           const config = api.pluginConfig as RightOutConfig | undefined;
           if (!stateRotationReady(config)) throw new Error("rightout_state_rotation_not_configured");
-          const [cases, profileSnapshots, verificationHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
+          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
             caseStore.reencrypt(),
             profileSnapshotStore.reencrypt(),
             verificationTokens.reencrypt(),
+            controllerReplyCandidates.reencrypt(),
             verificationOpenDedupe.reencrypt(),
             portalFlowStore.reencrypt(),
             listingTokens.reencrypt(),
@@ -4439,6 +4731,7 @@ export default definePluginEntry({
               cases,
               profile_snapshots: profileSnapshots,
               verification_handles: verificationHandles,
+              controller_reply_candidates: controllerReplyHandles,
               verification_open_guards: verificationOpenGuards,
               verified_portal_flows: portalFlows,
               listing_handles: listingHandles,
@@ -4479,10 +4772,11 @@ export default definePluginEntry({
           if (!stateEncryptionReady(config)) throw new Error("rightout_not_configured");
           const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
           const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
-          const [caseDeleted, profileSnapshotDeleted, verificationHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
+          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
             caseLedger.purge(input.profileId),
             profileSnapshotStore.delete(input.profileId),
             purgeProfileEntries(verificationTokens, input.profileId),
+            purgeProfileEntries(controllerReplyCandidates, input.profileId),
             purgeProfileEntries(verificationOpenDedupe, input.profileId),
             purgeProfileEntries(portalFlowStore, input.profileId),
             purgeProfileEntries(listingTokens, input.profileId),
@@ -4500,6 +4794,7 @@ export default definePluginEntry({
               case_record: caseDeleted ? 1 : 0,
               profile_snapshot: profileSnapshotDeleted ? 1 : 0,
               verification_handles: verificationHandles,
+              controller_reply_candidates: controllerReplyHandles,
               verification_open_guards: verificationOpenGuards,
               verified_portal_flows: portalFlows,
               listing_handles: listingHandles,
@@ -4537,12 +4832,13 @@ export default definePluginEntry({
           catch { throw new Error("rightout_approval_binding_failed"); }
           const catalog = await catalogPromise;
           const broker = resolveControllerOutcomeBroker(catalog, input);
+          const candidate = await controllerCandidateForOutcome(input);
           await pruneTransientState();
           const approval = approvalBindings.get(toolCallId);
           approvalBindings.delete(toolCallId);
           if (
             !approval || approval.toolName !== "rightout_record_controller_outcome"
-            || approval.binding !== controllerOutcomeScopeBinding(input, broker)
+            || approval.binding !== controllerOutcomeScopeBinding(input, broker, candidate)
           ) throw new Error("rightout_approval_binding_failed");
           assertConfiguredProfile(input.profileId);
           await ensureImmutableProfileSnapshot(input.profileId);
@@ -4551,6 +4847,7 @@ export default definePluginEntry({
             process_class: broker.processClass,
             removal: { confirmation_policy: broker.confirmationPolicy, processing_days: broker.processingDays },
           });
+          if (input.candidateHandle) await controllerReplyCandidates.delete(input.candidateHandle);
           const report = {
             report_version: 1,
             subject_ref: input.profileId,
@@ -4561,6 +4858,7 @@ export default definePluginEntry({
             proof_references: [outcome.proof_reference],
             removal_confirmation_scope: outcome.confirmation_scope ?? null,
             operator_attestation: "native_openclaw_allow_once_human_review",
+            authenticated_candidate_consumed: Boolean(input.candidateHandle),
             provider_writes: 0,
             invariants: { raw_controller_response_in_report: false, raw_pii_in_report: false, smtp_acceptance_used_as_outcome: false },
           };

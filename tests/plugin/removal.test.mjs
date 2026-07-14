@@ -159,6 +159,14 @@ test("SMTP is restricted to pinned TLS endpoints and the subject sender address"
   assert.throws(() => validateSmtpConfig({ ...smtpConfig, secure: false }, profile), /rightout_smtp_not_configured/);
   assert.throws(() => validateSmtpConfig({ ...smtpConfig, fromAddress: "other@example.invalid" }, profile), /rightout_smtp_identity_mismatch/);
   assert.equal(validateSmtpConfig({ ...smtpConfig, password: " pass phrase " }, profile).password, " pass phrase ");
+  const oauth = {
+    host: "smtp.gmail.com", port: 465, secure: true, username: privateProfile.contactEmail,
+    authMode: "oauth2", oauthAccessToken: "ya29.synthetic-short-lived-token",
+    oauthExpiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), fromAddress: privateProfile.contactEmail,
+  };
+  assert.deepEqual(validateSmtpConfig(oauth, profile), oauth);
+  assert.throws(() => validateSmtpConfig({ ...oauth, password: "mixed" }, profile), /rightout_smtp_not_configured/);
+  assert.throws(() => validateSmtpConfig({ ...oauth, oauthExpiresAt: new Date(Date.now() - 60_000).toISOString() }, profile), /rightout_smtp_oauth_expired/);
 });
 
 test("removal attestations bind exact subject, broker, request kind, and policy revision", () => {

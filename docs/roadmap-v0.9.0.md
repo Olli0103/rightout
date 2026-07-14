@@ -50,9 +50,22 @@ provider permission or ambiguous evidence into success.
   compiled digests, external packs require trusted Ed25519 signatures, packs
   expire, and live form sessions quarantine domain, sensitive-control, policy,
   and semantic drift before provider writes. Evidence: `recipes.test.mjs`, form
-  runtime suites, and the full 312-test regression run on 2026-07-14.
-- M1 through U2 and the final R1/R2 release evidence remain open. A green Phase
-  1 suite is not a v0.9.0 release claim.
+  runtime suites.
+- M1 implemented: password transport remains backward compatible; OAuth2 SMTP
+  and IMAP use only a SecretRef-resolved, 1-minute-to-24-hour bearer token,
+  reject mixed credentials, bind token/identity/expiry into protocol-separated
+  digests, and never map OAuth credentials into password fields. Evidence:
+  `smtp.test.mjs`, `imap.test.mjs`, and `transport-digest.test.mjs`.
+- M2 implemented: controller replies are accepted only after exact recipient,
+  receiver-added aligned DKIM, official sender domain, submission time, and
+  exact outgoing Message-ID thread binding. Literal classifications become
+  encrypted candidates; quoted, conflicting, or unknown text stays manual;
+  every outcome including terminal candidates still requires a distinct native
+  allow-once approval. Evidence: `controller-replies.test.mjs`,
+  `controller-reply-runtime.test.mjs`, and `controller-outcome-runtime.test.mjs`.
+- The complete Phase 1+2 regression run passed 321/321 tests on 2026-07-14 with
+  TypeScript checking green. E1 through U2 and final R1/R2 remain open; this is
+  not yet a v0.9.0 release claim.
 
 ## Non-goals and hard stops
 
