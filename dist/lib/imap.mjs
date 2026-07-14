@@ -11,6 +11,7 @@ const LINK_RE = /https:\/\/[^\s"'<>()[\]{}]+/giu;
 const LINK_HINTS = ["verify", "confirm", "remov", "optout", "opt-out", "suppress", "privacy", "delete"];
 const MAX_SOURCE_BYTES = 1_000_000;
 const MAX_MESSAGES = 30;
+const MAX_OAUTH_LIFETIME_MS = 24 * 60 * 60_000;
 function cleanString(value, label, min, max) {
     if (typeof value !== "string")
         throw new Error(`invalid_${label}`);
@@ -134,7 +135,7 @@ export function extractBoundVerificationLink({ text, html, senderDomains, allowe
 export function validateImapConfig(value, expectedAddress) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("rightout_imap_not_configured");
-    const allowed = new Set(["host", "port", "secure", "username", "password", "address"]);
+    const allowed = new Set(["host", "port", "secure", "username", "password", "address", "authMode", "oauthAccessToken", "oauthExpiresAt"]);
     if (Object.keys(value).some((key) => !allowed.has(key)))
         throw new Error("rightout_imap_not_configured");
     const host = cleanString(value.host, "imap_host", 4, 253).toLowerCase();
@@ -143,14 +144,43 @@ export function validateImapConfig(value, expectedAddress) {
     if (ALLOWED_IMAP_ENDPOINTS.get(host) !== port || secure !== true)
         throw new Error("rightout_imap_not_configured");
     const username = cleanString(value.username, "imap_username", 1, 254);
-    const password = cleanString(value.password, "imap_password", 1, 1_024);
     const address = cleanEmail(value.address, "imap_address");
     if (address !== cleanEmail(expectedAddress, "profile_email"))
         throw new Error("rightout_imap_identity_mismatch");
+    const authMode = value.authMode ?? "password";
+    if (authMode === "oauth2") {
+        if (value.password !== undefined)
+            throw new Error("rightout_imap_not_configured");
+        const oauthAccessToken = cleanString(value.oauthAccessToken, "imap_oauth_access_token", 16, 8_192);
+        const expiresAt = Date.parse(value.oauthExpiresAt);
+        const current = Date.now();
+        if (typeof value.oauthExpiresAt !== "string" || !Number.isFinite(expiresAt) || expiresAt <= current + 60_000 || expiresAt > current + MAX_OAUTH_LIFETIME_MS) {
+            throw new Error("rightout_imap_oauth_expired");
+        }
+        return { host, port, secure: true, username, authMode, oauthAccessToken, oauthExpiresAt: new Date(expiresAt).toISOString(), address };
+    }
+    if (authMode !== "password" || value.oauthAccessToken !== undefined || value.oauthExpiresAt !== undefined) {
+        throw new Error("rightout_imap_not_configured");
+    }
+    const password = cleanString(value.password, "imap_password", 1, 1_024);
+    if (value.authMode === "password")
+        return { host, port, secure: true, username, authMode, password, address };
     return { host, port, secure: true, username, password, address };
 }
 export function imapTransportDigest(config) {
     const clean = validateImapConfig(config, config?.address);
+    if (clean.authMode === "oauth2") {
+        const salt = JSON.stringify([
+            "rightout-imap-transport-oauth2-v1",
+            clean.host,
+            clean.port,
+            clean.secure,
+            clean.username,
+            clean.address,
+            clean.oauthExpiresAt,
+        ]);
+        return scryptSync(clean.oauthAccessToken, salt, 32).toString("hex");
+    }
     const salt = JSON.stringify([
         "rightout-imap-transport-v2",
         clean.host,
@@ -184,6 +214,109 @@ function messageReference(message, brokerId) {
         .update(JSON.stringify([brokerId, message.uid, message.envelope?.messageId, message.internalDate]))
         .digest("hex").slice(0, 24)}`;
 }
+function messageReferences(parsed) {
+    const values = [parsed?.inReplyTo, ...(Array.isArray(parsed?.references) ? parsed.references : [parsed?.references])];
+    return values.flatMap((value) => typeof value === "string" ? value.match(/<[^<>\s]{3,300}>/gu) ?? [] : []);
+}
+/**
+ * @param {{clientFactory?: Function, parser?: Function, classifier?: Function, now?: Function}} [options]
+ */
+export function createControllerReplyPoller(options = {}) {
+    const { clientFactory = (clientOptions) => new ImapFlow(clientOptions), parser = simpleParser, classifier, now = () => new Date(), } = options;
+    if (typeof classifier !== "function")
+        throw new Error("rightout_controller_reply_classifier_invalid");
+    return async function pollControllerReply({ transport, expectedAddress, broker, expectedMessageId, notBefore, sinceDays = 30, signal }) {
+        if (!Number.isInteger(sinceDays) || sinceDays < 1 || sinceDays > 30)
+            throw new Error("rightout_controller_reply_window_invalid");
+        if (signal?.aborted)
+            throw new Error("rightout_controller_reply_cancelled");
+        const config = validateImapConfig(transport, expectedAddress);
+        const allowedSenderDomains = cleanDomains(broker?.official_domains);
+        if (!/^<rightout\.[a-f0-9]{32}@local\.invalid>$/.test(expectedMessageId ?? ""))
+            throw new Error("rightout_controller_reply_thread_invalid");
+        const submittedAt = new Date(notBefore);
+        if (typeof notBefore !== "string" || !Number.isFinite(submittedAt.getTime()))
+            throw new Error("rightout_controller_reply_submission_time_invalid");
+        const client = clientFactory({
+            host: config.host,
+            port: config.port,
+            secure: true,
+            auth: config.authMode === "oauth2"
+                ? { user: config.username, accessToken: config.oauthAccessToken }
+                : { user: config.username, pass: config.password },
+            logger: false,
+            disableAutoIdle: true,
+        });
+        if (!client || typeof client.connect !== "function" || typeof client.getMailboxLock !== "function")
+            throw new Error("rightout_imap_client_invalid");
+        const abort = () => { try {
+            client.close?.();
+        }
+        catch { /* best effort */ } };
+        signal?.addEventListener("abort", abort, { once: true });
+        let lock;
+        try {
+            await client.connect();
+            if (signal?.aborted)
+                throw new Error("rightout_controller_reply_cancelled");
+            lock = await client.getMailboxLock("INBOX", { readOnly: true });
+            const since = new Date(now());
+            since.setUTCDate(since.getUTCDate() - sinceDays);
+            const ids = await client.search({ since }, { uid: true });
+            for (const uid of (Array.isArray(ids) ? ids.slice(-MAX_MESSAGES).reverse() : [])) {
+                if (signal?.aborted)
+                    throw new Error("rightout_controller_reply_cancelled");
+                const message = await client.fetchOne(String(uid), { uid: true, envelope: true, internalDate: true, source: true }, { uid: true });
+                if (!message || sourceSize(message.source) < 1 || sourceSize(message.source) > MAX_SOURCE_BYTES)
+                    continue;
+                const parsed = await parser(message.source, { skipHtmlToText: false, skipTextToHtml: true, maxHtmlLengthToParse: MAX_SOURCE_BYTES });
+                if (!(message.internalDate instanceof Date) || message.internalDate.getTime() < submittedAt.getTime())
+                    continue;
+                if (!addressValues(parsed.to?.value).includes(config.address))
+                    continue;
+                if (!hasAlignedDkimPass(parsed.headers, allowedSenderDomains, config.host))
+                    continue;
+                const senderDomains = addressDomains(parsed.from?.value ?? message.envelope?.from);
+                if (!senderDomains.some((domain) => hostMatches(domain, allowedSenderDomains)))
+                    continue;
+                if (!messageReferences(parsed).includes(expectedMessageId))
+                    continue;
+                const candidate = classifier({ text: parsed.text, processClass: broker.process_class });
+                return {
+                    found: true,
+                    broker_id: broker.id,
+                    message_reference: messageReference(message, broker.id),
+                    ...candidate,
+                    authentication_signals: ["exact_recipient", "receiver_added_aligned_dkim", "allowed_sender_domain", "exact_message_thread"],
+                };
+            }
+            return { found: false, broker_id: broker.id };
+        }
+        catch (error) {
+            if (error instanceof Error && error.message === "rightout_controller_reply_cancelled")
+                throw error;
+            if (signal?.aborted)
+                throw new Error("rightout_controller_reply_cancelled");
+            throw new Error("rightout_controller_reply_poll_failed");
+        }
+        finally {
+            try {
+                lock?.release?.();
+            }
+            catch { /* best effort */ }
+            signal?.removeEventListener("abort", abort);
+            try {
+                await client.logout?.();
+            }
+            catch {
+                try {
+                    client.close?.();
+                }
+                catch { /* best effort */ }
+            }
+        }
+    };
+}
 export function createImapPoller({ clientFactory = (options) => new ImapFlow(options), parser = simpleParser, now = () => new Date(), } = {}) {
     return async function pollBrokerVerification({ transport, expectedAddress, broker, notBefore, sinceDays = 14, signal }) {
         if (!Number.isInteger(sinceDays) || sinceDays < 1 || sinceDays > 30)
@@ -199,7 +332,9 @@ export function createImapPoller({ clientFactory = (options) => new ImapFlow(opt
             host: config.host,
             port: config.port,
             secure: true,
-            auth: { user: config.username, pass: config.password },
+            auth: config.authMode === "oauth2"
+                ? { user: config.username, accessToken: config.oauthAccessToken }
+                : { user: config.username, pass: config.password },
             logger: false,
             disableAutoIdle: true,
         });
@@ -284,4 +419,4 @@ export function createImapPoller({ clientFactory = (options) => new ImapFlow(opt
 export function newVerificationHandle() {
     return `verify_${randomBytes(12).toString("hex")}`;
 }
-export const __test = { hostMatches, addressDomains, addressValues, headerValues, hasAlignedDkimPass, verificationLane, messageReference, sourceSize };
+export const __test = { hostMatches, addressDomains, addressValues, headerValues, hasAlignedDkimPass, verificationLane, messageReference, messageReferences, sourceSize };

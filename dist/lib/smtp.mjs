@@ -1,4 +1,16 @@
 import { createTransport } from "nodemailer";
+function smtpAuth(transport) {
+    if (transport.authMode === "oauth2") {
+        if (typeof transport.oauthAccessToken !== "string" || transport.password !== undefined) {
+            throw new Error("rightout_smtp_not_configured");
+        }
+        return { type: "OAuth2", user: transport.username, accessToken: transport.oauthAccessToken };
+    }
+    if ((transport.authMode !== undefined && transport.authMode !== "password") || typeof transport.password !== "string" || transport.oauthAccessToken !== undefined) {
+        throw new Error("rightout_smtp_not_configured");
+    }
+    return { user: transport.username, pass: transport.password };
+}
 export function createSmtpSender(createTransportFn = createTransport) {
     if (typeof createTransportFn !== "function")
         throw new Error("rightout_smtp_factory_invalid");
@@ -10,7 +22,7 @@ export function createSmtpSender(createTransportFn = createTransport) {
             port: transport.port,
             secure: transport.secure,
             requireTLS: !transport.secure,
-            auth: { user: transport.username, pass: transport.password },
+            auth: smtpAuth(transport),
             connectionTimeout: 10_000,
             greetingTimeout: 10_000,
             socketTimeout: 20_000,
@@ -42,3 +54,4 @@ export function createSmtpSender(createTransportFn = createTransport) {
         }
     };
 }
+export const __test = { smtpAuth };

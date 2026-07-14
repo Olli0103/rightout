@@ -349,6 +349,8 @@ function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], v
             }
             if (/\b(?:confirm|verify|yes)\b/u.test(redactedName))
                 return [{ ref: item.ref, role: item.role, name: "confirmation action" }];
+            if (/\b(?:search|find)\b/u.test(redactedName))
+                return [{ ref: item.ref, role: item.role, name: "search action" }];
             if (/\b(?:continue|next|start)\b/u.test(redactedName))
                 return [{ ref: item.ref, role: item.role, name: "continue action" }];
             return [];
@@ -651,6 +653,11 @@ export function createBrowserSessionDriver({ fetchImpl = globalThis.fetch, now =
             throw new Error("rightout_form_human_gate_required");
         if (before.challenge === "access_blocked")
             throw new Error("rightout_browser_access_blocked");
+        if (options.beforeActionGuard !== undefined) {
+            if (typeof options.beforeActionGuard !== "function")
+                throw new Error("rightout_form_action_not_allowed");
+            await options.beforeActionGuard(before);
+        }
         const bridgeOptions = { signal: options.signal, profile: options.browserProfile, authToken: options.browserAuthToken };
         const action = options.action;
         if (!action || typeof action !== "object" || Array.isArray(action))

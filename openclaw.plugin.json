@@ -21,6 +21,10 @@
       "rightout_rotate_state_key",
       "rightout_purge_subject_state",
       "rightout_record_controller_outcome",
+      "rightout_create_evidence_snapshot",
+      "rightout_evidence_status",
+      "rightout_export_evidence",
+      "rightout_custom_target_status",
       "rightout_reconcile_submission",
       "rightout_next_actions",
       "rightout_case_status",
@@ -168,6 +172,37 @@
         {
           "rootPath": "plugins.entries.rightout.config",
           "required": ["stateEncryptionKey", "profiles"]
+        }
+      ]
+    },
+    "rightout_create_evidence_snapshot": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        { "rootPath": "plugins.entries.rightout.config", "required": ["stateEncryptionKey", "profiles"] }
+      ]
+    },
+    "rightout_evidence_status": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        { "rootPath": "plugins.entries.rightout.config", "required": ["stateEncryptionKey"] }
+      ]
+    },
+    "rightout_export_evidence": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        { "rootPath": "plugins.entries.rightout.config", "required": ["stateEncryptionKey", "profiles"] }
+      ]
+    },
+    "rightout_custom_target_status": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["stateEncryptionKey", "profiles", "customTargetRecipePacks", "customTargetTrustedKeys", "customTargetPermissions"]
         }
       ]
     },
@@ -674,6 +709,21 @@
       "label": "Provider automation permissions",
       "help": "Fail-closed per-broker records for current written provider authorization, exact allowed effects, and allowed browser backend classes. User consent or a RightOut attestation alone is never sufficient.",
       "advanced": true
+    },
+    "customTargetRecipePacks": {
+      "label": "Custom-target signed recipe packs",
+      "help": "External Ed25519-signed recipe packs for encrypted custom-target handles. Raw target facts never appear in public tools.",
+      "advanced": true
+    },
+    "customTargetTrustedKeys": {
+      "label": "Custom-target trusted public keys",
+      "help": "Allowlisted Ed25519 public keys used only to verify external custom-target recipe packs.",
+      "advanced": true
+    },
+    "customTargetPermissions": {
+      "label": "Custom-target permissions",
+      "help": "Current written authorization bound to one opaque custom-target handle, exact recipe digest, official-domain digest, lifetime, and effect.",
+      "advanced": true
     }
   },
   "configSchema": {
@@ -757,6 +807,43 @@
               "maxItems": 3,
               "uniqueItems": true,
               "items": { "type": "string", "enum": ["managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp"] }
+            }
+          }
+        }
+      },
+      "customTargetRecipePacks": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 20,
+        "items": { "type": "object" }
+      },
+      "customTargetTrustedKeys": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 20,
+        "propertyNames": { "pattern": "^[A-Za-z0-9._-]{3,80}$" },
+        "additionalProperties": { "type": "string", "minLength": 80, "maxLength": 4096 }
+      },
+      "customTargetPermissions": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 500,
+        "propertyNames": { "pattern": "^custom_[a-f0-9]{24}$" },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "customTargetHandle", "recipeDigest", "authorizationReferenceSha256", "officialDomainsDigest", "reviewedAt", "validUntil", "allowedEffects"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "customTargetHandle": { "type": "string", "pattern": "^custom_[a-f0-9]{24}$" },
+            "recipeDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "authorizationReferenceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "officialDomainsDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "reviewedAt": { "type": "string", "format": "date-time" },
+            "validUntil": { "type": "string", "format": "date-time" },
+            "allowedEffects": {
+              "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
+              "items": { "enum": ["submit_form", "submit_email"] }
             }
           }
         }

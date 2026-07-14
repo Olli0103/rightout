@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
+import { basename } from "node:path";
 import { Type } from "typebox";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import type { PluginApprovalResolution } from "openclaw/plugin-sdk/types";
@@ -40,6 +41,8 @@ import {
 } from "./lib/controller-replies.mjs";
 import { createListingTokenVault } from "./lib/listing-tokens.mjs";
 import { createEncryptedFileKeyedStore } from "./lib/file-keyed-store.mjs";
+import { createEvidenceVault } from "./lib/evidence-vault.mjs";
+import { createCustomTargetVault } from "./lib/custom-targets.mjs";
 import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
 import {
   RIGHTOUT_DIRECT_SCAN_POLICY_VERSION,
@@ -242,6 +245,9 @@ type RightOutConfig = {
   imapTransport?: ImapTransportConfig;
   verificationAttestations?: VerificationAttestations;
   controllerReplyAttestations?: ControllerReplyAttestations;
+  customTargetRecipePacks?: unknown[];
+  customTargetTrustedKeys?: Record<string, string>;
+  customTargetPermissions?: Record<string, unknown>;
   formAttestations?: FormAttestations;
   stateEncryptionKey?: string;
   previousStateEncryptionKeys?: string[];
@@ -555,6 +561,39 @@ const ControllerReplyPollParameters = Type.Object(
   { additionalProperties: false },
 );
 
+const EvidenceSnapshotParameters = Type.Object(
+  {
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,80}$" }),
+  },
+  { additionalProperties: false },
+);
+
+const EvidenceRefParameters = Type.Object(
+  {
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    evidenceRef: Type.String({ pattern: "^evidence_[a-f0-9]{64}$" }),
+  },
+  { additionalProperties: false },
+);
+
+const EvidenceExportParameters = Type.Object(
+  {
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    evidenceRef: Type.String({ pattern: "^evidence_[a-f0-9]{64}$" }),
+    format: Type.Union([Type.Literal("json"), Type.Literal("markdown")]),
+  },
+  { additionalProperties: false },
+);
+
+const CustomTargetRefParameters = Type.Object(
+  {
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    customTargetHandle: Type.String({ pattern: "^custom_[a-f0-9]{24}$" }),
+  },
+  { additionalProperties: false },
+);
+
 const SubmissionReconciliationParameters = Type.Object(
   {
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
@@ -812,6 +851,9 @@ type PublicControllerOutcomeInput = PublicCaseInput & {
   candidateHandle?: string;
 };
 type PublicControllerReplyInput = PublicCaseInput & { brokerId: string };
+type PublicEvidenceRefInput = PublicCaseInput & { evidenceRef: string };
+type PublicEvidenceExportInput = PublicEvidenceRefInput & { format: "json" | "markdown" };
+type PublicCustomTargetRefInput = PublicCaseInput & { customTargetHandle: string };
 type PublicSubmissionReconciliationInput = PublicCaseInput & {
   brokerId: string;
   outcome: "provider_write_not_started" | "provider_write_confirmed";
@@ -1183,6 +1225,39 @@ function validateControllerReplyInput(value: unknown): PublicControllerReplyInpu
   if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("rightout_controller_reply_input_invalid");
   if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId)) throw new Error("rightout_controller_reply_input_invalid");
   return input as PublicControllerReplyInput;
+}
+
+function validateEvidenceRefInput(value: unknown, exporting = false): PublicEvidenceRefInput | PublicEvidenceExportInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("rightout_evidence_ref_invalid");
+  const input = value as Record<string, unknown>;
+  const allowed = exporting ? ["profileId", "evidenceRef", "format"] : ["profileId", "evidenceRef"];
+  if (Object.keys(input).some((key) => !allowed.includes(key)) || Object.keys(input).length !== allowed.length) throw new Error("rightout_evidence_ref_invalid");
+  if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("rightout_evidence_ref_invalid");
+  if (typeof input.evidenceRef !== "string" || !/^evidence_[a-f0-9]{64}$/.test(input.evidenceRef)) throw new Error("rightout_evidence_ref_invalid");
+  if (exporting && !["json", "markdown"].includes(String(input.format))) throw new Error("rightout_evidence_ref_invalid");
+  return input as PublicEvidenceRefInput | PublicEvidenceExportInput;
+}
+
+function validateEvidenceSnapshotInput(value: unknown): PublicControllerReplyInput {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2) throw new Error("rightout_evidence_scope_invalid");
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some((key) => !["profileId", "brokerId"].includes(key))) throw new Error("rightout_evidence_scope_invalid");
+  if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("rightout_evidence_scope_invalid");
+  if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,80}$/.test(input.brokerId)) throw new Error("rightout_evidence_scope_invalid");
+  return input as PublicControllerReplyInput;
+}
+
+function validateCustomTargetRefInput(value: unknown): PublicCustomTargetRefInput {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2) throw new Error("rightout_custom_target_ref_invalid");
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some((key) => !["profileId", "customTargetHandle"].includes(key))) throw new Error("rightout_custom_target_ref_invalid");
+  if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId)) throw new Error("rightout_custom_target_ref_invalid");
+  if (typeof input.customTargetHandle !== "string" || !/^custom_[a-f0-9]{24}$/.test(input.customTargetHandle)) throw new Error("rightout_custom_target_ref_invalid");
+  return input as PublicCustomTargetRefInput;
+}
+
+function evidenceExportScopeBinding(input: PublicEvidenceExportInput): string {
+  return JSON.stringify(["rightout-evidence-export-v1", input]);
 }
 
 function validateSubmissionReconciliationInput(value: unknown): PublicSubmissionReconciliationInput {
@@ -1560,6 +1635,17 @@ export default definePluginEntry({
       maxEntries: 500,
       defaultTtlMs: 30 * 24 * 60 * 60_000,
     });
+    const evidenceStore = openRightOutStore<Record<string, unknown>>({
+      namespace: "rightout-evidence-vault-v1",
+      maxEntries: 500,
+    });
+    const evidenceVault = createEvidenceVault(evidenceStore);
+    const customTargetStore = openRightOutStore<Record<string, unknown>>({
+      namespace: "rightout-custom-targets-v1",
+      maxEntries: 500,
+      defaultTtlMs: 365 * 24 * 60 * 60_000,
+    });
+    const customTargetVault = createCustomTargetVault(customTargetStore);
     const verificationOpenDedupe = openRightOutStore<{ createdAt: string; profileId: string; brokerId: string; submissionReference: string; phase: string }>({
       namespace: "rightout-verification-open-dedupe-v1",
       maxEntries: 200,
@@ -2407,6 +2493,20 @@ export default definePluginEntry({
           remediation: "Review publisher terms and configure exact revision-bound directScanAttestations out of band.",
         });
       }
+      const customTargetConfigured = [
+        rightout?.customTargetRecipePacks,
+        rightout?.customTargetTrustedKeys,
+        rightout?.customTargetPermissions,
+      ].filter((value) => value !== undefined).length;
+      if (customTargetConfigured > 0 && customTargetConfigured < 3) {
+        findings.push({
+          checkId: "rightout.custom_target_trust",
+          severity: "critical" as const,
+          title: "RightOut custom-target trust configuration is incomplete",
+          detail: "Custom targets remain quarantined unless signed recipe packs, allowlisted Ed25519 public keys, and exact handle-bound current permissions are all configured.",
+          remediation: "Configure all three custom-target trust inputs or remove the partial configuration; raw targets remain encrypted local state.",
+        });
+      }
       const runtime = config as Record<string, any>;
       const httpDeny = runtime.gateway?.tools?.deny;
       const missingDeny = [
@@ -2419,6 +2519,7 @@ export default definePluginEntry({
         "rightout_direct_rescan",
         "rightout_purge_subject_state",
         "rightout_record_controller_outcome",
+        "rightout_export_evidence",
         "rightout_reconcile_submission",
         "rightout_rotate_state_key",
         "rightout_start_campaign",
@@ -2462,6 +2563,7 @@ export default definePluginEntry({
         "rightout_direct_rescan",
         "rightout_purge_subject_state",
         "rightout_record_controller_outcome",
+        "rightout_export_evidence",
         "rightout_reconcile_submission",
         "rightout_rotate_state_key",
         "rightout_start_campaign",
@@ -2510,6 +2612,29 @@ export default definePluginEntry({
           };
         } catch {
           return { block: true, blockReason: "Durable RightOut autonomy requires an active immutable campaign, current recipe policy, exact trusted session, and native allow-once approval" };
+        }
+      }
+      if (event.toolName === "rightout_export_evidence") {
+        try {
+          const input = validateEvidenceRefInput(event.params, true) as PublicEvidenceExportInput;
+          const binding = evidenceExportScopeBinding(input);
+          const toolCallId = event.toolCallId;
+          return {
+            params: input,
+            requireApproval: {
+              title: "Export redacted local evidence",
+              description: `P ${input.profileId}; ${input.evidenceRef}. Write one ${input.format} artifact into the private local RightOut export directory after the evidence-vault redaction scan.`,
+              severity: "critical" as const,
+              allowedDecisions: ["allow-once", "deny"] as const,
+              timeoutMs: approvalTtlMs,
+              onResolution(decision: PluginApprovalResolution) {
+                if (decision === "allow-once") approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                else approvalBindings.delete(toolCallId);
+              },
+            },
+          };
+        } catch {
+          return { block: true, blockReason: "invalid RightOut evidence-export scope" };
         }
       }
       if (event.toolName === "rightout_worker_resume") {
@@ -4693,6 +4818,150 @@ export default definePluginEntry({
 
     api.registerTool(
       {
+        name: "rightout_create_evidence_snapshot",
+        label: "RightOut create evidence snapshot",
+        description: "Store one sanitized case-transition snapshot in the encrypted, retention-bound, content-addressed local evidence vault. Returns metadata only and performs no provider request or external write.",
+        parameters: EvidenceSnapshotParameters,
+        async execute(_toolCallId, params) {
+          const input = validateEvidenceSnapshotInput(params);
+          assertConfiguredProfile(input.profileId);
+          const status = await caseLedger.status(input.profileId);
+          const item = status.cases.find((candidate: Record<string, any>) => candidate.broker_id === input.brokerId);
+          if (!item) throw new Error("rightout_evidence_case_not_found");
+          const content = {
+            schema_version: 1,
+            subject_ref: input.profileId,
+            broker_id: input.brokerId,
+            state: item.state,
+            proof_references: item.proof_references,
+            submission_channel: item.submission_channel,
+            submission_started_at: item.submission_started_at,
+            submission_outcome: item.submission_outcome,
+            next_recheck_at: item.next_recheck_at,
+            removal_confirmed_at: item.removal_confirmed_at,
+            removal_confirmation_scope: item.removal_confirmation_scope,
+            coverage_gap: item.coverage_gap,
+            human_task_reason: item.human_task_reason,
+            raw_pii_in_snapshot: false,
+          };
+          const report = await evidenceVault.put({
+            profileId: input.profileId,
+            brokerId: input.brokerId,
+            kind: "case_transition_snapshot",
+            retentionDays: stateRetentionDays,
+            content,
+          });
+          const details = { report_version: 1, state: "encrypted_evidence_snapshot_created", ...report, provider_reads: 0, provider_writes: 0 };
+          return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_evidence_status",
+        label: "RightOut evidence status",
+        description: "Read metadata for one exact subject-bound encrypted evidence reference without returning its content or performing a network request.",
+        parameters: EvidenceRefParameters,
+        async execute(_toolCallId, params) {
+          const input = validateEvidenceRefInput(params) as PublicEvidenceRefInput;
+          const report = { report_version: 1, state: "encrypted_evidence_available", ...(await evidenceVault.metadata(input.evidenceRef, input.profileId)), provider_reads: 0, provider_writes: 0 };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_export_evidence",
+        label: "RightOut export redacted evidence",
+        description: "Export one exact encrypted evidence record into the private local RightOut export directory after redaction. Requires native allow-once approval and performs no provider request.",
+        parameters: EvidenceExportParameters,
+        async execute(toolCallId, params) {
+          const input = validateEvidenceRefInput(params, true) as PublicEvidenceExportInput;
+          await pruneTransientState();
+          const approval = approvalBindings.get(toolCallId);
+          approvalBindings.delete(toolCallId);
+          if (!approval || approval.toolName !== "rightout_export_evidence" || approval.binding !== evidenceExportScopeBinding(input)) {
+            throw new Error("rightout_approval_binding_failed");
+          }
+          assertConfiguredProfile(input.profileId);
+          const exported = await evidenceVault.exportRedacted(input.evidenceRef, input.profileId, stateDir, input.format);
+          const { artifact_path: artifactPath, ...exportMetadata } = exported;
+          const report = {
+            report_version: 1,
+            ...exportMetadata,
+            artifact_name: basename(artifactPath),
+            artifact_location: "private_rightout_state_evidence_export_directory",
+            approval_boundary: "native_openclaw_allow_once_redacted_local_export",
+            provider_reads: 0,
+            provider_writes: 0,
+            raw_pii_in_report: false,
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_custom_target_status",
+        label: "RightOut custom target status",
+        description: "Inspect one subject-bound opaque custom-target handle. Raw URL/domain/source facts remain encrypted; readiness requires one exact trusted external recipe and current handle-bound permission.",
+        parameters: CustomTargetRefParameters,
+        async execute(_toolCallId, params) {
+          const input = validateCustomTargetRefInput(params);
+          assertConfiguredProfile(input.profileId);
+          const config = api.pluginConfig as RightOutConfig;
+          const metadata = await customTargetVault.metadata(input.customTargetHandle, input.profileId);
+          let state = "quarantined";
+          let reason = "signed_recipe_and_current_permission_required";
+          let recipeId: string | null = null;
+          let recipeDigestValue: string | null = null;
+          try {
+            const resolved = await customTargetVault.resolveAuthorized(input.customTargetHandle, input.profileId, {
+              recipePacks: config.customTargetRecipePacks,
+              trustedKeys: config.customTargetTrustedKeys,
+              permission: config.customTargetPermissions?.[input.customTargetHandle],
+            });
+            state = "authorized_recipe_and_permission_bound";
+            reason = "ready_for_separately_approved_custom_provider_session";
+            recipeId = resolved.metadata.recipe_id;
+            recipeDigestValue = resolved.metadata.recipe_digest;
+          } catch (error) {
+            const code = error instanceof Error ? error.message : "rightout_custom_target_recipe_required";
+            reason = code === "rightout_custom_target_permission_expired"
+              ? "permission_expired"
+              : code === "rightout_custom_target_scope_mismatch"
+                ? "subject_scope_mismatch"
+                : "signed_recipe_and_current_permission_required";
+          }
+          const report = {
+            report_version: 1,
+            ...metadata,
+            state,
+            reason,
+            recipe_id: recipeId,
+            recipe_digest: recipeDigestValue,
+            provider_action_available: false,
+            next_action: state === "authorized_recipe_and_permission_bound"
+              ? "custom_provider_execution_remains_disabled_until_a_dedicated_approval_gated_session_is_implemented"
+              : "install_a_trusted_signed_recipe_and_current_handle_bound_permission",
+            provider_reads: 0,
+            provider_writes: 0,
+            raw_target_in_report: false,
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
         name: "rightout_rotate_state_key",
         label: "RightOut rotate state key",
         description: "Re-encrypt all local RightOut state under the active SecretRef key while temporary previous SecretRef keys remain configured. Requires native allow-once approval and performs no provider call.",
@@ -4709,11 +4978,13 @@ export default definePluginEntry({
           }
           const config = api.pluginConfig as RightOutConfig | undefined;
           if (!stateRotationReady(config)) throw new Error("rightout_state_rotation_not_configured");
-          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
+          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
             caseStore.reencrypt(),
             profileSnapshotStore.reencrypt(),
             verificationTokens.reencrypt(),
             controllerReplyCandidates.reencrypt(),
+            evidenceStore.reencrypt(),
+            customTargetStore.reencrypt(),
             verificationOpenDedupe.reencrypt(),
             portalFlowStore.reencrypt(),
             listingTokens.reencrypt(),
@@ -4732,6 +5003,8 @@ export default definePluginEntry({
               profile_snapshots: profileSnapshots,
               verification_handles: verificationHandles,
               controller_reply_candidates: controllerReplyHandles,
+              evidence_entries: evidenceEntries,
+              custom_target_entries: customTargetEntries,
               verification_open_guards: verificationOpenGuards,
               verified_portal_flows: portalFlows,
               listing_handles: listingHandles,
@@ -4772,11 +5045,13 @@ export default definePluginEntry({
           if (!stateEncryptionReady(config)) throw new Error("rightout_not_configured");
           const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
           const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
-          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
+          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
             caseLedger.purge(input.profileId),
             profileSnapshotStore.delete(input.profileId),
             purgeProfileEntries(verificationTokens, input.profileId),
             purgeProfileEntries(controllerReplyCandidates, input.profileId),
+            purgeProfileEntries(evidenceStore, input.profileId),
+            purgeProfileEntries(customTargetStore, input.profileId),
             purgeProfileEntries(verificationOpenDedupe, input.profileId),
             purgeProfileEntries(portalFlowStore, input.profileId),
             purgeProfileEntries(listingTokens, input.profileId),
@@ -4795,6 +5070,8 @@ export default definePluginEntry({
               profile_snapshot: profileSnapshotDeleted ? 1 : 0,
               verification_handles: verificationHandles,
               controller_reply_candidates: controllerReplyHandles,
+              evidence_entries: evidenceEntries,
+              custom_target_entries: customTargetEntries,
               verification_open_guards: verificationOpenGuards,
               verified_portal_flows: portalFlows,
               listing_handles: listingHandles,
