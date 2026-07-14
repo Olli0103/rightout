@@ -63,9 +63,23 @@ provider permission or ambiguous evidence into success.
   every outcome including terminal candidates still requires a distinct native
   allow-once approval. Evidence: `controller-replies.test.mjs`,
   `controller-reply-runtime.test.mjs`, and `controller-outcome-runtime.test.mjs`.
-- The complete Phase 1+2 regression run passed 321/321 tests on 2026-07-14 with
-  TypeScript checking green. E1 through U2 and final R1/R2 remain open; this is
-  not yet a v0.9.0 release claim.
+- E1 implemented: sanitized case snapshots are scoped content-addressed records
+  inside the authenticated encrypted store, use bounded retention, fail on
+  tamper or sensitive keys/values, return metadata only, purge and rotate with
+  the subject, and require a separate native approval for a private contained
+  redacted export. Evidence: `evidence-vault.test.mjs` and
+  `evidence-runtime.test.mjs`.
+- C1 implemented as a safe intake boundary, not a new write lane: the local CLI
+  accepts raw target facts out of band, stores them encrypted, and returns only
+  a random opaque handle. Domain-confusion, credentials, IP targets, non-HTTPS,
+  and Unicode-confusable hosts fail closed. Runtime readiness requires one exact
+  trusted Ed25519 recipe plus current handle/recipe/domain/effect permission;
+  provider execution remains explicitly disabled until a dedicated approved
+  session exists. Evidence: `custom-targets.test.mjs` and
+  `evidence-runtime.test.mjs`.
+- The complete Phase 1-3 regression run passed 328/328 tests on 2026-07-14 with
+  TypeScript checking and build green. L1 through U2 and final R1/R2 remain
+  open; this is not yet a v0.9.0 release claim.
 
 ## Non-goals and hard stops
 

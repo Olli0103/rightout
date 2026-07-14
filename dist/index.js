@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
+import { basename } from "node:path";
 import { Type } from "typebox";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { buildHostnameAllowlistPolicyFromSuffixAllowlist, fetchWithSsrFGuard, } from "openclaw/plugin-sdk/ssrf-runtime";
@@ -8,9 +9,12 @@ import { RIGHTOUT_REMOVAL_POLICY_VERSION, removalApprovalDescription, removalSco
 import { createSmtpSender } from "./lib/smtp.mjs";
 import { createCaseLedger } from "./lib/cases.mjs";
 import { createBrowserFormSubmitter, createBrowserSessionDriver } from "./lib/browser-form.mjs";
-import { createImapPoller, newVerificationHandle } from "./lib/imap.mjs";
+import { createControllerReplyPoller, createImapPoller, newVerificationHandle } from "./lib/imap.mjs";
+import { RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION, classifyControllerReply, controllerReplyScopeBinding, validateControllerReplyAttestations, validateControllerReplyPreflight, } from "./lib/controller-replies.mjs";
 import { createListingTokenVault } from "./lib/listing-tokens.mjs";
 import { createEncryptedFileKeyedStore } from "./lib/file-keyed-store.mjs";
+import { createEvidenceVault } from "./lib/evidence-vault.mjs";
+import { createCustomTargetVault } from "./lib/custom-targets.mjs";
 import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
 import { RIGHTOUT_DIRECT_SCAN_POLICY_VERSION, directScanApprovalDescription, directScanScopeBinding, resolveDirectScanCatalogEntry, runDirectRescan, validateDirectScanAttestations, validateDirectScanInput, validatePublisherAccessAttestations, } from "./lib/direct-rescan.mjs";
 import { RIGHTOUT_VERIFICATION_POLICY_VERSION, browserVerificationProfileDigest, resolveVerificationCatalogEntry, validateBrowserVerificationPreflight, validateVerificationAttestations, validateVerificationOpenInput, validateVerificationPollInput, validateVerificationPreflight, verificationOpenApprovalDescription, verificationOpenScopeBinding, verificationPollApprovalDescription, verificationPollScopeBinding, } from "./lib/verification.mjs";
@@ -24,6 +28,8 @@ import { buildCombinedScanCatalog } from "./lib/scan-catalog.mjs";
 import { assertPublisherAutomationPermission, providerTermsHealth, validateProviderTermsCatalog, } from "./lib/provider-terms.mjs";
 import { createReportExport } from "./lib/report-export.mjs";
 import { refreshParitySources } from "./lib/parity-source-refresh.mjs";
+import { createAutonomyWorkerLedger, workerPolicyDigest, workerSessionBindingDigest, } from "./lib/autonomy-worker.mjs";
+import { assessRecipeSnapshot, compileBuiltinRecipePack, recipeDigest, } from "./lib/recipes.mjs";
 function canonicalJson(value) {
     if (Array.isArray(value))
         return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
@@ -272,6 +278,31 @@ const ControllerOutcomeParameters = Type.Object({
         Type.Literal("identity_required"),
         Type.Literal("request_rejected"),
     ], { description: "Human-reviewed controller response outcome; never inferred from SMTP acceptance." }),
+    candidateHandle: Type.Optional(Type.String({
+        pattern: "^reply_[a-f0-9]{24}$",
+        description: "Optional encrypted authenticated-reply candidate that the operator reviewed before approving this outcome.",
+    })),
+}, { additionalProperties: false });
+const ControllerReplyPollParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU or US controller with an already submitted email request." }),
+}, { additionalProperties: false });
+const EvidenceSnapshotParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,80}$" }),
+}, { additionalProperties: false });
+const EvidenceRefParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    evidenceRef: Type.String({ pattern: "^evidence_[a-f0-9]{64}$" }),
+}, { additionalProperties: false });
+const EvidenceExportParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    evidenceRef: Type.String({ pattern: "^evidence_[a-f0-9]{64}$" }),
+    format: Type.Union([Type.Literal("json"), Type.Literal("markdown")]),
+}, { additionalProperties: false });
+const CustomTargetRefParameters = Type.Object({
+    profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$" }),
+    customTargetHandle: Type.String({ pattern: "^custom_[a-f0-9]{24}$" }),
 }, { additionalProperties: false });
 const SubmissionReconciliationParameters = Type.Object({
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
@@ -323,6 +354,18 @@ const CampaignRefParameters = Type.Object({
 }, { additionalProperties: false });
 const CampaignNextParameters = Type.Object({
     campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$", description: "Active bounded campaign to advance by one deterministic step." }),
+}, { additionalProperties: false });
+const WorkerEnableParameters = Type.Object({
+    campaignId: Type.String({ pattern: "^campaign_[a-f0-9]{32}$", description: "Active bounded campaign to advance durably." }),
+    intervalMinutes: Type.Integer({ minimum: 5, maximum: 1440, description: "Minimum delay between idle worker turns." }),
+    maxConsecutiveFailures: Type.Integer({ minimum: 1, maximum: 10, description: "Hard transient-failure budget before a human gate." }),
+}, { additionalProperties: false });
+const WorkerRefParameters = Type.Object({ workerId: Type.String({ pattern: "^worker_[a-f0-9]{32}$", description: "Opaque durable autonomy worker reference." }) }, { additionalProperties: false });
+const WorkerCompleteParameters = Type.Object({
+    workerId: Type.String({ pattern: "^worker_[a-f0-9]{32}$" }),
+    leaseId: Type.String({ pattern: "^lease_[a-f0-9]{32}$" }),
+    outcome: Type.Union([Type.Literal("action_succeeded"), Type.Literal("transient_failure"), Type.Literal("human_gate")]),
+    reason: Type.Optional(Type.String({ pattern: "^[a-z0-9_]{3,120}$" })),
 }, { additionalProperties: false });
 const RegistrySearchParameters = Type.Object({
     query: Type.String({ minLength: 2, maxLength: 80, pattern: "^[A-Za-z0-9 .&'_-]+$", description: "Public broker/company name or domain fragment." }),
@@ -429,6 +472,46 @@ function assertCampaignCatalogScope(catalog, input) {
         : [])));
     if (input.brokerIds.some((brokerId) => !known.has(brokerId)))
         throw new Error("rightout_campaign_scope_invalid");
+}
+function validateWorkerEnableInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_worker_input_invalid");
+    const input = value;
+    if (Object.keys(input).length !== 3 || Object.keys(input).some((key) => !["campaignId", "intervalMinutes", "maxConsecutiveFailures"].includes(key))) {
+        throw new Error("rightout_worker_input_invalid");
+    }
+    if (typeof input.campaignId !== "string" || !/^campaign_[a-f0-9]{32}$/.test(input.campaignId))
+        throw new Error("rightout_worker_input_invalid");
+    if (!Number.isInteger(input.intervalMinutes) || Number(input.intervalMinutes) < 5 || Number(input.intervalMinutes) > 1_440)
+        throw new Error("rightout_worker_input_invalid");
+    if (!Number.isInteger(input.maxConsecutiveFailures) || Number(input.maxConsecutiveFailures) < 1 || Number(input.maxConsecutiveFailures) > 10) {
+        throw new Error("rightout_worker_input_invalid");
+    }
+    return input;
+}
+function validateWorkerRefInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1)
+        throw new Error("rightout_worker_ref_invalid");
+    const input = value;
+    if (typeof input.workerId !== "string" || !/^worker_[a-f0-9]{32}$/.test(input.workerId))
+        throw new Error("rightout_worker_ref_invalid");
+    return input;
+}
+function validateWorkerCompleteInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_worker_completion_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["workerId", "leaseId", "outcome", "reason"].includes(key)))
+        throw new Error("rightout_worker_completion_invalid");
+    validateWorkerRefInput({ workerId: input.workerId });
+    if (typeof input.leaseId !== "string" || !/^lease_[a-f0-9]{32}$/.test(input.leaseId))
+        throw new Error("rightout_worker_completion_invalid");
+    if (!["action_succeeded", "transient_failure", "human_gate"].includes(String(input.outcome)))
+        throw new Error("rightout_worker_completion_invalid");
+    if (input.reason !== undefined && (typeof input.reason !== "string" || !/^[a-z0-9_]{3,120}$/.test(input.reason))) {
+        throw new Error("rightout_worker_completion_invalid");
+    }
+    return input;
 }
 function splitCampaignParams(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -605,6 +688,18 @@ function purgeScopeBinding(input) {
 function rotationScopeBinding() {
     return JSON.stringify(["rotate_state_key", "all_rightout_encrypted_state"]);
 }
+function workerEnableScopeBinding(input, policyDigest, sessionBindingDigest) {
+    const clean = validateWorkerEnableInput(input);
+    if (![policyDigest, sessionBindingDigest].every((value) => /^[a-f0-9]{64}$/.test(value)))
+        throw new Error("rightout_worker_policy_invalid");
+    return JSON.stringify(["rightout_worker_enable_v1", clean, policyDigest, sessionBindingDigest]);
+}
+function workerResumeScopeBinding(input, policyDigest, sessionBindingDigest) {
+    const clean = validateWorkerRefInput(input);
+    if (![policyDigest, sessionBindingDigest].every((value) => /^[a-f0-9]{64}$/.test(value)))
+        throw new Error("rightout_worker_policy_invalid");
+    return JSON.stringify(["rightout_worker_resume_v1", clean.workerId, policyDigest, sessionBindingDigest]);
+}
 function sensitiveFormStepScopeBinding(session, input) {
     const fields = Array.isArray(input.action?.fields)
         ? input.action.fields.map((field) => session.fieldDisclosureMap?.[field.profile_field]).filter(Boolean).sort()
@@ -664,7 +759,7 @@ function validateControllerOutcomeInput(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("invalid_controller_outcome");
     const input = value;
-    if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome"].includes(key)))
+    if (Object.keys(input).some((key) => !["profileId", "brokerId", "outcome", "candidateHandle"].includes(key)))
         throw new Error("invalid_controller_outcome");
     if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
         throw new Error("invalid_controller_outcome");
@@ -673,10 +768,67 @@ function validateControllerOutcomeInput(value) {
     if (!["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"].includes(String(input.outcome))) {
         throw new Error("invalid_controller_outcome");
     }
+    if (input.candidateHandle !== undefined && (typeof input.candidateHandle !== "string" || !/^reply_[a-f0-9]{24}$/.test(input.candidateHandle))) {
+        throw new Error("invalid_controller_outcome");
+    }
     return input;
 }
-function controllerOutcomeScopeBinding(input, broker) {
-    return JSON.stringify(["controller-outcome", input, broker]);
+function controllerOutcomeScopeBinding(input, broker, candidate) {
+    return JSON.stringify(["controller-outcome", input, broker, candidate ?? null]);
+}
+function validateControllerReplyInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_controller_reply_input_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId"].includes(key)))
+        throw new Error("rightout_controller_reply_input_invalid");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_controller_reply_input_invalid");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,24}$/.test(input.brokerId))
+        throw new Error("rightout_controller_reply_input_invalid");
+    return input;
+}
+function validateEvidenceRefInput(value, exporting = false) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("rightout_evidence_ref_invalid");
+    const input = value;
+    const allowed = exporting ? ["profileId", "evidenceRef", "format"] : ["profileId", "evidenceRef"];
+    if (Object.keys(input).some((key) => !allowed.includes(key)) || Object.keys(input).length !== allowed.length)
+        throw new Error("rightout_evidence_ref_invalid");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_evidence_ref_invalid");
+    if (typeof input.evidenceRef !== "string" || !/^evidence_[a-f0-9]{64}$/.test(input.evidenceRef))
+        throw new Error("rightout_evidence_ref_invalid");
+    if (exporting && !["json", "markdown"].includes(String(input.format)))
+        throw new Error("rightout_evidence_ref_invalid");
+    return input;
+}
+function validateEvidenceSnapshotInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2)
+        throw new Error("rightout_evidence_scope_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "brokerId"].includes(key)))
+        throw new Error("rightout_evidence_scope_invalid");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_evidence_scope_invalid");
+    if (typeof input.brokerId !== "string" || !/^[a-z0-9_]{2,80}$/.test(input.brokerId))
+        throw new Error("rightout_evidence_scope_invalid");
+    return input;
+}
+function validateCustomTargetRefInput(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2)
+        throw new Error("rightout_custom_target_ref_invalid");
+    const input = value;
+    if (Object.keys(input).some((key) => !["profileId", "customTargetHandle"].includes(key)))
+        throw new Error("rightout_custom_target_ref_invalid");
+    if (typeof input.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(input.profileId))
+        throw new Error("rightout_custom_target_ref_invalid");
+    if (typeof input.customTargetHandle !== "string" || !/^custom_[a-f0-9]{24}$/.test(input.customTargetHandle))
+        throw new Error("rightout_custom_target_ref_invalid");
+    return input;
+}
+function evidenceExportScopeBinding(input) {
+    return JSON.stringify(["rightout-evidence-export-v1", input]);
 }
 function validateSubmissionReconciliationInput(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -769,7 +921,20 @@ export default definePluginEntry({
         const catalogPath = api.resolvePath("skills/data-broker-removal/references/brokers/core.json");
         const catalogPromise = loadCatalog(catalogPath);
         const parityCatalogPath = api.resolvePath("skills/data-broker-removal/references/brokers/unbroker-parity.json");
-        const parityCatalogPromise = loadCatalog(parityCatalogPath).then((value) => validateParityCatalog(value));
+        const parityCatalogRawPromise = loadCatalog(parityCatalogPath);
+        const parityCatalogPromise = parityCatalogRawPromise.then((value) => validateParityCatalog(value));
+        const parityCatalogSourceShaPromise = readFile(parityCatalogPath)
+            .then((value) => createHash("sha256").update(value).digest("hex"));
+        const recipeManifestPath = api.resolvePath("skills/data-broker-removal/references/brokers/recipe-pack.json");
+        let recipePackPromise;
+        const loadRecipePack = () => {
+            recipePackPromise ??= Promise.all([
+                parityCatalogRawPromise,
+                loadCatalog(recipeManifestPath),
+                parityCatalogSourceShaPromise,
+            ]).then(([catalog, manifest, sourceSha256]) => compileBuiltinRecipePack(catalog, manifest, { sourceSha256 }));
+            return recipePackPromise;
+        };
         const providerTermsPath = api.resolvePath("skills/data-broker-removal/references/brokers/provider-terms.json");
         const providerTermsPromise = loadCatalog(providerTermsPath).then((value) => validateProviderTermsCatalog(value));
         const campaignCatalogDigestPromise = Promise.all([catalogPromise, parityCatalogPromise, providerTermsPromise])
@@ -982,6 +1147,7 @@ export default definePluginEntry({
         }
         const sendSmtpMail = createSmtpSender();
         const pollImapVerification = createImapPoller();
+        const pollControllerReply = createControllerReplyPoller({ classifier: classifyControllerReply });
         const submitBrowserForm = createBrowserFormSubmitter();
         const browserSessionDriver = createBrowserSessionDriver();
         const browserSessions = new Map();
@@ -1035,6 +1201,22 @@ export default definePluginEntry({
             maxEntries: 200,
             defaultTtlMs: 7 * 24 * 60 * 60_000,
         });
+        const controllerReplyCandidates = openRightOutStore({
+            namespace: "rightout-controller-reply-candidates-v1",
+            maxEntries: 500,
+            defaultTtlMs: 30 * 24 * 60 * 60_000,
+        });
+        const evidenceStore = openRightOutStore({
+            namespace: "rightout-evidence-vault-v1",
+            maxEntries: 500,
+        });
+        const evidenceVault = createEvidenceVault(evidenceStore);
+        const customTargetStore = openRightOutStore({
+            namespace: "rightout-custom-targets-v1",
+            maxEntries: 500,
+            defaultTtlMs: 365 * 24 * 60 * 60_000,
+        });
+        const customTargetVault = createCustomTargetVault(customTargetStore);
         const verificationOpenDedupe = openRightOutStore({
             namespace: "rightout-verification-open-dedupe-v1",
             maxEntries: 200,
@@ -1056,6 +1238,12 @@ export default definePluginEntry({
             defaultTtlMs: 30 * 24 * 60 * 60_000,
         });
         const campaignLedger = createCampaignLedger(campaignStore);
+        const workerStore = openRightOutStore({
+            namespace: "rightout-autonomy-workers-v1",
+            maxEntries: 100,
+            defaultTtlMs: 30 * 24 * 60 * 60_000,
+        });
+        const workerLedger = createAutonomyWorkerLedger(workerStore);
         const registryStore = openRightOutStore({
             namespace: "rightout-registry-v1",
             maxEntries: 20,
@@ -1107,6 +1295,108 @@ export default definePluginEntry({
                 formAttestations: config?.formAttestations ?? null,
                 directScanAttestations: config?.directScanAttestations ?? null,
             });
+        }
+        function trustedWorkerSession(context) {
+            const sessionKey = context.sessionKey;
+            const agentId = context.agentId;
+            if (typeof sessionKey !== "string" || typeof agentId !== "string")
+                throw new Error("rightout_worker_session_required");
+            return { sessionKey, agentId, sessionBindingDigest: workerSessionBindingDigest({ sessionKey, agentId }) };
+        }
+        async function currentWorkerPolicyDigest() {
+            const recipePack = await loadRecipePack();
+            return workerPolicyDigest({
+                catalogDigest: await campaignCatalogDigestPromise,
+                recipeDigest: recipePack.recipe_digest,
+                runtimeScopeDigest: configuredRuntimeScopeDigest(),
+            });
+        }
+        async function workerExecutionContext(workerId, context) {
+            const worker = await workerLedger.status(workerId);
+            const campaign = await campaignLedger.status(worker.campaign_id);
+            if (campaign.status === "active") {
+                const profileDigest = await ensureImmutableProfileSnapshot(campaign.subject_ref);
+                await campaignLedger.assertScope(campaign.campaign_id, {
+                    profileId: campaign.subject_ref,
+                    profileDigest,
+                    runtimeScopeDigest: configuredRuntimeScopeDigest(),
+                });
+            }
+            const session = trustedWorkerSession(context);
+            return { worker, campaign, policyDigest: await currentWorkerPolicyDigest(), ...session };
+        }
+        async function currentRecipeForBroker(brokerId) {
+            const pack = await loadRecipePack();
+            const matches = pack.recipes.filter((recipe) => recipe.broker_id === brokerId);
+            if (matches.length !== 1)
+                throw new Error("rightout_recipe_not_found");
+            return matches[0];
+        }
+        async function assessFormRecipeSession(sessionId, session, snapshot) {
+            const recipe = await currentRecipeForBroker(session.brokerId);
+            const currentDigest = recipeDigest(recipe);
+            if (session.recipeId !== recipe.recipe_id
+                || session.recipeDigest !== currentDigest
+                || session.recipePackDigest !== (await loadRecipePack()).recipe_digest) {
+                await invalidateBrowserSession(sessionId, session, "signed_recipe_policy_changed");
+                throw new Error("rightout_recipe_policy_changed");
+            }
+            const assessment = assessRecipeSnapshot(recipe, snapshot);
+            if (assessment.state !== "compatible") {
+                await caseLedger.recordLifecycle(session.profileId, session.brokerId, "blocked", {
+                    evidenceKind: "human_task",
+                    reason: assessment.reason,
+                }).catch(() => undefined);
+                await invalidateBrowserSession(sessionId, session, assessment.reason);
+                throw new Error(assessment.state === "human_gate" ? "rightout_recipe_human_gate" : "rightout_recipe_drift_quarantined");
+            }
+            return assessment;
+        }
+        function workerScheduleMessage(workerId) {
+            if (!/^worker_[a-f0-9]{32}$/.test(workerId))
+                throw new Error("rightout_worker_ref_invalid");
+            return `Advance ${workerId}: call rightout_worker_tick with exactly this workerId. If action_ready, execute exactly command.tool with command.parameters, then call rightout_worker_complete with the returned workerId and leaseId. Use action_succeeded only after a successful tool result; otherwise use transient_failure or human_gate. Never invent tools or parameters.`;
+        }
+        async function scheduleWorkerTurn(context, workerId, delayMs) {
+            const session = trustedWorkerSession(context);
+            const boundedDelay = Math.max(1_000, Math.min(30 * 24 * 60 * 60_000, Math.ceil(delayMs)));
+            try {
+                const handle = await api.session.workflow.scheduleSessionTurn({
+                    sessionKey: session.sessionKey,
+                    agentId: session.agentId,
+                    delayMs: boundedDelay,
+                    deleteAfterRun: true,
+                    deliveryMode: "none",
+                    name: `RightOut worker ${workerId.slice(-8)}`,
+                    tag: `rightout-worker-${workerId.slice("worker_".length)}`,
+                    message: workerScheduleMessage(workerId),
+                });
+                if (handle) {
+                    return {
+                        scheduler_state: "host_scheduled",
+                        scheduled_job_registered: true,
+                        scheduled_delay_ms: boundedDelay,
+                        raw_session_key_in_report: false,
+                    };
+                }
+            }
+            catch {
+                api.logger.warn("RightOut host scheduler handoff failed; explicit handoff is required");
+            }
+            return {
+                scheduler_state: "explicit_handoff_required",
+                scheduled_job_registered: false,
+                scheduled_delay_ms: boundedDelay,
+                cron_handoff: {
+                    target: "current_trusted_session",
+                    delay_ms: boundedDelay,
+                    delete_after_run: true,
+                    delivery_mode: "none",
+                    message: workerScheduleMessage(workerId),
+                },
+                next_action: `call_rightout_worker_tick_with_${workerId}_from_the_same_openclaw_session`,
+                raw_session_key_in_report: false,
+            };
         }
         function browserVerificationTransportReady(config, browser) {
             if (!browser.webmail_ready || typeof config?.verificationAttestations?.browserProfileDigest !== "string")
@@ -1450,6 +1740,19 @@ export default definePluginEntry({
         function verificationAttestationSnapshot(config, input) {
             return validateVerificationAttestations(input, config?.verificationAttestations);
         }
+        function controllerReplyAttestationSnapshot(config, input) {
+            return validateControllerReplyAttestations(input, config?.controllerReplyAttestations);
+        }
+        async function controllerCandidateForOutcome(input) {
+            if (!input.candidateHandle)
+                return undefined;
+            const candidate = await controllerReplyCandidates.lookup(input.candidateHandle);
+            if (!candidate || candidate.profileId !== input.profileId || candidate.brokerId !== input.brokerId
+                || candidate.outcome !== input.outcome || !/^mail_[a-f0-9]{24}$/.test(candidate.messageReference)
+                || !/^(?:smtp|webmail)_[a-f0-9]{16,64}$/.test(candidate.submissionReference))
+                throw new Error("rightout_controller_reply_candidate_invalid");
+            return candidate;
+        }
         function formAttestationSnapshot(config, input) {
             return validateFormAttestations(input, config?.formAttestations);
         }
@@ -1495,9 +1798,11 @@ export default definePluginEntry({
                 secretFinding(rightout, "braveApiKey", "RightOut Brave key is stored as plaintext"),
                 secretFinding(rightout, "smtpTransport.username", "RightOut SMTP username is stored as plaintext"),
                 secretFinding(rightout, "smtpTransport.password", "RightOut SMTP password is stored as plaintext"),
+                secretFinding(rightout, "smtpTransport.oauthAccessToken", "RightOut SMTP OAuth access token is stored as plaintext"),
                 secretFinding(rightout, "smtpTransport.fromAddress", "RightOut sender address is stored as plaintext"),
                 secretFinding(rightout, "imapTransport.username", "RightOut IMAP username is stored as plaintext"),
                 secretFinding(rightout, "imapTransport.password", "RightOut IMAP password is stored as plaintext"),
+                secretFinding(rightout, "imapTransport.oauthAccessToken", "RightOut IMAP OAuth access token is stored as plaintext"),
                 secretFinding(rightout, "imapTransport.address", "RightOut IMAP mailbox address is stored as plaintext"),
                 secretFinding(rightout, "stateEncryptionKey", "RightOut durable-state encryption key is stored as plaintext"),
                 secretFinding(rightout, "browserControlToken", "RightOut browser-control token is stored as plaintext"),
@@ -1615,6 +1920,28 @@ export default definePluginEntry({
                     remediation: "Review the verification policy and configure exact revision-bound verificationAttestations out of band.",
                 });
             }
+            const controllerReplyAttestations = rightout?.controllerReplyAttestations;
+            if (controllerReplyAttestations !== undefined && (controllerReplyAttestations?.rightoutControllerReplyPolicyAccepted !== true
+                || controllerReplyAttestations?.rightoutControllerReplyPolicyVersion !== RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION
+                || controllerReplyAttestations?.subjectConsentReviewed !== true
+                || controllerReplyAttestations?.inboxReadAuthorized !== true
+                || !Array.isArray(controllerReplyAttestations?.authorizedProfileIds)
+                || controllerReplyAttestations.authorizedProfileIds.length < 1
+                || !controllerReplyAttestations?.authorizedProfileDigests
+                || typeof controllerReplyAttestations.authorizedProfileDigests !== "object"
+                || controllerReplyAttestations.authorizedProfileIds.some((profileId) => !/^[a-f0-9]{64}$/.test(controllerReplyAttestations.authorizedProfileDigests?.[profileId]))
+                || !Array.isArray(controllerReplyAttestations?.authorizedBrokerIds)
+                || controllerReplyAttestations.authorizedBrokerIds.length < 1
+                || typeof controllerReplyAttestations?.imapTransportDigest !== "string"
+                || !/^[a-f0-9]{64}$/.test(controllerReplyAttestations.imapTransportDigest))) {
+                findings.push({
+                    checkId: "rightout.controller_reply_attestations",
+                    severity: "critical",
+                    title: "RightOut controller-reply attestations are incomplete",
+                    detail: `Authenticated reply candidates require exact subject, broker, IMAP, and policy scope ${RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION}.`,
+                    remediation: "Review the read-only controller-reply policy and configure exact revision-bound controllerReplyAttestations out of band.",
+                });
+            }
             const formAttestations = rightout?.formAttestations;
             if (formAttestations !== undefined && (formAttestations?.rightoutFormPolicyAccepted !== true
                 || formAttestations?.rightoutFormPolicyVersion !== RIGHTOUT_FORM_POLICY_VERSION
@@ -1657,6 +1984,20 @@ export default definePluginEntry({
                     remediation: "Review publisher terms and configure exact revision-bound directScanAttestations out of band.",
                 });
             }
+            const customTargetConfigured = [
+                rightout?.customTargetRecipePacks,
+                rightout?.customTargetTrustedKeys,
+                rightout?.customTargetPermissions,
+            ].filter((value) => value !== undefined).length;
+            if (customTargetConfigured > 0 && customTargetConfigured < 3) {
+                findings.push({
+                    checkId: "rightout.custom_target_trust",
+                    severity: "critical",
+                    title: "RightOut custom-target trust configuration is incomplete",
+                    detail: "Custom targets remain quarantined unless signed recipe packs, allowlisted Ed25519 public keys, and exact handle-bound current permissions are all configured.",
+                    remediation: "Configure all three custom-target trust inputs or remove the partial configuration; raw targets remain encrypted local state.",
+                });
+            }
             const runtime = config;
             const httpDeny = runtime.gateway?.tools?.deny;
             const missingDeny = [
@@ -1664,10 +2005,12 @@ export default definePluginEntry({
                 "rightout_submit_removal",
                 "rightout_submit_form_removal",
                 "rightout_poll_verification",
+                "rightout_poll_controller_reply",
                 "rightout_open_verification",
                 "rightout_direct_rescan",
                 "rightout_purge_subject_state",
                 "rightout_record_controller_outcome",
+                "rightout_export_evidence",
                 "rightout_reconcile_submission",
                 "rightout_rotate_state_key",
                 "rightout_start_campaign",
@@ -1682,6 +2025,11 @@ export default definePluginEntry({
                 "rightout_discovery_session_step",
                 "rightout_begin_form_session",
                 "rightout_form_session_step",
+                "rightout_worker_enable",
+                "rightout_worker_tick",
+                "rightout_worker_complete",
+                "rightout_worker_resume",
+                "rightout_worker_revoke",
             ].filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
             if (missingDeny.length) {
                 findings.push({
@@ -1694,16 +2042,18 @@ export default definePluginEntry({
             }
             return findings;
         });
-        api.on("before_tool_call", async (event) => {
+        api.on("before_tool_call", async (event, hookContext) => {
             const approvalTools = new Set([
                 "rightout_live_scan",
                 "rightout_submit_removal",
                 "rightout_submit_form_removal",
                 "rightout_poll_verification",
+                "rightout_poll_controller_reply",
                 "rightout_open_verification",
                 "rightout_direct_rescan",
                 "rightout_purge_subject_state",
                 "rightout_record_controller_outcome",
+                "rightout_export_evidence",
                 "rightout_reconcile_submission",
                 "rightout_rotate_state_key",
                 "rightout_start_campaign",
@@ -1712,6 +2062,8 @@ export default definePluginEntry({
                 "rightout_refresh_parity_sources",
                 "rightout_record_drop_filed",
                 "rightout_form_session_step",
+                "rightout_worker_enable",
+                "rightout_worker_resume",
             ]);
             if (!approvalTools.has(event.toolName))
                 return;
@@ -1721,6 +2073,98 @@ export default definePluginEntry({
             const catalog = await catalogPromise;
             pruneApprovalState();
             approvalBindings.delete(event.toolCallId);
+            if (event.toolName === "rightout_worker_enable") {
+                try {
+                    const input = validateWorkerEnableInput(event.params);
+                    const campaign = await campaignLedger.status(input.campaignId);
+                    if (campaign.status !== "active")
+                        throw new Error("rightout_worker_campaign_invalid");
+                    const profileDigest = await ensureImmutableProfileSnapshot(campaign.subject_ref);
+                    await campaignLedger.assertScope(campaign.campaign_id, {
+                        profileId: campaign.subject_ref,
+                        profileDigest,
+                        runtimeScopeDigest: configuredRuntimeScopeDigest(),
+                    });
+                    const session = trustedWorkerSession(hookContext);
+                    const policyDigest = await currentWorkerPolicyDigest();
+                    const binding = workerEnableScopeBinding(input, policyDigest, session.sessionBindingDigest);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Enable durable RightOut worker",
+                            description: `Advance ${input.campaignId} in this exact trusted session every ${input.intervalMinutes}m when idle; stop after ${input.maxConsecutiveFailures} transient failures, scope drift, revocation, or any human gate.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "Durable RightOut autonomy requires an active immutable campaign, current recipe policy, exact trusted session, and native allow-once approval" };
+                }
+            }
+            if (event.toolName === "rightout_export_evidence") {
+                try {
+                    const input = validateEvidenceRefInput(event.params, true);
+                    const binding = evidenceExportScopeBinding(input);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Export redacted local evidence",
+                            description: `P ${input.profileId}; ${input.evidenceRef}. Write one ${input.format} artifact into the private local RightOut export directory after the evidence-vault redaction scan.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "invalid RightOut evidence-export scope" };
+                }
+            }
+            if (event.toolName === "rightout_worker_resume") {
+                try {
+                    const input = validateWorkerRefInput(event.params);
+                    const context = await workerExecutionContext(input.workerId, hookContext);
+                    if (context.campaign.status !== "active")
+                        throw new Error("rightout_worker_campaign_invalid");
+                    const binding = workerResumeScopeBinding(input, context.policyDigest, context.sessionBindingDigest);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Resume durable RightOut worker",
+                            description: `Resume ${input.workerId} only in its original trusted session and unchanged campaign, runtime, catalog, and signed-recipe scope.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "RightOut worker resume requires the original trusted session, unchanged policy, active campaign, and native allow-once approval" };
+                }
+            }
             if (event.toolName === "rightout_form_session_step") {
                 try {
                     const input = validateFormSessionStepInput(event.params);
@@ -1909,13 +2353,14 @@ export default definePluginEntry({
                     if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.processClass) || broker.confirmationPolicy !== "submitted_until_controller_response") {
                         throw new Error("unsupported_controller_outcome_lane");
                     }
-                    const binding = controllerOutcomeScopeBinding(input, broker);
+                    const candidate = await controllerCandidateForOutcome(input);
+                    const binding = controllerOutcomeScopeBinding(input, broker, candidate);
                     const toolCallId = event.toolCallId;
                     return {
                         params: input,
                         requireApproval: {
                             title: "Record reviewed controller outcome",
-                            description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed the official controller response and record '${input.outcome}'. This can change removal status; no provider write.`,
+                            description: `P ${input.profileId}; ${broker.name}. Confirm you personally reviewed the official controller response${candidate ? " behind the authenticated encrypted candidate" : ""} and record '${input.outcome}'. This can change removal status; no provider write.`,
                             severity: "critical",
                             allowedDecisions: ["allow-once", "deny"],
                             timeoutMs: approvalTtlMs,
@@ -2145,6 +2590,44 @@ export default definePluginEntry({
                 }
                 catch {
                     return { block: true, blockReason: "invalid, unsupported, or unattested RightOut inbox-verification scope" };
+                }
+            }
+            if (event.toolName === "rightout_poll_controller_reply") {
+                try {
+                    const input = validateControllerReplyInput(event.params);
+                    if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.imapTransport) {
+                        throw new Error("rightout_not_configured");
+                    }
+                    assertFreshCatalogEntries(catalog, [input.brokerId]);
+                    const attestations = controllerReplyAttestationSnapshot(config, input);
+                    const preflight = validateControllerReplyPreflight({
+                        input,
+                        catalog,
+                        profilePayload: config.profiles[input.profileId].payload,
+                        imapTransport: config.imapTransport,
+                        attestations,
+                    });
+                    const binding = controllerReplyScopeBinding(input, attestations, preflight.broker);
+                    const toolCallId = event.toolCallId;
+                    return {
+                        params: input,
+                        requireApproval: {
+                            title: "Poll authenticated controller reply",
+                            description: `P ${input.profileId}; ${input.brokerId}. Read up to 30 recent INBOX messages, accept only exact-recipient, aligned-DKIM, official-domain, exact-thread replies; return no body or address.`,
+                            severity: "critical",
+                            allowedDecisions: ["allow-once", "deny"],
+                            timeoutMs: approvalTtlMs,
+                            onResolution(decision) {
+                                if (decision === "allow-once")
+                                    approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                                else
+                                    approvalBindings.delete(toolCallId);
+                            },
+                        },
+                    };
+                }
+                catch {
+                    return { block: true, blockReason: "invalid, unsupported, unconsented, or unattested RightOut controller-reply scope" };
                 }
             }
             if (event.toolName === "rightout_direct_rescan") {
@@ -2870,6 +3353,9 @@ export default definePluginEntry({
                                 signal,
                             });
                             const formSessionId = `formsession_${randomBytes(12).toString("hex")}`;
+                            const formRecipe = await currentRecipeForBroker(session.brokerId);
+                            const formRecipeDigest = recipeDigest(formRecipe);
+                            const formRecipePackDigest = (await loadRecipePack()).recipe_digest;
                             await portalFlowStore.register(portalFlowKey(session.profileId, session.brokerId), {
                                 profileId: session.profileId, brokerId: session.brokerId, campaignId: session.campaignId,
                                 targetId: session.targetId, browserProfile: session.browserControl.browserProfile ?? null,
@@ -2880,9 +3366,11 @@ export default definePluginEntry({
                                 sessionId: formSessionId, sessionType: "form", stage: "peopleconnect_guided_identity", targetId: session.targetId,
                                 profileId: session.profileId, brokerId: session.brokerId, campaignId: session.campaignId,
                                 broker: session.parityBroker, values, fieldDisclosureMap, browserControl: session.browserControl,
+                                recipeId: formRecipe.recipe_id, recipeDigest: formRecipeDigest, recipePackDigest: formRecipePackDigest,
                                 browserBackend: "existing_logged_in_cdp", filledFields: [], recordSelected: false,
                                 effectConsumed: true, submissionIntentReserved: false, expiresAt,
                             });
+                            const formRecipeAssessment = await assessFormRecipeSession(formSessionId, activeFormSession(formSessionId), formSnapshot);
                             deleteBrowserSession(input.sessionId);
                             await verificationOpenDedupe.delete(openDedupeKey);
                             const report = {
@@ -2890,6 +3378,7 @@ export default definePluginEntry({
                                 state: "guided_suppression_ready", same_browser_profile_retained: true,
                                 authenticated_browser_message_bound: true, disclosures_allowed: disclosureFields,
                                 form_fields_available: Object.keys(fieldDisclosureMap), snapshot: formSnapshot,
+                                recipe_policy: { recipe_id: formRecipe.recipe_id, recipe_digest: formRecipeDigest, assessment: formRecipeAssessment.state },
                                 raw_mailbox_content_in_report: false, raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1,
                             };
                             return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
@@ -3577,14 +4066,19 @@ export default definePluginEntry({
                         });
                         flowStored = true;
                         sessionId = `formsession_${randomBytes(12).toString("hex")}`;
+                        const formRecipe = await currentRecipeForBroker(input.brokerId);
+                        const formRecipeDigest = recipeDigest(formRecipe);
+                        const formRecipePackDigest = (await loadRecipePack()).recipe_digest;
                         storeBrowserSession(sessionId, {
                             sessionId, sessionType: "form", stage: "peopleconnect_guided_identity", targetId: opened.targetId,
                             profileId: input.profileId, brokerId: input.brokerId, campaignId,
                             broker: portalBroker, values, fieldDisclosureMap, browserControl,
+                            recipeId: formRecipe.recipe_id, recipeDigest: formRecipeDigest, recipePackDigest: formRecipePackDigest,
                             browserBackend: config?.browserBackendMode ?? "managed_openclaw",
                             filledFields: [], recordSelected: false, effectConsumed: true,
                             submissionIntentReserved: false, expiresAt,
                         });
+                        const formRecipeAssessment = await assessFormRecipeSession(sessionId, activeFormSession(sessionId), opened.snapshot);
                         await verificationOpenDedupe.delete(openDedupeKey);
                         const report = {
                             report_version: 1, session_id: sessionId, subject_ref: input.profileId, broker_id: input.brokerId,
@@ -3593,6 +4087,7 @@ export default definePluginEntry({
                             same_browser_profile_retained: true, authenticated_imap_message_bound: true,
                             verification_handle_consumed: true, disclosures_allowed: disclosureFields,
                             form_fields_available: Object.keys(fieldDisclosureMap), snapshot: opened.snapshot,
+                            recipe_policy: { recipe_id: formRecipe.recipe_id, recipe_digest: formRecipeDigest, assessment: formRecipeAssessment.state },
                             next_action: "fill_identity_then_select_one_strongly_corroborated_record_then_click_suppress",
                             invariants: { raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1 },
                         };
@@ -3718,6 +4213,253 @@ export default definePluginEntry({
             },
         }), { name: "rightout_open_verification", optional: true });
         api.registerTool({
+            name: "rightout_poll_controller_reply",
+            label: "RightOut poll controller reply",
+            description: "Read recent approved IMAP mail for an exact thread-bound, receiver-authenticated official controller reply. Returns only a bounded outcome candidate; never records a legal or terminal outcome automatically.",
+            parameters: ControllerReplyPollParameters,
+            async execute(toolCallId, params, signal) {
+                let input;
+                try {
+                    input = validateControllerReplyInput(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                await pruneTransientState();
+                const config = api.pluginConfig;
+                const catalog = await catalogPromise;
+                if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.imapTransport) {
+                    throw new Error("rightout_not_configured");
+                }
+                assertFreshCatalogEntries(catalog, [input.brokerId]);
+                const attestations = controllerReplyAttestationSnapshot(config, input);
+                const preflight = validateControllerReplyPreflight({
+                    input,
+                    catalog,
+                    profilePayload: config.profiles[input.profileId].payload,
+                    imapTransport: config.imapTransport,
+                    attestations,
+                });
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_poll_controller_reply"
+                    || approval.binding !== controllerReplyScopeBinding(input, attestations, preflight.broker))
+                    throw new Error("rightout_approval_binding_failed");
+                const caseContext = await caseLedger.verificationContext(input.profileId, input.brokerId, [
+                    "submitted", "awaiting_processing", "identity_verification_required", "partially_removed",
+                ]);
+                const result = await pollControllerReply({
+                    transport: preflight.imap,
+                    expectedAddress: preflight.profile.contactEmail,
+                    broker: preflight.broker.raw,
+                    expectedMessageId: preflight.expectedMessageId,
+                    notBefore: caseContext.submitted_at,
+                    sinceDays: 30,
+                    signal,
+                });
+                if (!result.found) {
+                    const deferred = await caseLedger.deferRecheck(input.profileId, input.brokerId, {
+                        reason: "authenticated_controller_reply_not_observed",
+                        days: 1,
+                    });
+                    const report = {
+                        report_version: 1,
+                        subject_ref: input.profileId,
+                        broker_id: input.brokerId,
+                        state: "controller_reply_not_observed",
+                        generated_at: new Date().toISOString(),
+                        next_recheck_at: deferred.next_recheck_at,
+                        provider_writes: 0,
+                        invariants: { raw_mail_in_report: false, raw_pii_in_report: false, inferred_controller_outcome: false },
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (typeof result.message_reference !== "string" || !/^mail_[a-f0-9]{24}$/.test(result.message_reference)
+                    || !Array.isArray(result.authentication_signals) || !Array.isArray(result.evidence_signals))
+                    throw new Error("rightout_controller_reply_poll_failed");
+                if (result.outcome_candidate === "needs_manual_check") {
+                    const report = {
+                        report_version: 1,
+                        subject_ref: input.profileId,
+                        broker_id: input.brokerId,
+                        state: "controller_reply_needs_manual_check",
+                        message_reference: result.message_reference,
+                        authentication_signals: result.authentication_signals,
+                        classifier_signals: result.evidence_signals,
+                        generated_at: new Date().toISOString(),
+                        next_action: "inspect_the_exact_message_in_the_authorized_mailbox_then_record_only_a_personally_reviewed_outcome",
+                        provider_writes: 0,
+                        invariants: { raw_mail_in_report: false, raw_pii_in_report: false, inferred_controller_outcome: false },
+                    };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                const allowedOutcomes = new Set(["processing_acknowledged", "erasure_confirmed", "partial_erasure", "deletion_confirmed", "partial_deletion", "identity_required", "request_rejected"]);
+                if (!allowedOutcomes.has(result.outcome_candidate) || result.confidence !== "high")
+                    throw new Error("rightout_controller_reply_poll_failed");
+                const candidateHandle = `reply_${randomBytes(12).toString("hex")}`;
+                const candidate = {
+                    profileId: input.profileId,
+                    brokerId: input.brokerId,
+                    outcome: result.outcome_candidate,
+                    messageReference: result.message_reference,
+                    submissionReference: caseContext.submission_proof_reference,
+                    terminal: result.terminal === true,
+                    evidenceSignals: result.evidence_signals,
+                    authenticationSignals: result.authentication_signals,
+                    createdAt: new Date().toISOString(),
+                };
+                await controllerReplyCandidates.register(candidateHandle, candidate);
+                const report = {
+                    report_version: 1,
+                    subject_ref: input.profileId,
+                    broker_id: input.brokerId,
+                    state: "authenticated_controller_reply_candidate",
+                    candidate_handle: candidateHandle,
+                    outcome_candidate: candidate.outcome,
+                    terminal_candidate: candidate.terminal,
+                    confidence: "high",
+                    message_reference: candidate.messageReference,
+                    authentication_signals: candidate.authenticationSignals,
+                    classifier_signals: candidate.evidenceSignals,
+                    generated_at: candidate.createdAt,
+                    next_action: "personally_review_the_exact_mailbox_message_then_call_rightout_record_controller_outcome_with_this_candidate_handle",
+                    provider_writes: 0,
+                    invariants: { raw_mail_in_report: false, raw_pii_in_report: false, outcome_recorded_automatically: false },
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_create_evidence_snapshot",
+            label: "RightOut create evidence snapshot",
+            description: "Store one sanitized case-transition snapshot in the encrypted, retention-bound, content-addressed local evidence vault. Returns metadata only and performs no provider request or external write.",
+            parameters: EvidenceSnapshotParameters,
+            async execute(_toolCallId, params) {
+                const input = validateEvidenceSnapshotInput(params);
+                assertConfiguredProfile(input.profileId);
+                const status = await caseLedger.status(input.profileId);
+                const item = status.cases.find((candidate) => candidate.broker_id === input.brokerId);
+                if (!item)
+                    throw new Error("rightout_evidence_case_not_found");
+                const content = {
+                    schema_version: 1,
+                    subject_ref: input.profileId,
+                    broker_id: input.brokerId,
+                    state: item.state,
+                    proof_references: item.proof_references,
+                    submission_channel: item.submission_channel,
+                    submission_started_at: item.submission_started_at,
+                    submission_outcome: item.submission_outcome,
+                    next_recheck_at: item.next_recheck_at,
+                    removal_confirmed_at: item.removal_confirmed_at,
+                    removal_confirmation_scope: item.removal_confirmation_scope,
+                    coverage_gap: item.coverage_gap,
+                    human_task_reason: item.human_task_reason,
+                    raw_pii_in_snapshot: false,
+                };
+                const report = await evidenceVault.put({
+                    profileId: input.profileId,
+                    brokerId: input.brokerId,
+                    kind: "case_transition_snapshot",
+                    retentionDays: stateRetentionDays,
+                    content,
+                });
+                const details = { report_version: 1, state: "encrypted_evidence_snapshot_created", ...report, provider_reads: 0, provider_writes: 0 };
+                return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_evidence_status",
+            label: "RightOut evidence status",
+            description: "Read metadata for one exact subject-bound encrypted evidence reference without returning its content or performing a network request.",
+            parameters: EvidenceRefParameters,
+            async execute(_toolCallId, params) {
+                const input = validateEvidenceRefInput(params);
+                const report = { report_version: 1, state: "encrypted_evidence_available", ...(await evidenceVault.metadata(input.evidenceRef, input.profileId)), provider_reads: 0, provider_writes: 0 };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_export_evidence",
+            label: "RightOut export redacted evidence",
+            description: "Export one exact encrypted evidence record into the private local RightOut export directory after redaction. Requires native allow-once approval and performs no provider request.",
+            parameters: EvidenceExportParameters,
+            async execute(toolCallId, params) {
+                const input = validateEvidenceRefInput(params, true);
+                await pruneTransientState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_export_evidence" || approval.binding !== evidenceExportScopeBinding(input)) {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                assertConfiguredProfile(input.profileId);
+                const exported = await evidenceVault.exportRedacted(input.evidenceRef, input.profileId, stateDir, input.format);
+                const { artifact_path: artifactPath, ...exportMetadata } = exported;
+                const report = {
+                    report_version: 1,
+                    ...exportMetadata,
+                    artifact_name: basename(artifactPath),
+                    artifact_location: "private_rightout_state_evidence_export_directory",
+                    approval_boundary: "native_openclaw_allow_once_redacted_local_export",
+                    provider_reads: 0,
+                    provider_writes: 0,
+                    raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
+            name: "rightout_custom_target_status",
+            label: "RightOut custom target status",
+            description: "Inspect one subject-bound opaque custom-target handle. Raw URL/domain/source facts remain encrypted; readiness requires one exact trusted external recipe and current handle-bound permission.",
+            parameters: CustomTargetRefParameters,
+            async execute(_toolCallId, params) {
+                const input = validateCustomTargetRefInput(params);
+                assertConfiguredProfile(input.profileId);
+                const config = api.pluginConfig;
+                const metadata = await customTargetVault.metadata(input.customTargetHandle, input.profileId);
+                let state = "quarantined";
+                let reason = "signed_recipe_and_current_permission_required";
+                let recipeId = null;
+                let recipeDigestValue = null;
+                try {
+                    const resolved = await customTargetVault.resolveAuthorized(input.customTargetHandle, input.profileId, {
+                        recipePacks: config.customTargetRecipePacks,
+                        trustedKeys: config.customTargetTrustedKeys,
+                        permission: config.customTargetPermissions?.[input.customTargetHandle],
+                    });
+                    state = "authorized_recipe_and_permission_bound";
+                    reason = "ready_for_separately_approved_custom_provider_session";
+                    recipeId = resolved.metadata.recipe_id;
+                    recipeDigestValue = resolved.metadata.recipe_digest;
+                }
+                catch (error) {
+                    const code = error instanceof Error ? error.message : "rightout_custom_target_recipe_required";
+                    reason = code === "rightout_custom_target_permission_expired"
+                        ? "permission_expired"
+                        : code === "rightout_custom_target_scope_mismatch"
+                            ? "subject_scope_mismatch"
+                            : "signed_recipe_and_current_permission_required";
+                }
+                const report = {
+                    report_version: 1,
+                    ...metadata,
+                    state,
+                    reason,
+                    recipe_id: recipeId,
+                    recipe_digest: recipeDigestValue,
+                    provider_action_available: false,
+                    next_action: state === "authorized_recipe_and_permission_bound"
+                        ? "custom_provider_execution_remains_disabled_until_a_dedicated_approval_gated_session_is_implemented"
+                        : "install_a_trusted_signed_recipe_and_current_handle_bound_permission",
+                    provider_reads: 0,
+                    provider_writes: 0,
+                    raw_target_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool({
             name: "rightout_rotate_state_key",
             label: "RightOut rotate state key",
             description: "Re-encrypt all local RightOut state under the active SecretRef key while temporary previous SecretRef keys remain configured. Requires native allow-once approval and performs no provider call.",
@@ -3735,15 +4477,19 @@ export default definePluginEntry({
                 const config = api.pluginConfig;
                 if (!stateRotationReady(config))
                     throw new Error("rightout_state_rotation_not_configured");
-                const [cases, profileSnapshots, verificationHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, registryEntries, paritySourceEntries] = await Promise.all([
+                const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
                     caseStore.reencrypt(),
                     profileSnapshotStore.reencrypt(),
                     verificationTokens.reencrypt(),
+                    controllerReplyCandidates.reencrypt(),
+                    evidenceStore.reencrypt(),
+                    customTargetStore.reencrypt(),
                     verificationOpenDedupe.reencrypt(),
                     portalFlowStore.reencrypt(),
                     listingTokens.reencrypt(),
                     submissionDedupe.reencrypt(),
                     campaignStore.reencrypt(),
+                    workerStore.reencrypt(),
                     registryStore.reencrypt(),
                     paritySourceStore.reencrypt(),
                 ]);
@@ -3755,11 +4501,15 @@ export default definePluginEntry({
                         cases,
                         profile_snapshots: profileSnapshots,
                         verification_handles: verificationHandles,
+                        controller_reply_candidates: controllerReplyHandles,
+                        evidence_entries: evidenceEntries,
+                        custom_target_entries: customTargetEntries,
                         verification_open_guards: verificationOpenGuards,
                         verified_portal_flows: portalFlows,
                         listing_handles: listingHandles,
                         dedupe_records: dedupeRecords,
                         campaigns,
+                        autonomy_workers: workers,
                         registry_entries: registryEntries,
                         parity_source_entries: paritySourceEntries,
                     },
@@ -3795,15 +4545,19 @@ export default definePluginEntry({
                     throw new Error("rightout_not_configured");
                 const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
                 const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
-                const [caseDeleted, profileSnapshotDeleted, verificationHandles, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns] = await Promise.all([
+                const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
                     caseLedger.purge(input.profileId),
                     profileSnapshotStore.delete(input.profileId),
                     purgeProfileEntries(verificationTokens, input.profileId),
+                    purgeProfileEntries(controllerReplyCandidates, input.profileId),
+                    purgeProfileEntries(evidenceStore, input.profileId),
+                    purgeProfileEntries(customTargetStore, input.profileId),
                     purgeProfileEntries(verificationOpenDedupe, input.profileId),
                     purgeProfileEntries(portalFlowStore, input.profileId),
                     purgeProfileEntries(listingTokens, input.profileId),
                     purgeProfileEntries(submissionDedupe, input.profileId),
                     purgeProfileEntries(campaignStore, input.profileId),
+                    purgeProfileEntries(workerStore, input.profileId),
                 ]);
                 submittedScopes.clear();
                 const report = {
@@ -3815,11 +4569,15 @@ export default definePluginEntry({
                         case_record: caseDeleted ? 1 : 0,
                         profile_snapshot: profileSnapshotDeleted ? 1 : 0,
                         verification_handles: verificationHandles,
+                        controller_reply_candidates: controllerReplyHandles,
+                        evidence_entries: evidenceEntries,
+                        custom_target_entries: customTargetEntries,
                         verification_open_guards: verificationOpenGuards,
                         verified_portal_flows: portalFlows,
                         listing_handles: listingHandles,
                         dedupe_records: dedupeRecords,
                         campaigns,
+                        autonomy_workers: workers,
                         active_sessions: activeSessionsInvalidated.invalidated,
                         active_verified_portal_flows: activePortalFlowsInvalidated,
                         webmail_drafts_discarded: activeSessionsInvalidated.drafts_discarded,
@@ -3851,11 +4609,12 @@ export default definePluginEntry({
                 }
                 const catalog = await catalogPromise;
                 const broker = resolveControllerOutcomeBroker(catalog, input);
+                const candidate = await controllerCandidateForOutcome(input);
                 await pruneTransientState();
                 const approval = approvalBindings.get(toolCallId);
                 approvalBindings.delete(toolCallId);
                 if (!approval || approval.toolName !== "rightout_record_controller_outcome"
-                    || approval.binding !== controllerOutcomeScopeBinding(input, broker))
+                    || approval.binding !== controllerOutcomeScopeBinding(input, broker, candidate))
                     throw new Error("rightout_approval_binding_failed");
                 assertConfiguredProfile(input.profileId);
                 await ensureImmutableProfileSnapshot(input.profileId);
@@ -3864,6 +4623,8 @@ export default definePluginEntry({
                     process_class: broker.processClass,
                     removal: { confirmation_policy: broker.confirmationPolicy, processing_days: broker.processingDays },
                 });
+                if (input.candidateHandle)
+                    await controllerReplyCandidates.delete(input.candidateHandle);
                 const report = {
                     report_version: 1,
                     subject_ref: input.profileId,
@@ -3874,6 +4635,7 @@ export default definePluginEntry({
                     proof_references: [outcome.proof_reference],
                     removal_confirmation_scope: outcome.confirmation_scope ?? null,
                     operator_attestation: "native_openclaw_allow_once_human_review",
+                    authenticated_candidate_consumed: Boolean(input.candidateHandle),
                     provider_writes: 0,
                     invariants: { raw_controller_response_in_report: false, raw_pii_in_report: false, smtp_acceptance_used_as_outcome: false },
                 };
@@ -4197,6 +4959,11 @@ export default definePluginEntry({
                 const selectedBackend = config?.browserBackendMode ?? "managed_openclaw";
                 assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "submit_form", { browserBackend: selectedBackend });
                 await assertParityRouteFresh(input.brokerId);
+                const recipe = await currentRecipeForBroker(input.brokerId);
+                if (recipe.method !== "web_form")
+                    throw new Error("rightout_recipe_method_mismatch");
+                const currentRecipeDigest = recipeDigest(recipe);
+                const currentRecipePackDigest = (await loadRecipePack()).recipe_digest;
                 await ensureImmutableProfileSnapshot(input.profileId);
                 const coreCatalog = await catalogPromise;
                 const profile = parseRemovalProfile(config.profiles[input.profileId].payload);
@@ -4264,15 +5031,18 @@ export default definePluginEntry({
                             sessionId, sessionType: "form", stage: "peopleconnect_guided_identity", targetId: flow.targetId,
                             profileId: input.profileId, brokerId: input.brokerId, campaignId: input.campaignId,
                             broker, values, fieldDisclosureMap, browserControl,
+                            recipeId: recipe.recipe_id, recipeDigest: currentRecipeDigest, recipePackDigest: currentRecipePackDigest,
                             browserBackend: config?.browserBackendMode ?? "managed_openclaw",
                             filledFields: [], recordSelected: false,
                             effectConsumed: true, submissionIntentReserved: false, expiresAt: flow.expiresAt,
                         });
+                        const recipeAssessment = await assessFormRecipeSession(sessionId, activeFormSession(sessionId), snapshot);
                         const report = {
                             report_version: 1, session_id: sessionId, subject_ref: input.profileId, broker_id: input.brokerId,
                             method: "web_form", state: "guided_suppression_ready", snapshot,
                             disclosures_allowed: disclosureFields, form_fields_available: Object.keys(fieldDisclosureMap),
                             same_browser_profile_retained: true, resumed_from_encrypted_flow_state: true,
+                            recipe_policy: { recipe_id: recipe.recipe_id, recipe_digest: currentRecipeDigest, assessment: recipeAssessment.state },
                             provider_reads: 1, provider_writes: 0, raw_pii_in_report: false,
                         };
                         return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
@@ -4334,6 +5104,9 @@ export default definePluginEntry({
                     brokerId: input.brokerId,
                     campaignId: input.campaignId,
                     broker,
+                    recipeId: recipe.recipe_id,
+                    recipeDigest: currentRecipeDigest,
+                    recipePackDigest: currentRecipePackDigest,
                     values,
                     fieldDisclosureMap,
                     browserControl,
@@ -4344,6 +5117,7 @@ export default definePluginEntry({
                     submissionIntentReserved: false,
                     expiresAt: Date.now() + 30 * 60_000,
                 });
+                const recipeAssessment = await assessFormRecipeSession(sessionId, activeFormSession(sessionId), opened.snapshot);
                 const report = {
                     report_version: 1,
                     session_id: sessionId,
@@ -4354,6 +5128,7 @@ export default definePluginEntry({
                     snapshot: opened.snapshot,
                     disclosures_allowed: disclosureFields,
                     flow_stage: stage,
+                    recipe_policy: { recipe_id: recipe.recipe_id, recipe_digest: currentRecipeDigest, assessment: recipeAssessment.state },
                     form_fields_available: Object.keys(fieldDisclosureMap),
                     provider_reads: 1,
                     provider_writes: 0,
@@ -4394,6 +5169,7 @@ export default definePluginEntry({
                     allowedFields: Object.keys(session.fieldDisclosureMap),
                     values: session.values,
                     ...(session.stage === "peopleconnect_guided_identity" ? { privacyMode: "peopleconnect_guided" } : {}),
+                    beforeActionGuard: (snapshot) => assessFormRecipeSession(input.sessionId, session, snapshot),
                     signal,
                 };
                 if (input.action.kind === "close") {
@@ -4426,7 +5202,14 @@ export default definePluginEntry({
                 }
                 if (input.action.kind === "inspect") {
                     const snapshot = await browserSessionDriver.inspect(driverOptions);
-                    const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "form_session_active", snapshot };
+                    const recipeAssessment = await assessFormRecipeSession(input.sessionId, session, snapshot);
+                    const report = {
+                        session_id: input.sessionId,
+                        broker_id: session.brokerId,
+                        state: "form_session_active",
+                        snapshot,
+                        recipe_policy: { recipe_id: session.recipeId, assessment: recipeAssessment.state },
+                    };
                     return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
                 if (input.action.kind === "record_redacted_state_receipt") {
@@ -4515,6 +5298,7 @@ export default definePluginEntry({
                 }
                 try {
                     const snapshot = await browserSessionDriver.act({ ...driverOptions, action: input.action });
+                    await assessFormRecipeSession(input.sessionId, session, snapshot);
                     if (input.action.kind === "fill") {
                         for (const field of input.action.fields ?? []) {
                             const disclosure = session.fieldDisclosureMap[field.profile_field];
@@ -4701,6 +5485,82 @@ export default definePluginEntry({
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
         }, { optional: true });
+        async function campaignNextReport(toolContext, campaignId) {
+            await pruneTransientState();
+            const initial = await campaignLedger.status(campaignId);
+            if (initial.status !== "active") {
+                return {
+                    report_version: 1,
+                    campaign_id: campaignId,
+                    state: initial.status === "completed" ? "campaign_completed" : "campaign_revoked",
+                    terminal: true,
+                    reason: initial.status === "completed" ? "effect_budget_exhausted" : "standing_authorization_revoked",
+                    used_effects: initial.used_effects,
+                    max_effects: initial.max_effects,
+                    remaining_effects: initial.remaining_effects,
+                    next_action: initial.status === "completed"
+                        ? "review_outcomes_and_start_a_new_separately_approved_campaign_only_if_needed"
+                        : "none",
+                    deterministic_next_loop: true,
+                    provider_reads: 0,
+                    provider_writes: 0,
+                    raw_pii_in_report: false,
+                };
+            }
+            const profileDigest = await ensureImmutableProfileSnapshot(initial.subject_ref);
+            const campaign = await campaignLedger.assertScope(campaignId, {
+                profileId: initial.subject_ref,
+                profileDigest,
+                runtimeScopeDigest: configuredRuntimeScopeDigest(),
+            });
+            const [caseStatus, parity, core] = await Promise.all([
+                caseLedger.status(campaign.subject_ref),
+                parityCatalogPromise,
+                catalogPromise,
+            ]);
+            const config = api.pluginConfig;
+            const browser = resolveBrowserBackend(toolContext, config);
+            const emailMode = config?.smtpTransport ? "smtp" : browser.webmail_ready ? "webmail" : "unavailable";
+            const verificationMode = config?.imapTransport ? "imap"
+                : browserVerificationTransportReady(config, browser) ? "browser_webmail" : "unavailable";
+            const globalScanOnly = campaign.effects.length === 1 && campaign.effects[0] === "discover";
+            let planned = globalScanOnly
+                ? planGlobalScanCampaignNext({ campaign, caseStatus, scanCatalog: await combinedScanCatalog() })
+                : planParityCampaignNext({
+                    campaign, caseStatus, parityCatalog: parity, coreCatalog: core,
+                    emailMode, verificationMode, browserMode: browser.selected,
+                    remoteCloudRetryAvailable: browser.remote_cloud_fallback_ready,
+                });
+            for (const brokerId of campaign.broker_ids) {
+                const flow = await portalFlowStore.lookup(portalFlowKey(campaign.subject_ref, brokerId));
+                if (flow?.campaignId === campaignId && flow.stage === "peopleconnect_guided_identity"
+                    && Number.isFinite(flow.expiresAt) && flow.expiresAt > Date.now()) {
+                    planned = {
+                        state: "action_ready",
+                        command: {
+                            kind: "execute_tool",
+                            tool: "rightout_begin_form_session",
+                            parameters: { profileId: campaign.subject_ref, brokerId, campaignId },
+                            reason: "resume_same_browser_profile_verified_portal_from_encrypted_flow_state",
+                        },
+                    };
+                    break;
+                }
+            }
+            return {
+                report_version: 1,
+                campaign_id: campaignId,
+                ...planned,
+                selected_email_mode: emailMode,
+                selected_verification_mode: verificationMode,
+                selected_browser_mode: browser.selected,
+                remote_cloud_retry_available: browser.remote_cloud_fallback_ready,
+                deterministic_next_loop: true,
+                provider_reads: 0,
+                provider_writes: 0,
+                raw_pii_in_report: false,
+            };
+        }
         api.registerTool((toolContext) => ({
             name: "rightout_campaign_next",
             label: "RightOut campaign next",
@@ -4708,83 +5568,230 @@ export default definePluginEntry({
             parameters: CampaignNextParameters,
             async execute(_toolCallId, params) {
                 const input = validateCampaignRef(params);
-                await pruneTransientState();
-                const initial = await campaignLedger.status(input.campaignId);
-                if (initial.status !== "active") {
+                const report = await campaignNextReport(toolContext, input.campaignId);
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_campaign_next", optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_worker_enable",
+            label: "RightOut enable durable worker",
+            description: "Bind one active finite campaign to this exact trusted OpenClaw session and schedule durable one-action-at-a-time turns. Requires native allow-once approval; recipe, runtime, or session drift stops execution.",
+            parameters: WorkerEnableParameters,
+            async execute(toolCallId, params) {
+                let input;
+                try {
+                    input = validateWorkerEnableInput(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                const campaign = await campaignLedger.status(input.campaignId);
+                if (campaign.status !== "active")
+                    throw new Error("rightout_worker_campaign_invalid");
+                const profileDigest = await ensureImmutableProfileSnapshot(campaign.subject_ref);
+                await campaignLedger.assertScope(campaign.campaign_id, {
+                    profileId: campaign.subject_ref,
+                    profileDigest,
+                    runtimeScopeDigest: configuredRuntimeScopeDigest(),
+                });
+                const session = trustedWorkerSession(toolContext);
+                const policyDigest = await currentWorkerPolicyDigest();
+                pruneApprovalState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_worker_enable"
+                    || approval.binding !== workerEnableScopeBinding(input, policyDigest, session.sessionBindingDigest))
+                    throw new Error("rightout_approval_binding_failed");
+                const worker = await workerLedger.create(input, {
+                    campaign,
+                    policyDigest,
+                    sessionBindingDigest: session.sessionBindingDigest,
+                });
+                const scheduler = await scheduleWorkerTurn(toolContext, worker.worker_id, 1_000);
+                const report = {
+                    report_version: 1,
+                    ...worker,
+                    recipe_pack_digest: (await loadRecipePack()).recipe_digest,
+                    durable_encrypted_state: true,
+                    one_action_per_lease: true,
+                    scope_widening_allowed: false,
+                    ...scheduler,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_worker_enable", optional: true });
+        api.registerTool({
+            name: "rightout_worker_status",
+            label: "RightOut worker status",
+            description: "Read one PII-safe durable worker checkpoint, failure budget, next wake, and unresolved-action state. Performs no network request or provider write.",
+            parameters: WorkerRefParameters,
+            async execute(_toolCallId, params) {
+                const input = validateWorkerRefInput(params);
+                const report = await workerLedger.status(input.workerId);
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }, { optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_worker_tick",
+            label: "RightOut worker tick",
+            description: "Claim one durable lease and return exactly one campaign-scoped allowlisted command, gate, or checkpoint. It performs no provider request or write itself and runs only in the originally bound trusted session.",
+            parameters: WorkerRefParameters,
+            async execute(_toolCallId, params) {
+                const input = validateWorkerRefInput(params);
+                const context = await workerExecutionContext(input.workerId, toolContext);
+                const claim = await workerLedger.claim(input.workerId, {
+                    campaign: context.campaign,
+                    policyDigest: context.policyDigest,
+                    sessionBindingDigest: context.sessionBindingDigest,
+                });
+                if (claim.state === "not_due") {
+                    const wakeAt = Date.parse(claim.worker.next_wake_at);
+                    const scheduler = await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, wakeAt - Date.now()));
+                    const report = { report_version: 1, ...claim, ...scheduler };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                if (claim.state !== "claimed") {
+                    const report = { report_version: 1, ...claim, raw_pii_in_report: false };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                const planned = await campaignNextReport(toolContext, context.campaign.campaign_id);
+                const safeReason = typeof planned.reason === "string" && /^[a-z0-9_]{3,120}$/.test(planned.reason)
+                    ? planned.reason
+                    : "campaign_human_gate";
+                if (planned.state === "action_ready") {
+                    const baseline = await campaignLedger.status(context.campaign.campaign_id);
+                    const issued = await workerLedger.issue(input.workerId, claim.lease_id, planned.command, {
+                        campaignUsedEffects: baseline.used_effects,
+                        campaignLastEffectReference: baseline.last_effect_reference,
+                    });
+                    const report = { report_version: 1, ...issued, recipe_pack_digest: (await loadRecipePack()).recipe_digest };
+                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                }
+                const deferredHumanGates = Number(planned.consolidated_digest?.human_gates ?? 0);
+                if (planned.state === "human_gate" || deferredHumanGates > 0) {
+                    const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
+                        outcome: "human_gate",
+                        reason: planned.state === "human_gate" ? safeReason : "deferred_human_gates_present",
+                    });
                     const report = {
                         report_version: 1,
-                        campaign_id: input.campaignId,
-                        state: initial.status === "completed" ? "campaign_completed" : "campaign_revoked",
-                        terminal: true,
-                        reason: initial.status === "completed" ? "effect_budget_exhausted" : "standing_authorization_revoked",
-                        used_effects: initial.used_effects,
-                        max_effects: initial.max_effects,
-                        remaining_effects: initial.remaining_effects,
-                        next_action: initial.status === "completed"
-                            ? "review_outcomes_and_start_a_new_separately_approved_campaign_only_if_needed"
-                            : "none",
-                        deterministic_next_loop: true,
-                        provider_reads: 0,
-                        provider_writes: 0,
+                        ...completed,
+                        campaign_state: planned.state,
+                        deferred_human_gate_count: deferredHumanGates,
                         raw_pii_in_report: false,
                     };
                     return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
-                const profileDigest = await ensureImmutableProfileSnapshot(initial.subject_ref);
-                const campaign = await campaignLedger.assertScope(input.campaignId, {
-                    profileId: initial.subject_ref,
-                    profileDigest,
-                    runtimeScopeDigest: configuredRuntimeScopeDigest(),
+                if (planned.state !== "done_for_now" && !planned.terminal)
+                    throw new Error("rightout_worker_plan_invalid");
+                const nextWakeAt = typeof planned.next_wake_at === "string" ? planned.next_wake_at : null;
+                const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
+                    outcome: "done_for_now",
+                    nextWakeAt,
+                    reason: planned.terminal ? "campaign_terminal" : "done_for_now",
                 });
-                const [caseStatus, parity, core] = await Promise.all([
-                    caseLedger.status(campaign.subject_ref),
-                    parityCatalogPromise,
-                    catalogPromise,
-                ]);
-                const config = api.pluginConfig;
-                const browser = resolveBrowserBackend(toolContext, config);
-                const emailMode = config?.smtpTransport ? "smtp" : browser.webmail_ready ? "webmail" : "unavailable";
-                const verificationMode = config?.imapTransport ? "imap"
-                    : browserVerificationTransportReady(config, browser) ? "browser_webmail" : "unavailable";
-                const globalScanOnly = campaign.effects.length === 1 && campaign.effects[0] === "discover";
-                let planned = globalScanOnly
-                    ? planGlobalScanCampaignNext({ campaign, caseStatus, scanCatalog: await combinedScanCatalog() })
-                    : planParityCampaignNext({
-                        campaign, caseStatus, parityCatalog: parity, coreCatalog: core,
-                        emailMode, verificationMode, browserMode: browser.selected,
-                        remoteCloudRetryAvailable: browser.remote_cloud_fallback_ready,
-                    });
-                for (const brokerId of campaign.broker_ids) {
-                    const flow = await portalFlowStore.lookup(portalFlowKey(campaign.subject_ref, brokerId));
-                    if (flow?.campaignId === input.campaignId && flow.stage === "peopleconnect_guided_identity"
-                        && Number.isFinite(flow.expiresAt) && flow.expiresAt > Date.now()) {
-                        planned = {
-                            state: "action_ready",
-                            command: {
-                                tool: "rightout_begin_form_session",
-                                parameters: { profileId: campaign.subject_ref, brokerId, campaignId: input.campaignId },
-                                rationale: "resume_same_browser_profile_verified_portal_from_encrypted_flow_state",
-                            },
-                        };
-                        break;
-                    }
-                }
+                const scheduler = completed.state === "active" && completed.worker.next_wake_at
+                    ? await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()))
+                    : { scheduler_state: "not_scheduled_terminal" };
+                const report = { report_version: 1, ...completed, ...scheduler, raw_pii_in_report: false };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_worker_tick", optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_worker_complete",
+            label: "RightOut complete worker lease",
+            description: "Complete one claimed worker lease. Success requires a newly consumed campaign effect; an observed effect paired with a reported failure becomes a non-retrying human gate.",
+            parameters: WorkerCompleteParameters,
+            async execute(_toolCallId, params) {
+                const input = validateWorkerCompleteInput(params);
+                const context = await workerExecutionContext(input.workerId, toolContext);
+                const pending = await workerLedger.pending(input.workerId, input.leaseId);
+                const campaign = await campaignLedger.status(pending.campaign_id);
+                const effectObserved = campaign.used_effects > pending.campaign_used_effects_baseline
+                    && campaign.last_effect_reference !== pending.campaign_last_effect_reference_baseline;
+                if (input.outcome === "action_succeeded" && !effectObserved)
+                    throw new Error("rightout_worker_success_evidence_missing");
+                const outcome = input.outcome !== "action_succeeded" && effectObserved ? "human_gate" : input.outcome;
+                const reason = input.outcome !== "action_succeeded" && effectObserved
+                    ? "effect_consumed_outcome_uncertain"
+                    : input.reason;
+                const completed = await workerLedger.complete(input.workerId, input.leaseId, { outcome, ...(reason ? { reason } : {}) });
+                const scheduler = completed.state === "active" && completed.worker.next_wake_at
+                    ? await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()))
+                    : { scheduler_state: "not_scheduled_gate_or_terminal" };
                 const report = {
                     report_version: 1,
-                    campaign_id: input.campaignId,
-                    ...planned,
-                    selected_email_mode: emailMode,
-                    selected_verification_mode: verificationMode,
-                    selected_browser_mode: browser.selected,
-                    remote_cloud_retry_available: browser.remote_cloud_fallback_ready,
-                    deterministic_next_loop: true,
+                    ...completed,
+                    campaign_effect_observed: effectObserved,
+                    completion_evidence: effectObserved ? "new_campaign_effect_reference" : "no_campaign_effect_observed",
+                    policy_digest_current: context.policyDigest === await currentWorkerPolicyDigest(),
+                    ...scheduler,
+                    raw_pii_in_report: false,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_worker_complete", optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_worker_resume",
+            label: "RightOut resume worker",
+            description: "Resume a gated durable worker only in its original trusted session and unchanged campaign, runtime, catalog, and signed-recipe scope. Requires native allow-once approval.",
+            parameters: WorkerRefParameters,
+            async execute(toolCallId, params) {
+                let input;
+                try {
+                    input = validateWorkerRefInput(params);
+                }
+                catch {
+                    throw new Error("rightout_approval_binding_failed");
+                }
+                const context = await workerExecutionContext(input.workerId, toolContext);
+                if (context.campaign.status !== "active")
+                    throw new Error("rightout_worker_campaign_invalid");
+                pruneApprovalState();
+                const approval = approvalBindings.get(toolCallId);
+                approvalBindings.delete(toolCallId);
+                if (!approval || approval.toolName !== "rightout_worker_resume"
+                    || approval.binding !== workerResumeScopeBinding(input, context.policyDigest, context.sessionBindingDigest))
+                    throw new Error("rightout_approval_binding_failed");
+                const worker = await workerLedger.resume(input.workerId, {
+                    campaign: context.campaign,
+                    policyDigest: context.policyDigest,
+                    sessionBindingDigest: context.sessionBindingDigest,
+                });
+                const scheduler = await scheduleWorkerTurn(toolContext, input.workerId, 1_000);
+                const report = { report_version: 1, ...worker, ...scheduler, raw_pii_in_report: false };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            },
+        }), { name: "rightout_worker_resume", optional: true });
+        api.registerTool((toolContext) => ({
+            name: "rightout_worker_revoke",
+            label: "RightOut revoke worker",
+            description: "Immediately revoke one durable worker. This can only reduce authority, performs no provider request, and leaves its finite campaign separately revocable.",
+            parameters: WorkerRefParameters,
+            async execute(_toolCallId, params) {
+                const input = validateWorkerRefInput(params);
+                const worker = await workerLedger.revoke(input.workerId);
+                let scheduler = { removed: 0, failed: 0 };
+                try {
+                    const session = trustedWorkerSession(toolContext);
+                    scheduler = await api.session.workflow.unscheduleSessionTurnsByTag({
+                        sessionKey: session.sessionKey,
+                        tag: `rightout-worker-${input.workerId.slice("worker_".length)}`,
+                    });
+                }
+                catch { /* a queued turn remains harmless because the worker is revoked */ }
+                const report = {
+                    report_version: 1,
+                    ...worker,
+                    scheduler_cleanup: scheduler,
+                    campaign_revoked: false,
                     provider_reads: 0,
                     provider_writes: 0,
                     raw_pii_in_report: false,
                 };
                 return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
-        }), { name: "rightout_campaign_next", optional: true });
+        }), { name: "rightout_worker_revoke", optional: true });
         api.registerTool({
             name: "rightout_revoke_campaign",
             label: "RightOut revoke autonomous campaign",

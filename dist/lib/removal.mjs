@@ -273,6 +273,18 @@ export function removalProfileDigest(profilePayload) {
 }
 export function removalSmtpDigest(smtp) {
     const clean = validateSmtpConfig(smtp, { contactEmail: smtp?.fromAddress });
+    if (clean.authMode === "oauth2") {
+        const salt = JSON.stringify([
+            "rightout-smtp-transport-oauth2-v1",
+            clean.host,
+            clean.port,
+            clean.secure,
+            clean.username,
+            clean.fromAddress,
+            clean.oauthExpiresAt,
+        ]);
+        return scryptSync(clean.oauthAccessToken, salt, 32).toString("hex");
+    }
     const salt = JSON.stringify([
         "rightout-smtp-transport-v2",
         clean.host,
@@ -425,7 +437,7 @@ export function resolveRemovalCatalogEntry(catalog, input) {
 export function validateSmtpConfig(value, profile) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("rightout_smtp_not_configured");
-    const allowed = new Set(["host", "port", "secure", "username", "password", "fromAddress"]);
+    const allowed = new Set(["host", "port", "secure", "username", "password", "fromAddress", "authMode", "oauthAccessToken", "oauthExpiresAt"]);
     if (Object.keys(value).some((key) => !allowed.has(key)))
         throw new Error("rightout_smtp_not_configured");
     const host = cleanString(value.host, "smtp_host", 4, 253).toLowerCase();
@@ -435,11 +447,34 @@ export function validateSmtpConfig(value, profile) {
     if (!Number.isInteger(port) || !endpoint || endpoint.get(port) !== secure)
         throw new Error("rightout_smtp_not_configured");
     const username = cleanSecret(value.username, "smtp_username", 1, 254);
-    const password = cleanSecret(value.password, "smtp_password", 1, 1_024);
     const fromAddress = cleanEmail(value.fromAddress, "from_address");
     if (fromAddress !== profile.contactEmail)
         throw new Error("rightout_smtp_identity_mismatch");
+    const authMode = value.authMode ?? "password";
+    if (authMode === "oauth2") {
+        if (value.password !== undefined)
+            throw new Error("rightout_smtp_not_configured");
+        const oauthAccessToken = cleanSecret(value.oauthAccessToken, "smtp_oauth_access_token", 16, 8_192);
+        const oauthExpiresAt = cleanOauthExpiry(value.oauthExpiresAt, "smtp");
+        return { host, port, secure, username, authMode, oauthAccessToken, oauthExpiresAt, fromAddress };
+    }
+    if (authMode !== "password" || value.oauthAccessToken !== undefined || value.oauthExpiresAt !== undefined) {
+        throw new Error("rightout_smtp_not_configured");
+    }
+    const password = cleanSecret(value.password, "smtp_password", 1, 1_024);
+    if (value.authMode === "password")
+        return { host, port, secure, username, authMode, password, fromAddress };
     return { host, port, secure, username, password, fromAddress };
+}
+function cleanOauthExpiry(value, protocol) {
+    if (typeof value !== "string" || value.length < 20 || value.length > 35)
+        throw new Error(`rightout_${protocol}_oauth_expired`);
+    const expiresAt = Date.parse(value);
+    const now = Date.now();
+    if (!Number.isFinite(expiresAt) || expiresAt <= now + 60_000 || expiresAt > now + 24 * 60 * 60_000) {
+        throw new Error(`rightout_${protocol}_oauth_expired`);
+    }
+    return new Date(expiresAt).toISOString();
 }
 function assertEligible(profile, broker) {
     if (broker.eligibleJurisdictions.includes("US-CA")
@@ -543,6 +578,7 @@ function deterministicMessageId(input, profile, broker) {
         .slice(0, 32);
     return `<rightout.${digest}@local.invalid>`;
 }
+export { deterministicMessageId as removalMessageId };
 function acceptedAddresses(value) {
     if (!Array.isArray(value))
         return [];
