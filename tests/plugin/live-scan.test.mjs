@@ -493,6 +493,10 @@ test("plugin manifest declares the full autonomous campaign surface with correct
     "rightout_evidence_status",
     "rightout_export_evidence",
     "rightout_custom_target_status",
+    "rightout_effectiveness",
+    "rightout_team_session_binding",
+    "rightout_team_overview",
+    "rightout_export_dashboard",
     "rightout_reconcile_submission",
     "rightout_next_actions",
     "rightout_case_status",
@@ -533,11 +537,11 @@ test("plugin manifest declares the full autonomous campaign surface with correct
   assert.equal(manifest.toolMetadata.rightout_submit_removal.replaySafe, false);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.optional, true);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.replaySafe, false);
-  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_poll_controller_reply", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_create_evidence_snapshot", "rightout_export_evidence", "rightout_reconcile_submission", "rightout_rotate_state_key", "rightout_start_campaign", "rightout_worker_enable", "rightout_worker_tick", "rightout_worker_complete", "rightout_worker_resume", "rightout_worker_revoke", "rightout_revoke_campaign", "rightout_refresh_registries", "rightout_refresh_parity_sources", "rightout_record_drop_filed", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step", "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step", "rightout_begin_form_session", "rightout_form_session_step"]) {
+  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_poll_controller_reply", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_create_evidence_snapshot", "rightout_export_evidence", "rightout_export_dashboard", "rightout_reconcile_submission", "rightout_rotate_state_key", "rightout_start_campaign", "rightout_worker_enable", "rightout_worker_tick", "rightout_worker_complete", "rightout_worker_resume", "rightout_worker_revoke", "rightout_revoke_campaign", "rightout_refresh_registries", "rightout_refresh_parity_sources", "rightout_record_drop_filed", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step", "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step", "rightout_begin_form_session", "rightout_form_session_step"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, false);
   }
-  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks", "rightout_campaign_status", "rightout_campaign_next", "rightout_worker_status", "rightout_registry_status", "rightout_registry_search", "rightout_unbroker_parity_health", "rightout_evidence_status", "rightout_custom_target_status"]) {
+  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks", "rightout_campaign_status", "rightout_campaign_next", "rightout_worker_status", "rightout_registry_status", "rightout_registry_search", "rightout_unbroker_parity_health", "rightout_evidence_status", "rightout_custom_target_status", "rightout_effectiveness", "rightout_team_session_binding", "rightout_team_overview"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, true);
   }
@@ -593,6 +597,8 @@ test("plugin manifest declares the full autonomous campaign surface with correct
     ["delete_and_opt_out", "gdpr_erasure_objection"],
   );
   assert.deepEqual(manifest.skills, ["./skills"]);
+  assert.deepEqual(manifest.configSchema.properties.teamAccess.additionalProperties.properties.role.enum, ["owner", "manager", "viewer"]);
+  assert.equal(manifest.configSchema.properties.effectivenessCanaries.additionalProperties.maxItems, 500);
 });
 
 test("runtime hook requires allow-once or deny and fails closed", async () => {
@@ -625,7 +631,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       return value;
     },
   });
-  assert.equal(tools.length, 46);
+  assert.equal(tools.length, 50);
   assert.equal(tools[0].tool.name, "rightout_live_scan");
   assert.equal(tools[1].tool.name, "rightout_direct_rescan");
   assert.equal(tools[2].tool.name, "rightout_submit_removal");
@@ -673,7 +679,9 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       "rightout_direct_rescan",
       "rightout_purge_subject_state",
       "rightout_record_controller_outcome",
+      "rightout_create_evidence_snapshot",
       "rightout_export_evidence",
+      "rightout_export_dashboard",
       "rightout_reconcile_submission",
       "rightout_rotate_state_key",
       "rightout_start_campaign",
@@ -684,6 +692,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       "rightout_submit_parity_email",
       "rightout_begin_webmail_session",
       "rightout_webmail_session_step",
+      "rightout_begin_webmail_verification",
       "rightout_begin_discovery_session",
       "rightout_discovery_session_step",
       "rightout_begin_form_session",
@@ -704,6 +713,26 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
     },
   });
   assert.deepEqual(safe, []);
+
+  const unsafeTeamBoundary = await auditCollector({
+    config: {},
+    sourceConfig: {
+      plugins: { entries: { rightout: { config: {
+        braveApiKey: { source: "env", provider: "default", id: "RIGHTOUT_BRAVE_KEY" },
+        stateEncryptionKey: { source: "env", provider: "default", id: "RIGHTOUT_STATE_KEY" },
+        profiles: { [toolInput.profileId]: { payload: { source: "file", provider: "profiles", id: "/subject" } } },
+        operatorAttestations: structuredClone(operatorAttestations),
+        teamAccess: {
+          member_0123456789abcdef: {
+            role: "owner",
+            sessionBindingDigest: "a".repeat(64),
+            authorizedProfileIds: [toolInput.profileId],
+          },
+        },
+      } } } },
+    },
+  });
+  assert.ok(unsafeTeamBoundary.some((item) => item.checkId === "rightout.team_access.gateway_boundary" && item.severity === "critical"));
 
   const missingId = await hooks.get("before_tool_call")({ toolName: "rightout_live_scan", params: toolInput });
   assert.equal(missingId.block, true);

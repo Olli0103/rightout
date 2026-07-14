@@ -25,6 +25,10 @@
       "rightout_evidence_status",
       "rightout_export_evidence",
       "rightout_custom_target_status",
+      "rightout_effectiveness",
+      "rightout_team_session_binding",
+      "rightout_team_overview",
+      "rightout_export_dashboard",
       "rightout_reconcile_submission",
       "rightout_next_actions",
       "rightout_case_status",
@@ -204,6 +208,31 @@
           "rootPath": "plugins.entries.rightout.config",
           "required": ["stateEncryptionKey", "profiles", "customTargetRecipePacks", "customTargetTrustedKeys", "customTargetPermissions"]
         }
+      ]
+    },
+    "rightout_effectiveness": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        { "rootPath": "plugins.entries.rightout.config", "required": ["stateEncryptionKey", "profiles"] }
+      ]
+    },
+    "rightout_team_session_binding": {
+      "optional": true,
+      "replaySafe": true
+    },
+    "rightout_team_overview": {
+      "optional": true,
+      "replaySafe": true,
+      "configSignals": [
+        { "rootPath": "plugins.entries.rightout.config", "required": ["stateEncryptionKey", "profiles", "teamAccess"] }
+      ]
+    },
+    "rightout_export_dashboard": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        { "rootPath": "plugins.entries.rightout.config", "required": ["stateEncryptionKey", "profiles", "teamAccess"] }
       ]
     },
     "rightout_reconcile_submission": {
@@ -724,6 +753,16 @@
       "label": "Custom-target permissions",
       "help": "Current written authorization bound to one opaque custom-target handle, exact recipe digest, official-domain digest, lifetime, and effect.",
       "advanced": true
+    },
+    "effectivenessCanaries": {
+      "label": "Authorized effectiveness canaries",
+      "help": "Optional out-of-band proof references for delivered submissions, controller confirmation, direct absence, or reappearance. Technical capability never counts as effectiveness evidence.",
+      "advanced": true
+    },
+    "teamAccess": {
+      "label": "Family and team access",
+      "help": "Session-bound owner, manager, and viewer roles with exact authorized profile scopes. Generate one-way bindings with rightout_team_session_binding.",
+      "advanced": true
     }
   },
   "configSchema": {
@@ -844,6 +883,49 @@
             "allowedEffects": {
               "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
               "items": { "enum": ["submit_form", "submit_email"] }
+            }
+          }
+        }
+      },
+      "effectivenessCanaries": {
+        "type": "object",
+        "maxProperties": 20,
+        "propertyNames": { "pattern": "^profile_[a-f0-9]{16,32}$" },
+        "additionalProperties": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["profileId", "brokerId", "kind", "observedAt", "proofReference"],
+            "properties": {
+              "profileId": { "type": "string", "pattern": "^profile_[a-f0-9]{16,32}$" },
+              "brokerId": { "type": "string", "pattern": "^[a-z0-9_]{2,80}$" },
+              "kind": { "enum": ["submission_delivered", "controller_confirmed", "direct_absence", "reappearance"] },
+              "observedAt": { "type": "string", "format": "date-time" },
+              "proofReference": { "type": "string", "pattern": "^canary_[a-f0-9]{24}$" }
+            }
+          }
+        }
+      },
+      "teamAccess": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 100,
+        "propertyNames": { "pattern": "^member_[a-f0-9]{16,32}$" },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "sessionBindingDigest", "authorizedProfileIds"],
+          "properties": {
+            "role": { "enum": ["owner", "manager", "viewer"] },
+            "sessionBindingDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "authorizedProfileIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^profile_[a-f0-9]{16,32}$" }
             }
           }
         }

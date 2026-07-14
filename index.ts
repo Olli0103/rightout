@@ -120,6 +120,13 @@ import {
   compileBuiltinRecipePack,
   recipeDigest,
 } from "./lib/recipes.mjs";
+import { buildEffectivenessReport } from "./lib/effectiveness.mjs";
+import {
+  resolveTeamMember,
+  teamSessionBindingDigest,
+  validateTeamAccess,
+} from "./lib/team-access.mjs";
+import { exportLocalDashboard } from "./lib/dashboard.mjs";
 
 type ScanAttestations = {
   braveTermsAccepted: boolean;
@@ -236,6 +243,20 @@ type DirectScanAttestations = {
   authorizedBrokerIds: string[];
 };
 
+type TeamAccessRecord = {
+  role: "owner" | "manager" | "viewer";
+  sessionBindingDigest: string;
+  authorizedProfileIds: string[];
+};
+
+type EffectivenessCanary = {
+  profileId: string;
+  brokerId: string;
+  kind: "submission_delivered" | "controller_confirmed" | "direct_absence" | "reappearance";
+  observedAt: string;
+  proofReference: string;
+};
+
 type RightOutConfig = {
   braveApiKey?: string;
   profiles?: Record<string, { payload: string }>;
@@ -248,6 +269,8 @@ type RightOutConfig = {
   customTargetRecipePacks?: unknown[];
   customTargetTrustedKeys?: Record<string, string>;
   customTargetPermissions?: Record<string, unknown>;
+  effectivenessCanaries?: Record<string, EffectivenessCanary[]>;
+  teamAccess?: Record<string, TeamAccessRecord>;
   formAttestations?: FormAttestations;
   stateEncryptionKey?: string;
   previousStateEncryptionKeys?: string[];
@@ -525,6 +548,15 @@ const CaseParameters = Type.Object(
     profileId: Type.String({
       pattern: "^profile_[a-f0-9]{16,32}$",
       description: "Opaque operator-configured profile reference. Contains no personal data.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const DashboardExportParameters = Type.Object(
+  {
+    format: Type.Union([Type.Literal("html"), Type.Literal("json")], {
+      description: "Static private local artifact format. No server or remote asset is created.",
     }),
   },
   { additionalProperties: false },
@@ -845,6 +877,7 @@ function assertCampaignCatalogScope(catalog: Record<string, unknown>, input: Pub
 type PublicScanInput = { profileId: string; brokerIds: string[] };
 type PublicRemovalInput = { profileId: string; brokerId: string; requestKind: "delete_and_opt_out" | "gdpr_erasure_objection" };
 type PublicCaseInput = { profileId: string };
+type PublicDashboardExportInput = { format: "html" | "json" };
 type PublicControllerOutcomeInput = PublicCaseInput & {
   brokerId: string;
   outcome: "processing_acknowledged" | "erasure_confirmed" | "partial_erasure" | "deletion_confirmed" | "partial_deletion" | "identity_required" | "request_rejected";
@@ -1122,6 +1155,36 @@ function validateCaseInput(value: unknown): PublicCaseInput {
     throw new Error("invalid_profile_ref");
   }
   return { profileId: input.profileId };
+}
+
+function validateDashboardExportInput(value: unknown): PublicDashboardExportInput {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1) {
+    throw new Error("rightout_dashboard_input_invalid");
+  }
+  const input = value as Record<string, unknown>;
+  if (!new Set(["html", "json"]).has(String(input.format))) throw new Error("rightout_dashboard_input_invalid");
+  return input as PublicDashboardExportInput;
+}
+
+function dashboardExportScopeBinding(input: PublicDashboardExportInput, member: Record<string, any>, sessionBindingDigest: string): string {
+  const clean = validateDashboardExportInput(input);
+  if (
+    !/^member_[a-f0-9]{16,32}$/.test(member?.member_id ?? "")
+    || !["owner", "manager"].includes(member?.role)
+    || !Array.isArray(member?.authorized_profile_ids) || member.authorized_profile_ids.length < 1
+    || member.authorized_profile_ids.some((profileId: unknown) => typeof profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(profileId))
+    || !/^[a-f0-9]{64}$/.test(sessionBindingDigest)
+  ) {
+    throw new Error("rightout_team_session_unauthorized");
+  }
+  return JSON.stringify([
+    "rightout_dashboard_export_v1",
+    clean.format,
+    member.member_id,
+    member.role,
+    [...member.authorized_profile_ids].sort(),
+    sessionBindingDigest,
+  ]);
 }
 
 function purgeScopeBinding(input: PublicCaseInput): string {
@@ -1728,6 +1791,121 @@ export default definePluginEntry({
       const agentId = context.agentId;
       if (typeof sessionKey !== "string" || typeof agentId !== "string") throw new Error("rightout_worker_session_required");
       return { sessionKey, agentId, sessionBindingDigest: workerSessionBindingDigest({ sessionKey, agentId }) };
+    }
+
+    function configuredProfileIds(config = api.pluginConfig as RightOutConfig | undefined): string[] {
+      return Object.keys(config?.profiles ?? {}).filter((profileId) => /^profile_[a-f0-9]{16,32}$/.test(profileId)).sort();
+    }
+
+    function teamContext(context: Record<string, any>): { sessionKey: string; agentId: string } {
+      const sessionKey = context?.sessionKey;
+      const agentId = context?.agentId;
+      if (typeof sessionKey !== "string" || typeof agentId !== "string") throw new Error("rightout_team_session_required");
+      return { sessionKey, agentId };
+    }
+
+    function currentTeamMember(config: RightOutConfig | undefined, context: Record<string, any>) {
+      if (config?.teamAccess === undefined) return undefined;
+      return resolveTeamMember(config.teamAccess, configuredProfileIds(config), teamContext(context));
+    }
+
+    function assertTeamProfileScope(member: Record<string, any>, profileId: string): void {
+      if (!member.authorized_profile_ids.includes(profileId)) throw new Error("rightout_team_profile_unauthorized");
+    }
+
+    async function eventProfileScope(params: unknown): Promise<string | undefined> {
+      if (!params || typeof params !== "object" || Array.isArray(params)) return undefined;
+      const value = params as Record<string, unknown>;
+      if (typeof value.profileId === "string") return value.profileId;
+      if (typeof value.campaignId === "string" && /^campaign_[a-f0-9]{32}$/.test(value.campaignId)) {
+        const campaign = await campaignStore.lookup(value.campaignId);
+        if (!campaign || typeof campaign.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(campaign.profileId)) {
+          throw new Error("rightout_team_campaign_scope_unknown");
+        }
+        return campaign.profileId;
+      }
+      if (typeof value.workerId === "string" && /^worker_[a-f0-9]{32}$/.test(value.workerId)) {
+        const worker = await workerStore.lookup(value.workerId);
+        if (!worker || typeof worker.profileId !== "string" || !/^profile_[a-f0-9]{16,32}$/.test(worker.profileId)) {
+          throw new Error("rightout_team_worker_scope_unknown");
+        }
+        return worker.profileId;
+      }
+      if (typeof value.sessionId === "string") {
+        const session = browserSessions.get(value.sessionId);
+        if (!session || typeof session.profileId !== "string") throw new Error("rightout_team_session_scope_unknown");
+        return session.profileId;
+      }
+      return undefined;
+    }
+
+    function effectivenessCanaries(config: RightOutConfig | undefined, profileId: string): EffectivenessCanary[] | undefined {
+      return config?.effectivenessCanaries?.[profileId];
+    }
+
+    async function effectivenessForProfile(profileId: string): Promise<Record<string, any>> {
+      assertConfiguredProfile(profileId);
+      await ensureImmutableProfileSnapshot(profileId);
+      const status = await caseLedger.status(profileId);
+      return buildEffectivenessReport(status, effectivenessCanaries(api.pluginConfig as RightOutConfig | undefined, profileId));
+    }
+
+    async function teamDashboardModel(member: Record<string, any>): Promise<Record<string, any>> {
+      const config = api.pluginConfig as RightOutConfig | undefined;
+      const profiles = [];
+      const effectiveness = [];
+      for (const profileId of member.authorized_profile_ids) {
+        const status = await caseLedger.status(profileId);
+        const measured = buildEffectivenessReport(status, effectivenessCanaries(config, profileId));
+        profiles.push({
+          subject_ref: status.subject_ref,
+          counts: status.counts,
+          cases: status.cases.map((item: Record<string, any>) => ({
+            broker_id: item.broker_id,
+            state: item.state,
+            next_recheck_at: item.next_recheck_at,
+          })),
+        });
+        effectiveness.push({
+          subject_ref: measured.subject_ref,
+          operational_effectiveness: measured.operational_effectiveness,
+          discovery: measured.discovery,
+          submission: measured.submission,
+          provider_confirmation: measured.provider_confirmation,
+          reappearance: measured.reappearance,
+          uncertainty: measured.uncertainty,
+          human_handoff: measured.human_handoff,
+        });
+      }
+      const authorized = new Set(member.authorized_profile_ids);
+      const evidenceReferenceCount = (await evidenceStore.entries()).filter((entry: Record<string, any>) => authorized.has(entry?.value?.profileId)).length;
+      const health = catalogPolicyHealth(await catalogPromise);
+      const dueNow = profiles.flatMap((profile) => profile.cases).filter((item) => (
+        typeof item.next_recheck_at === "string" && Date.parse(item.next_recheck_at) <= Date.now()
+      )).length;
+      const evidencedCount = effectiveness.filter((item) => item.operational_effectiveness === "evidenced_by_authorized_canaries").length;
+      return {
+        dashboard_version: 1,
+        generated_at: new Date().toISOString(),
+        member: {
+          member_id: member.member_id,
+          role: member.role,
+          authorized_profile_count: member.authorized_profile_ids.length,
+        },
+        profiles,
+        effectiveness,
+        operational_effectiveness: evidencedCount === effectiveness.length && evidencedCount > 0
+          ? "evidenced_by_authorized_canaries"
+          : evidencedCount > 0 ? "partially_evidenced_by_authorized_canaries" : "needs_evidence",
+        due_now: dueNow,
+        evidence_reference_count: evidenceReferenceCount,
+        route_health: {
+          summary: health.summary,
+          live_provider_io_allowed: health.live_provider_io_allowed,
+          next_action: health.next_action,
+        },
+        invariants: { raw_pii_in_report: false, network_requests: 0, browser_service_started: false },
+      };
     }
 
     async function currentWorkerPolicyDigest(): Promise<string> {
@@ -2507,9 +2685,22 @@ export default definePluginEntry({
           remediation: "Configure all three custom-target trust inputs or remove the partial configuration; raw targets remain encrypted local state.",
         });
       }
+      if (rightout?.teamAccess !== undefined) {
+        try {
+          validateTeamAccess(rightout.teamAccess, Object.keys(rightout?.profiles ?? {}));
+        } catch {
+          findings.push({
+            checkId: "rightout.team_access",
+            severity: "critical" as const,
+            title: "RightOut team access configuration is invalid",
+            detail: "Team mode requires unique session bindings, at least one owner, exact roles, and configured per-member subject scopes.",
+            remediation: "Generate session bindings with rightout_team_session_binding and configure unique owner, manager, or viewer records with exact profile IDs.",
+          });
+        }
+      }
       const runtime = config as Record<string, any>;
       const httpDeny = runtime.gateway?.tools?.deny;
-      const missingDeny = [
+      const privilegedGatewayTools = [
         "rightout_live_scan",
         "rightout_submit_removal",
         "rightout_submit_form_removal",
@@ -2519,7 +2710,9 @@ export default definePluginEntry({
         "rightout_direct_rescan",
         "rightout_purge_subject_state",
         "rightout_record_controller_outcome",
+        "rightout_create_evidence_snapshot",
         "rightout_export_evidence",
+        "rightout_export_dashboard",
         "rightout_reconcile_submission",
         "rightout_rotate_state_key",
         "rightout_start_campaign",
@@ -2530,6 +2723,7 @@ export default definePluginEntry({
         "rightout_submit_parity_email",
         "rightout_begin_webmail_session",
         "rightout_webmail_session_step",
+        "rightout_begin_webmail_verification",
         "rightout_begin_discovery_session",
         "rightout_discovery_session_step",
         "rightout_begin_form_session",
@@ -2539,7 +2733,8 @@ export default definePluginEntry({
         "rightout_worker_complete",
         "rightout_worker_resume",
         "rightout_worker_revoke",
-      ].filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
+      ];
+      const missingDeny = privilegedGatewayTools.filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
       if (missingDeny.length) {
         findings.push({
           checkId: "rightout.gateway.tools_invoke",
@@ -2549,10 +2744,76 @@ export default definePluginEntry({
           remediation: "Add all live RightOut tools to gateway.tools.deny unless direct operator invocation is explicitly required.",
         });
       }
+      if (rightout?.teamAccess !== undefined) {
+        const teamGatewayTools = [...new Set([
+          ...privilegedGatewayTools,
+          "rightout_evidence_status",
+          "rightout_custom_target_status",
+          "rightout_effectiveness",
+          "rightout_team_session_binding",
+          "rightout_team_overview",
+          "rightout_next_actions",
+          "rightout_case_status",
+          "rightout_export_report",
+          "rightout_catalog_health",
+          "rightout_setup",
+          "rightout_doctor",
+          "rightout_due_rechecks",
+          "rightout_campaign_status",
+          "rightout_campaign_next",
+          "rightout_worker_status",
+          "rightout_registry_status",
+          "rightout_registry_search",
+          "rightout_unbroker_parity_health",
+        ])];
+        const exposed = teamGatewayTools.filter((tool) => !Array.isArray(httpDeny) || !httpDeny.includes(tool));
+        if (exposed.length) {
+          findings.push({
+            checkId: "rightout.team_access.gateway_boundary",
+            severity: "critical" as const,
+            title: "RightOut team roles are bypassable through full-operator direct tool invoke",
+            detail: `Team mode requires every RightOut tool to be denied on /tools/invoke; missing: ${exposed.join(", ")}.`,
+            remediation: "Add every RightOut contract tool to gateway.tools.deny so all family/team use stays inside session-bound agent hooks.",
+          });
+        }
+      }
       return findings;
     });
 
     api.on("before_tool_call", async (event, hookContext) => {
+      const config = api.pluginConfig as RightOutConfig | undefined;
+      if (config?.teamAccess !== undefined && event.toolName.startsWith("rightout_")) {
+        if (event.toolName !== "rightout_team_session_binding") {
+          try {
+            const member = currentTeamMember(config, hookContext as Record<string, any>);
+            if (!member) throw new Error("rightout_team_access_not_configured");
+            const profileId = await eventProfileScope(event.params);
+            if (profileId) assertTeamProfileScope(member, profileId);
+            const teamReadOnlyTools = new Set([
+              "rightout_next_actions",
+              "rightout_case_status",
+              "rightout_export_report",
+              "rightout_catalog_health",
+              "rightout_setup",
+              "rightout_doctor",
+              "rightout_due_rechecks",
+              "rightout_registry_status",
+              "rightout_registry_search",
+              "rightout_unbroker_parity_health",
+              "rightout_evidence_status",
+              "rightout_custom_target_status",
+              "rightout_effectiveness",
+              "rightout_team_overview",
+            ]);
+            const dashboardAllowed = event.toolName === "rightout_export_dashboard" && ["owner", "manager"].includes(member.role);
+            if (!teamReadOnlyTools.has(event.toolName) && !dashboardAllowed && member.role !== "owner") {
+              throw new Error("rightout_team_role_unauthorized");
+            }
+          } catch {
+            return { block: true, blockReason: "RightOut team access requires an exact bound session, authorized profile scope, and sufficient role" };
+          }
+        }
+      }
       const approvalTools = new Set([
         "rightout_live_scan",
         "rightout_submit_removal",
@@ -2564,6 +2825,7 @@ export default definePluginEntry({
         "rightout_purge_subject_state",
         "rightout_record_controller_outcome",
         "rightout_export_evidence",
+        "rightout_export_dashboard",
         "rightout_reconcile_submission",
         "rightout_rotate_state_key",
         "rightout_start_campaign",
@@ -2577,7 +2839,6 @@ export default definePluginEntry({
       ]);
       if (!approvalTools.has(event.toolName)) return;
       if (!event.toolCallId) return { block: true, blockReason: "RightOut requires a host-authoritative tool call ID" };
-      const config = api.pluginConfig as RightOutConfig | undefined;
       const catalog = await catalogPromise;
       pruneApprovalState();
       approvalBindings.delete(event.toolCallId);
@@ -2635,6 +2896,32 @@ export default definePluginEntry({
           };
         } catch {
           return { block: true, blockReason: "invalid RightOut evidence-export scope" };
+        }
+      }
+      if (event.toolName === "rightout_export_dashboard") {
+        try {
+          const input = validateDashboardExportInput(event.params);
+          const member = currentTeamMember(config, hookContext as Record<string, any>);
+          if (!member || !["owner", "manager"].includes(member.role)) throw new Error("rightout_team_role_unauthorized");
+          const session = teamContext(hookContext as Record<string, any>);
+          const binding = dashboardExportScopeBinding(input, member, teamSessionBindingDigest(session));
+          const toolCallId = event.toolCallId;
+          return {
+            params: input,
+            requireApproval: {
+              title: "Export private local RightOut dashboard",
+              description: `Write one static ${input.format} dashboard for ${member.member_id} and only its authorized subject scopes. No server, scripts, remote assets, or network request.`,
+              severity: "critical" as const,
+              allowedDecisions: ["allow-once", "deny"] as const,
+              timeoutMs: approvalTtlMs,
+              onResolution(decision: PluginApprovalResolution) {
+                if (decision === "allow-once") approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                else approvalBindings.delete(toolCallId);
+              },
+            },
+          };
+        } catch {
+          return { block: true, blockReason: "Private dashboard export requires a configured owner or manager session and native allow-once approval" };
         }
       }
       if (event.toolName === "rightout_worker_resume") {
@@ -6783,6 +7070,94 @@ export default definePluginEntry({
         },
       },
       { optional: true },
+    );
+
+    api.registerTool(
+      (toolContext) => ({
+        name: "rightout_team_session_binding",
+        label: "RightOut team session binding",
+        description: "Derive the one-way binding for this exact trusted OpenClaw session and agent. Returns no raw session identifier and performs no network request or write.",
+        parameters: EmptyParameters,
+        async execute(_toolCallId, params) {
+          if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+            throw new Error("rightout_team_session_required");
+          }
+          const binding = teamSessionBindingDigest(teamContext(toolContext as Record<string, any>));
+          const report = {
+            report_version: 1,
+            session_binding_digest: binding,
+            raw_session_identifier_in_report: false,
+            network_requests: 0,
+            provider_writes: 0,
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      }),
+      { name: "rightout_team_session_binding", optional: true },
+    );
+
+    api.registerTool(
+      (toolContext) => ({
+        name: "rightout_effectiveness",
+        label: "RightOut effectiveness metrics",
+        description: "Measure discovery, identity confidence, submission, provider confirmation, reappearance, uncertainty, and human handoff for one subject. Operational effectiveness remains needs_evidence without explicit authorized canaries.",
+        parameters: CaseParameters,
+        async execute(_toolCallId, params) {
+          const input = validateCaseInput(params);
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          const member = currentTeamMember(config, toolContext as Record<string, any>);
+          if (member) assertTeamProfileScope(member, input.profileId);
+          const report = await effectivenessForProfile(input.profileId);
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      }),
+      { name: "rightout_effectiveness", optional: true },
+    );
+
+    api.registerTool(
+      (toolContext) => ({
+        name: "rightout_team_overview",
+        label: "RightOut scoped team overview",
+        description: "Read a PII-safe overview limited to the profiles authorized for this exact bound team session. Campaign and worker authority are intentionally omitted.",
+        parameters: EmptyParameters,
+        async execute(_toolCallId, params) {
+          if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
+            throw new Error("rightout_team_overview_input_invalid");
+          }
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          const member = currentTeamMember(config, toolContext as Record<string, any>);
+          if (!member) throw new Error("rightout_team_access_not_configured");
+          const report = await teamDashboardModel(member);
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      }),
+      { name: "rightout_team_overview", optional: true },
+    );
+
+    api.registerTool(
+      (toolContext) => ({
+        name: "rightout_export_dashboard",
+        label: "RightOut export private local dashboard",
+        description: "Export a static HTML or JSON dashboard limited to this owner/manager session's authorized profiles. Requires native allow-once approval; starts no server and loads no remote assets.",
+        parameters: DashboardExportParameters,
+        async execute(toolCallId, params) {
+          const input = validateDashboardExportInput(params);
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          const member = currentTeamMember(config, toolContext as Record<string, any>);
+          if (!member || !["owner", "manager"].includes(member.role)) throw new Error("rightout_team_role_unauthorized");
+          const binding = dashboardExportScopeBinding(input, member, teamSessionBindingDigest(teamContext(toolContext as Record<string, any>)));
+          pruneApprovalState();
+          const approval = approvalBindings.get(toolCallId);
+          approvalBindings.delete(toolCallId);
+          if (!approval || approval.toolName !== "rightout_export_dashboard" || approval.binding !== binding) {
+            throw new Error("rightout_approval_binding_failed");
+          }
+          const exported = await exportLocalDashboard(await teamDashboardModel(member), stateDir, input.format);
+          const report = { report_version: 1, ...exported, native_approval_consumed: true };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      }),
+      { name: "rightout_export_dashboard", optional: true },
     );
   },
 });
