@@ -47,13 +47,13 @@ says exactly what is known — and what is not.
 | Live discovery | Country-aware Brave Web Search POST scans across 56 code-enforced public-index lanes: 30 people-search plus 26 EU/US controller and B2B domains |
 | Removal | 28 independently locked email/removal targets, including 18 EU/EEA controller lanes |
 | Campaigns | Revocable grants for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 broker-effect units |
-| Durable autonomy | Encrypted workers, live single leases, exact-command result receipts, lease watchdogs, fail-closed schedule replacement/restart recovery, exponential backoff, current-session scheduling, explicit Cron handoff, resume approval, and revocation |
+| Durable autonomy | Encrypted workers, live single leases, exact-command result receipts, lease watchdogs, state-bound cross-process schedule coordination/recovery, exponential backoff, current-session scheduling, explicit Cron handoff, resume approval, and revocation |
 | Recipe trust | Release-attested 22-route built-in pack, strictly Ed25519 external packs, expiry, exact-domain binding, and semantic/sensitive drift quarantine |
 | Browser forms | Bounded semantic form engine for 20 normalized contracts plus a separately staged PeopleConnect flow |
 | Email | Catalog-locked password or short-lived OAuth2 SMTP and privacy-redacted Gmail compose, with rescue routes reported separately |
 | Verification | Receiver-authenticated Gmail IMAP, authenticated thread-bound controller reply candidates, pinned HTTPS/domain checks, explicit human gates, and a separate link-open effect |
 | Rechecks | Encrypted listing handles, timed absence confirmation, reappearance detection, and OpenClaw Cron handoff |
-| Evidence | Optional encrypted content-addressed snapshots, non-extending bounded retention, tamper checks, and transactionally serialized managed local exports that expire and purge with their subject |
+| Evidence | Optional encrypted content-addressed snapshots, non-extending bounded retention, tamper checks, and state-directory-wide transactionally serialized exports that expire and purge with their subject |
 | Custom targets | Out-of-band encrypted intake with opaque handles; unknown routes remain quarantined until a signed recipe and current exact permission exist |
 | Family / team | Session-bound owner, manager, and viewer roles with exact profile scopes; full-operator direct invoke must be disabled in team mode |
 | Reporting | PII-safe Markdown, structured JSON, consolidated digests, Google Sheets-compatible rows, evidence-based effectiveness metrics, and static local HTML/JSON dashboards |
@@ -104,7 +104,9 @@ are distinct effects with distinct gates.
 While an action is unresolved, a lease watchdog remains scheduled. Gateway
 startup reconstructs missing worker wakes from the encrypted session route; an
 unavailable or partially failed replacement schedule moves the worker to a
-visible human gate before another command is exposed.
+visible human gate before another command is exposed. A durable schedule-state
+token and cross-process coordinator prevent stale recovery from replacing a
+newer lease watchdog.
 Unsupported schedulers do not disappear into “best effort”: RightOut returns a
 PII-free explicit Cron handoff. See the [installation guide](INSTALL.md) for the
 worker, team, evidence, and dashboard configuration.

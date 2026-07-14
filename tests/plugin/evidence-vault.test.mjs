@@ -25,8 +25,12 @@ function fakeTimerHarness() {
   };
 }
 
-function fixture({ mutableNow, timerHarness, decorateExportStore } = {}) {
-  const stateDir = mkdtempSync(join(tmpdir(), "rightout-evidence-vault-"));
+function fixture({
+  mutableNow,
+  timerHarness,
+  decorateExportStore,
+  stateDir = mkdtempSync(join(tmpdir(), "rightout-evidence-vault-")),
+} = {}) {
   const store = createEncryptedFileKeyedStore({
     stateDir, namespace: "rightout-evidence-vault-v1", maxEntries: 500,
     getSecret: () => stateKey, ...(mutableNow ? { now: () => mutableNow.value } : {}),
@@ -41,7 +45,7 @@ function fixture({ mutableNow, timerHarness, decorateExportStore } = {}) {
     store,
     exportStore: exportStoreBacking,
     vault: createEvidenceVault(store, {
-      now: () => new Date(mutableNow?.value ?? Date.now()), exportStore, exportRoot: stateDir,
+      stateDir, now: () => new Date(mutableNow?.value ?? Date.now()), exportStore, exportRoot: stateDir,
       ...(timerHarness ? { setTimer: timerHarness.setTimer, clearTimer: timerHarness.clearTimer } : {}),
     }),
   };
@@ -133,7 +137,7 @@ test("redacted export is separately invoked, private, contained, and rejects a s
 
   const unsafeRoot = mkdtempSync(join(tmpdir(), "rightout-evidence-export-symlink-"));
   symlinkSync(tmpdir(), join(unsafeRoot, "rightout-evidence-exports-v1"));
-  const unsafeVault = createEvidenceVault(store, { exportStore, exportRoot: unsafeRoot });
+  const unsafeVault = createEvidenceVault(store, { stateDir, exportStore, exportRoot: unsafeRoot });
   await assert.rejects(unsafeVault.exportRedacted(saved.evidence_ref, profileId, unsafeRoot, "markdown"), /export_path_invalid/);
 });
 
@@ -195,7 +199,8 @@ test("cleanup waits for an in-flight export to become durably tracked", async ()
   const evidence = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
   const exporting = vault.exportRedacted(evidence.evidence_ref, profileId, stateDir, "json");
   await registerEntered.promise;
-  const cleaning = vault.cleanupExpiredEvidence();
+  const { vault: concurrentVault } = fixture({ stateDir });
+  const cleaning = concurrentVault.cleanupExpiredEvidence();
   releaseRegister.resolve();
   const exported = await exporting;
   await cleaning;
@@ -219,7 +224,8 @@ test("subject purge waits for an in-flight export and removes the file and both 
   const evidence = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
   const exporting = vault.exportRedacted(evidence.evidence_ref, profileId, stateDir, "json");
   await registerEntered.promise;
-  const purging = vault.purgeSubject(profileId);
+  const { vault: concurrentVault } = fixture({ stateDir });
+  const purging = concurrentVault.purgeSubject(profileId);
   releaseRegister.resolve();
   const exported = await exporting;
   const purged = await purging;

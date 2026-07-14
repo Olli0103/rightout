@@ -105,6 +105,7 @@ const SIGNALS = Object.freeze([
     ["processing", /\b(?:we have received|we received|receipt of|being processed|processing your|eingegangen|erhalten|wird bearbeitet)\b.{0,80}\b(?:request|anfrage|antrag)?\b/iu],
 ]);
 const QUALIFIED_COMPLETION = /(?:\b(?:no|none|nothing|not|never|neither|nor|cannot|can't|couldn't|didn't|doesn't|hasn't|haven't|unable|without|except|although|though|however|but|retain|retained|remaining|remain(?:s|ed|ing)?|partially|nicht|nie|nichts|kein(?:e|en|er|es)?|keineswegs|keinesfalls|weder|noch|außer|jedoch|aber|allerdings|teilweise|behalten|verbleib(?:t|en)|aufbewahr(?:t|en))\b.{0,100}\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b)|(?:\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b.{0,100}\b(?:no|none|nothing|not|never|neither|nor|except|although|though|however|but|retain|retained|remaining|remain(?:s|ed|ing)?|partially|nicht|nie|nichts|kein(?:e|en|er|es)?|keineswegs|keinesfalls|weder|noch|außer|jedoch|aber|allerdings|teilweise|behalten|verbleib(?:t|en)|aufbewahr(?:t|en))\b)/iu;
+const UNQUALIFIED_COMPLETION = /(?:^|[.!?]\s+)(?:we have (?:successfully )?(?:erased|deleted|removed) (?:your |the )?(?:personal )?data(?: as requested)?|(?:your|the requested) (?:personal )?data (?:has|have) been (?:successfully )?(?:erased|deleted|removed)|(?:ihre|die angeforderten) (?:personenbezogenen )?daten wurden (?:vollständig )?(?:gelöscht|entfernt))(?:[.!?]|$)/iu;
 export function classifyControllerReply({ text, processClass }) {
     if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(processClass))
         throw new Error("rightout_controller_reply_lane_unsupported");
@@ -113,6 +114,9 @@ export function classifyControllerReply({ text, processClass }) {
         return { outcome_candidate: "needs_manual_check", confidence: "none", evidence_signals: ["qualified_or_negated_completion"], terminal: false };
     }
     const matched = SIGNALS.filter(([, pattern]) => pattern.test(segment)).map(([signal]) => signal);
+    if (matched.includes("confirmed") && !UNQUALIFIED_COMPLETION.test(segment)) {
+        return { outcome_candidate: "needs_manual_check", confidence: "none", evidence_signals: ["nonliteral_or_qualified_completion"], terminal: false };
+    }
     if (matched.length !== 1) {
         return { outcome_candidate: "needs_manual_check", confidence: "none", evidence_signals: matched.sort(), terminal: false };
     }

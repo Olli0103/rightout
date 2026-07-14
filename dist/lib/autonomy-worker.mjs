@@ -88,6 +88,18 @@ function validateWorkerRecord(record) {
     }
     return record;
 }
+function workerScheduleToken(record) {
+    const current = validateWorkerRecord(record);
+    return createHash("sha256").update(JSON.stringify([
+        "rightout-worker-schedule-v1",
+        current.workerId,
+        current.status,
+        current.nextWakeAt,
+        current.lease?.leaseId ?? null,
+        current.lease?.expiresAt ?? null,
+        current.lease?.plan?.executionDigest ?? null,
+    ])).digest("hex");
+}
 function validateStoredPlan(plan) {
     if (!plan || typeof plan !== "object" || Array.isArray(plan)
         || typeof plan.tool !== "string" || !TOOL_PARAMETER_KEYS[plan.tool]
@@ -508,9 +520,15 @@ export function createAutonomyWorkerLedger(store, { now = () => Date.now(), rand
                 next_wake_at: record.nextWakeAt,
                 lease_expires_at: record.lease ? new Date(record.lease.expiresAt).toISOString() : null,
                 unresolved_action: record.lease?.plan !== null,
+                schedule_token: workerScheduleToken(record),
             });
         }
         return records;
+    }
+    async function scheduleToken(workerId) {
+        if (!SAFE_WORKER_ID.test(workerId ?? ""))
+            throw new Error("rightout_worker_ref_invalid");
+        return workerScheduleToken(await store.lookup(workerId));
     }
     async function gateRecovery(workerId, reason = "scheduler_recovery_unavailable") {
         if (!SAFE_WORKER_ID.test(workerId ?? "") || typeof reason !== "string" || !/^[a-z0-9_]{3,120}$/.test(reason)) {
@@ -628,7 +646,7 @@ export function createAutonomyWorkerLedger(store, { now = () => Date.now(), rand
         });
         return result;
     }
-    return { create, status, claim, issue, pending, matchExecution, recordExecutionResult, recoverable, gateRecovery, complete, resume, revoke };
+    return { create, status, claim, issue, pending, matchExecution, recordExecutionResult, recoverable, scheduleToken, gateRecovery, complete, resume, revoke };
 }
 export const __test = {
     TOOL_PARAMETER_KEYS,

@@ -22,9 +22,16 @@ const profilePayload = JSON.stringify({
 });
 const trusted = { sessionKey: "agent:main:rightout-worker-test", agentId: "main", browser: {} };
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
 async function runtimeFixture({
   schedulerAvailable = true,
   unscheduleFailureCalls = [],
+  beforeUnschedule,
   stateDir = mkdtempSync(join(tmpdir(), "rightout-worker-runtime-")),
 } = {}) {
   const tools = new Map();
@@ -60,6 +67,7 @@ async function runtimeFixture({
         },
         async unscheduleSessionTurnsByTag({ tag }) {
           unscheduleCalls += 1;
+          await beforeUnschedule?.(unscheduleCalls);
           if (unscheduleFailureCalls.includes(unscheduleCalls)) return { removed: 0, failed: 1 };
           const retained = scheduled.filter((item) => item.tag !== tag);
           const removed = scheduled.length - retained.length;
@@ -307,6 +315,45 @@ test("worker startup recovery re-registers a lease watchdog after restart", asyn
   assert.equal(restarted.scheduled[0].sessionKey, trusted.sessionKey);
   assert.ok(restarted.scheduled[0].delayMs >= 1_000);
   assert.doesNotMatch(restarted.scheduled[0].message, /Avery|Exampleville|profile_/u);
+});
+
+test("startup recovery cannot replace a concurrently issued lease watchdog with a stale wake", async () => {
+  const runtime = await runtimeFixture();
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "race-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("race-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "race-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("race-enable", enableInput);
+
+  const recoveryUnscheduleEntered = deferred();
+  const releaseRecoveryUnschedule = deferred();
+  const restarted = await runtimeFixture({
+    stateDir: runtime.stateDir,
+    async beforeUnschedule(call) {
+      if (call !== 1) return;
+      recoveryUnscheduleEntered.resolve();
+      await releaseRecoveryUnschedule.promise;
+    },
+  });
+  await recoveryUnscheduleEntered.promise;
+  const ticking = restarted.tools.get("rightout_worker_tick").execute("race-tick", { workerId: enabled.details.worker_id });
+  let unresolved = false;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const status = await restarted.tools.get("rightout_worker_status").execute("race-status", { workerId: enabled.details.worker_id });
+    unresolved = status.details.unresolved_action === true;
+    if (unresolved) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(unresolved, true);
+  releaseRecoveryUnschedule.resolve();
+  const tick = await ticking;
+  assert.equal(tick.details.state, "action_ready");
+  assert.equal(tick.details.lease_watchdog_registered, true);
+  assert.equal(restarted.scheduled.length, 1);
+  assert.ok(restarted.scheduled[0].delayMs > 60_000);
 });
 
 test("worker startup recovery moves an unwakeable active worker to a human gate", async () => {

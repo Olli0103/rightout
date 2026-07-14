@@ -59,7 +59,9 @@ only the current bound session after native approval. Lease watchdogs and
 startup reconstruction restore active wakes after a crash without renewing or
 expanding campaign profile, broker, effect, time, or budget scope. An
 unavailable or partially failed replacement schedule moves the worker to a
-durable human gate before another command is exposed.
+durable human gate before another command is exposed. Schedule replacement is
+state-directory coordinated across processes, and startup recovery must still
+match the durable worker schedule token before it may replace a wake.
 
 Optional team mode binds each `owner`, `manager`, or `viewer` to one exact
 OpenClaw session digest and configured profile set. Managers and viewers receive
@@ -120,9 +122,10 @@ The evidence vault stores only sanitized bounded records. Its encrypted export
 index makes private redacted artifacts subject-, retention-, purge-, and
 rotation-aware, schedules their next expiry while idle, and removes interrupted
 managed exports on cleanup. Export, cleanup, subject purge, and key rotation are
-serialized behind one vault transaction queue so a successful concurrent export
-is either durably tracked or subsequently purged, never orphaned after a reported
-purge. Failed unlink operations retain the encrypted index and fail closed. Custom target
+serialized behind one state-directory-wide cross-process transaction lock so a
+successful concurrent export is either durably tracked or subsequently purged,
+never orphaned after a reported purge. Failed unlink operations retain the
+encrypted index and fail closed. Custom target
 facts stay encrypted behind opaque handles and remain non-executable until a
 strict Ed25519-signed recipe plus exact current permission is present. Static
 dashboard exports are private mode-0600 files with strict CSP, no scripts,
