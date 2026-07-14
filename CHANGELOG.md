@@ -2,6 +2,38 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.9.0 - 2026-07-14
+
+- Added encrypted durable campaign workers with trusted-session binding,
+  single-action leases, checkpoints, exponential backoff, explicit scheduling
+  or Cron handoff, resume approval, and revocation.
+- Added a release-attested declarative 22-route recipe pack, trusted Ed25519
+  external packs, expiry, and domain/semantic/sensitive-control drift
+  quarantine before provider writes.
+- Added mutually exclusive short-lived OAuth2 bearer authentication for pinned
+  SMTP and Gmail IMAP transports while preserving password compatibility and
+  protocol-separated credential bindings.
+- Added authenticated, exact-thread controller reply polling. Literal evidence
+  becomes an encrypted bounded candidate; no reply becomes a controller outcome
+  without separate native human approval.
+- Added an encrypted content-addressed evidence vault with bounded retention,
+  tamper checks, subject purge/key rotation, metadata-only public reads, and
+  separately approved contained redacted exports.
+- Added safe out-of-band custom-target intake. Raw target facts remain encrypted
+  behind opaque handles and provider execution stays disabled unless an exact
+  signed recipe and current handle/domain/effect permission are present.
+- Added evidence-based effectiveness reports with explicit denominators and
+  `needs_evidence` as the default operational verdict absent consistent
+  authorized canaries.
+- Added session-bound owner/manager/viewer team roles with exact subject scopes,
+  cross-profile/campaign/worker isolation, and a critical full-operator Gateway
+  boundary audit.
+- Added separately approved static local HTML/JSON dashboards with strict CSP,
+  private contained files, no scripts or remote assets, and no network service.
+- Expanded the manifest to 50 tools and retained every v0.8.1 provider-terms,
+  approval, uncertainty, encryption, retention, purge, and technical-parity
+  invariant.
+
 ## 0.8.1 - 2026-07-13
 
 - Fixed autonomous discovery campaigns so campaign-authorized scan reports are

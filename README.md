@@ -9,7 +9,9 @@ to a black-box privacy service.**
 
 RightOut turns OpenClaw into a self-hosted privacy operator. It scans public
 search indexes for possible exposure, runs authorized removal workflows, handles
-supported verification, tracks uncertain outcomes, and checks again later.
+supported verification, tracks uncertain outcomes, and checks again later. An
+explicitly enabled durable worker can keep a finite campaign moving without
+turning an agent prompt into open-ended authority.
 
 Public tool inputs and reports use opaque references, and persisted subject state
 is encrypted. Active SecretRefs are resolved into the Gateway's in-memory runtime
@@ -27,6 +29,9 @@ says exactly what is known — and what is not.
 - **Autonomous within hard boundaries.** One native approval can authorize a
   finite, revocable campaign for an exact profile, broker set, effect set,
   lifetime, and budget.
+- **Closed-loop when you ask for it.** A session-bound worker leases one exact
+  action, checkpoints it in encrypted state, backs off on transient failures,
+  and stops on drift, ambiguity, revocation, or a human gate.
 - **Provider rules are runtime rules.** Missing or prohibited automation
   permission produces a deterministic human handoff, not a clever workaround.
 - **Built to recover.** Campaigns, cases, rechecks, duplicate suppression,
@@ -40,34 +45,61 @@ says exactly what is known — and what is not.
 | Live discovery | Country-aware Brave Web Search POST scans across 56 code-enforced public-index lanes: 30 people-search plus 26 EU/US controller and B2B domains |
 | Removal | 28 independently locked email/removal targets, including 18 EU/EEA controller lanes |
 | Campaigns | Revocable grants for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 broker-effect units |
+| Durable autonomy | Encrypted workers, single leases, checkpoints, exponential backoff, current-session scheduling, explicit Cron handoff, resume approval, and revocation |
+| Recipe trust | Release-attested 22-route built-in pack, Ed25519 external packs, expiry, exact-domain binding, and semantic/sensitive drift quarantine |
 | Browser forms | Bounded semantic form engine for 20 normalized contracts plus a separately staged PeopleConnect flow |
-| Email | Catalog-locked SMTP and privacy-redacted Gmail compose, with rescue routes reported separately |
-| Verification | Receiver-authenticated Gmail IMAP or bound browser-webmail, pinned HTTPS/domain checks, explicit human gates, and a separate link-open effect |
+| Email | Catalog-locked password or short-lived OAuth2 SMTP and privacy-redacted Gmail compose, with rescue routes reported separately |
+| Verification | Receiver-authenticated Gmail IMAP, authenticated thread-bound controller reply candidates, pinned HTTPS/domain checks, explicit human gates, and a separate link-open effect |
 | Rechecks | Encrypted listing handles, timed absence confirmation, reappearance detection, and OpenClaw Cron handoff |
-| Reporting | PII-safe Markdown, structured JSON, consolidated digests, and Google Sheets-compatible rows |
+| Evidence | Optional encrypted content-addressed snapshots, bounded retention, tamper checks, and separately approved redacted local export |
+| Custom targets | Out-of-band encrypted intake with opaque handles; unknown routes remain quarantined until a signed recipe and current exact permission exist |
+| Family / team | Session-bound owner, manager, and viewer roles with exact profile scopes; full-operator direct invoke must be disabled in team mode |
+| Reporting | PII-safe Markdown, structured JSON, consolidated digests, Google Sheets-compatible rows, evidence-based effectiveness metrics, and static local HTML/JSON dashboards |
 
-RightOut declares 35 OpenClaw tools across readiness, discovery, campaigns,
-removal, verification, reporting, and governance. The plugin manifest is the
-canonical exact tool list.
+RightOut declares 50 OpenClaw tools across readiness, discovery, campaigns,
+durable workers, removal, verification, evidence, reporting, and governance.
+The plugin manifest is the canonical exact tool list.
 
 ## How it works
 
 ```mermaid
 flowchart LR
     P["SecretRef profile<br/>+ finite consent"] --> A["Native approval<br/>or bounded campaign"]
-    A --> S["Brave POST<br/>public-index scan"]
+    A --> W["Optional durable worker<br/>one leased action"]
+    W --> S["Brave POST<br/>public-index scan"]
+    A --> S
     S --> D{"Authorized route?"}
     D -->|"yes"| R["Removal or<br/>verification step"]
     D -->|"no / unknown"| H["Human handoff"]
     R --> L["Encrypted case ledger"]
     H --> L
-    L --> C["Recheck + report"]
+    L --> C["Recheck + metrics<br/>+ local dashboard"]
+    C --> W
 ```
 
 Live discovery never fetches a publisher page. Brave query and result bodies,
 result URLs, raw mail, and raw page content are not persisted or returned. A
 publisher read, form submission, email, inbox poll, and verification-link open
 are distinct effects with distinct gates.
+
+### The autonomy loop
+
+1. `rightout_start_campaign` creates a finite, encrypted standing grant after
+   one native `allow-once`.
+2. `rightout_worker_enable` binds a durable worker to that campaign and the
+   current trusted OpenClaw session after a second native approval.
+3. Each wake leases one deterministic command from a fixed RightOut
+   tool/parameter grammar. The worker cannot invent a tool or widen scope.
+4. Success checkpoints the observed campaign effect. Transient failures back
+   off; ambiguity, semantic drift, policy change, identity/CAPTCHA gates, or
+   repeated failure stop for a human.
+5. Revocation closes future work. `rightout_worker_resume` requires a new
+   approval and the original unchanged session, campaign, runtime, catalog, and
+   signed-recipe policy.
+
+Unsupported schedulers do not disappear into “best effort”: RightOut returns a
+PII-free explicit Cron handoff. See the [installation guide](INSTALL.md) for the
+worker, team, evidence, and dashboard configuration.
 
 ## Proof states, not vibes
 
@@ -83,7 +115,7 @@ are distinct effects with distinct gates.
 
 ## Coverage you can verify
 
-RightOut `0.8.1` ships a clean-room, machine-validated broker contract catalog.
+RightOut `0.9.0` ships a clean-room, machine-validated broker contract catalog.
 The counts below describe executable software surfaces, not measured deletion
 success and not permission to automate a provider.
 
@@ -127,11 +159,14 @@ RightOut intentionally will not:
 - treat SMTP acceptance or a browser click as confirmed deletion;
 - silently retry a provider write whose outcome is ambiguous;
 - discover private broker databases or promise universal, permanent deletion;
-- provide a hosted dashboard, managed specialist, family billing/admin,
-  arbitrary-URL takedowns, Google/social cleanup, or dark-web monitoring;
+- provide a hosted dashboard, managed specialist, family billing, enterprise
+  identity administration, arbitrary-target execution, Google/social cleanup,
+  or dark-web monitoring;
 - return Optery/Kanary-style screenshots; RightOut stores reproducible,
   PII-redacted semantic evidence instead;
-- self-schedule. Recurrence belongs to an explicit OpenClaw Cron/operator setup.
+- create unbounded recurrence. A durable worker may schedule only its current
+  trusted session after native approval; unsupported hosts return an explicit
+  Cron handoff, and campaigns still expire after at most 720 hours.
 
 Simple static arithmetic can be computed locally; an explicitly identified
 static text challenge can accept its one short snapshot-bound value. Dynamic CAPTCHA,
@@ -152,7 +187,10 @@ in-memory runtime snapshot. RightOut does not claim otherwise. Its enforceable
 guarantee is narrower and testable: no subject PII or provider credential is
 sent to an external provider before the exact native approval succeeds or a
 matching finite campaign grant is validated. Installed plugins remain trusted
-in-process code; approvals are operator guardrails, not multi-tenant isolation.
+in-process code. Team roles isolate configured agent sessions and subject
+scopes inside one deployment; they are not a hosted multi-tenant boundary, and
+team mode critically requires every RightOut tool to be denied on the
+full-operator `/tools/invoke` surface.
 
 Read the full [privacy posture](docs/privacy-posture.md),
 [approval boundary](docs/approval-boundary.md), and
@@ -167,7 +205,7 @@ an untagged `main` checkout into production.
 > has not been published yet.
 
 ```bash
-VERSION=0.8.1
+VERSION=0.9.0
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 if command -v sha256sum >/dev/null 2>&1; then

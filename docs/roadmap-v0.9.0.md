@@ -1,8 +1,9 @@
 # RightOut v0.9.0 autonomy-platform plan
 
-Status: implementation plan. This document is the requirement and evidence
-contract for the v0.9.0 work; a checked test or a prose claim is not sufficient
-unless the corresponding runtime boundary is also implemented.
+Status: implementation complete through R1; independent review and final
+post-fix release audit remain open. This document is the requirement and
+evidence contract for the v0.9.0 work; a checked test or prose claim is not
+sufficient unless the corresponding runtime boundary is also implemented.
 
 ## Product outcome
 
@@ -77,9 +78,34 @@ provider permission or ambiguous evidence into success.
   provider execution remains explicitly disabled until a dedicated approved
   session exists. Evidence: `custom-targets.test.mjs` and
   `evidence-runtime.test.mjs`.
-- The complete Phase 1-3 regression run passed 328/328 tests on 2026-07-14 with
-  TypeScript checking and build green. L1 through U2 and final R1/R2 remain
-  open; this is not yet a v0.9.0 release claim.
+- L1 implemented: reports expose explicit numerators and denominators for
+  discovery, identity confidence, submission, provider confirmation,
+  reappearance, uncertainty, and human handoff. Operational effectiveness is
+  `needs_evidence` unless profile/broker/state/time-consistent authorized canary
+  facts are configured. Evidence: `effectiveness.test.mjs`.
+- U1 implemented: one-way trusted-session bindings map owner, manager, and
+  viewer roles to exact configured profile sets. Cross-profile access fails;
+  managers/viewers cannot reuse campaign or worker authority; dashboard scope
+  changes invalidate approval; and team mode raises a critical audit finding
+  unless all 50 RightOut tools are denied on full-operator direct invoke.
+  Evidence: `team-access.test.mjs`, `team-runtime.test.mjs`, and the runtime
+  security-audit regression in `live-scan.test.mjs`.
+- U2 implemented: owner/manager sessions may separately approve a static local
+  HTML or JSON dashboard containing only sanitized authorized cases, due work,
+  route health, evidence-reference counts, and effectiveness aggregates. Files
+  are contained, content-addressed, mode 0600, strict-CSP/no-script, and start no
+  service. Evidence: `dashboard.test.mjs` and `team-runtime.test.mjs`.
+- R1 currently passes on the source-complete pre-review tree: technical parity,
+  TypeScript, the complete 338/338 plugin suite, compiled build, package
+  preflight and archive inspection, clean/force install and rollback, 50 Python
+  tests, scan-only and end-to-end dummy runs, workflow hardening, and the
+  dependency audit were green on 2026-07-14. Coverage is 90.38% lines, 74.77%
+  branches, and 91.34% functions. The release checker has no implementation,
+  package, privacy, provenance, or security finding; it intentionally remains
+  open only for the requested independent review and final versioned audit.
+- R2 remains open until the explicitly requested autonomous independent review
+  runs against the source-complete tree, all findings are fixed, and a second
+  reviewer confirms the post-fix tree.
 
 ## Non-goals and hard stops
 

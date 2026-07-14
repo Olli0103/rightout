@@ -60,7 +60,7 @@ function rawReply(expectedMessageId, {
     `From: Controller <${from}>`, `To: ${to}`,
     `Authentication-Results: ${authenticationResults}`,
     `In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`,
-    "Subject: Re: GDPR request", "Message-ID: <reply@fullenrich.com>",
+    "Subject: Re: GDPR request", "Message-ID: <reply@controller.invalid>",
     "Content-Type: text/plain; charset=utf-8", "", body,
   ].join("\r\n"));
 }

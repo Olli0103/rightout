@@ -7,7 +7,7 @@ SHA-256 utility. Install the versioned, attested release archive rather than mov
 `main`:
 
 ```bash
-VERSION=0.8.1
+VERSION=0.9.0
 mkdir "rightout-${VERSION}" && cd "rightout-${VERSION}"
 gh release download "v${VERSION}" --repo Olli0103/rightout
 shasum -a 256 -c RELEASE-SHA256SUMS
@@ -80,7 +80,17 @@ openclaw config set plugins.entries.rightout.config.profiles.profile_a1b2c3d4e5f
 openclaw config set plugins.entries.rightout.config.stateRetentionDays --strict-json '365'
 ```
 
-SMTP supports Gmail, Yahoo, iCloud, and Fastmail on pinned TLS ports. IMAP verification is intentionally Gmail-only because RightOut pins receiver-added `mx.google.com` authentication results; other providers require a future evidence-backed authserv/OAuth contract. Arbitrary hosts, plaintext, port 25, proxy-selected destinations, or custom TLS overrides are rejected. Configure host/port/TLS as public facts and username/password/from-address/mailbox-address as SecretRefs. SMTP `fromAddress` and IMAP `address` must equal the profile `contactEmail`.
+SMTP supports Gmail, Yahoo, iCloud, and Fastmail on pinned TLS ports. IMAP
+verification is intentionally Gmail-only because RightOut pins receiver-added
+`mx.google.com` authentication results. Each transport accepts either a
+password/app-password SecretRef or `authMode: "oauth2"` with an
+`oauthAccessToken` SecretRef and `oauthExpiresAt`; mixed credentials fail closed.
+OAuth tokens must remain valid for at least one minute and at most 24 hours at
+use time. Arbitrary hosts, plaintext, port 25, proxy-selected destinations, or
+custom TLS overrides are rejected. Configure host/port/TLS and token expiry as
+public facts; username/password/token/from-address/mailbox-address are
+SecretRefs. SMTP `fromAddress` and IMAP `address` must equal the profile
+`contactEmail`.
 
 Authorized forms and outbound webmail compose support two production OpenClaw
 browser transports. Prefer OpenClaw's production sandbox browser bridge when
@@ -165,7 +175,7 @@ node scripts/compute-removal-bindings.mjs \
 
 The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. Scan digests support profiles with an explicit ISO country, including EU profiles that use a member-country code such as `DE`. RightOut sends a directly supported Brave country/language target where available (for example `DE/de`) and otherwise uses explicit worldwide targeting; it never silently falls back to US. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. RightOut 0.8.1
+Back up the state encryption key through the secret provider. RightOut 0.9.0
 keeps the v1 encrypted-store schema and forced upgrades preserve it. Encrypted
 subject cases expire after `stateRetentionDays` without an update; the range is
 30-730 days and the default is 365. Verification/listing/dedupe records retain
@@ -245,40 +255,64 @@ Inbox/link verification scope (currently BeenVerified):
 {"rightoutVerificationPolicyAccepted":true,"rightoutVerificationPolicyVersion":"2026-07-12","subjectConsentReviewed":true,"inboxReadAuthorized":true,"verificationLinkOpenAuthorized":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["beenverified"],"imapTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
 ```
 
-Write each attestation JSON object to its matching config path: `operatorAttestations`, `directScanAttestations`, `removalAttestations`, `formAttestations`, or `verificationAttestations`, using `openclaw config set ... --strict-json`. These are exact deployment gates, not blanket authority and not substitutes for `publisherAutomationPermissions`. Core assisted tools require their own native `allow-once`. The generic-form/outbound-webmail queue is campaign-bound; every autonomous effect must match and consume a finite `rightout_start_campaign` grant, and DOB adds a separate exact approval.
+Authenticated controller-reply polling uses its own read-only mailbox scope. It
+accepts only replies addressed to the subject mailbox, after the recorded
+submission, with one receiver-added aligned Gmail DKIM result, an official
+sender domain, and the exact outgoing Message-ID thread:
+
+```json
+{"rightoutControllerReplyPolicyAccepted":true,"rightoutControllerReplyPolicyVersion":"2026-07-14-eu1","subjectConsentReviewed":true,"inboxReadAuthorized":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu"],"imapTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
+```
+
+Write each attestation JSON object to its matching config path:
+`operatorAttestations`, `directScanAttestations`, `removalAttestations`,
+`formAttestations`, `verificationAttestations`, or
+`controllerReplyAttestations`, using `openclaw config set ... --strict-json`.
+These are exact deployment gates, not blanket authority and not substitutes for
+`publisherAutomationPermissions`. Core assisted tools require their own native
+`allow-once`. The generic-form/outbound-webmail queue is campaign-bound; every
+autonomous effect must match and consume a finite `rightout_start_campaign`
+grant, and DOB adds a separate exact approval. An authenticated reply is still
+only an encrypted candidate; `rightout_record_controller_outcome` requires a
+new human approval.
 
 ## 5. Tool, Gateway, and Cron policy
 
-Allow only needed RightOut tools in the applicable agent policy. Unless full-operator direct invocation is intended, deny every tool whose manifest metadata has `replaySafe: false`. In 0.8.1 that includes provider effects plus campaign creation/revocation, DROP attestation, purge, outcome/reconciliation, and key rotation. Keep the deny list synchronized from `openclaw.plugin.json`; do not copy a stale partial list.
+Allow only needed RightOut tools in the applicable agent policy. Configure an
+interactive plugin approval route; without one, approval-gated calls fail
+closed. Unless full-operator direct invocation is intentionally required, add
+every manifest tool with `replaySafe: false` to `gateway.tools.deny`. Inspect the
+current exact list instead of copying a stale partial example:
 
-```json5
-{
-  gateway: { tools: { deny: [
-    "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
-    "rightout_submit_form_removal", "rightout_submit_parity_email",
-    "rightout_begin_discovery_session", "rightout_discovery_session_step",
-    "rightout_begin_form_session", "rightout_form_session_step",
-    "rightout_begin_webmail_session", "rightout_webmail_session_step",
-    "rightout_poll_verification", "rightout_open_verification",
-    "rightout_start_campaign", "rightout_revoke_campaign", "rightout_refresh_registries",
-    "rightout_refresh_parity_sources",
-    "rightout_record_drop_filed",
-    "rightout_purge_subject_state", "rightout_record_controller_outcome",
-    "rightout_reconcile_submission", "rightout_rotate_state_key"
-  ] } }
-}
+```bash
+jq -c '[.toolMetadata | to_entries[] | select(.value.replaySafe == false) | .key]' openclaw.plugin.json
 ```
 
-Configure an interactive plugin approval route; without one, calls fail closed.
-For recurring work, create an official OpenClaw Cron job that first invokes
-`rightout_catalog_health({})`, then `rightout_due_rechecks` for an exact opaque
-profile, followed by `rightout_campaign_next` for an active campaign or
-`rightout_next_actions` in assisted mode. Any stale catalog entry stops live
-provider I/O. Assisted live actions request their own approval; autonomous ones
-must match the still-active campaign. If
-`campaign.resume_mode` is `reconcile_before_external_writes`, the operator must
-inspect provider-side evidence and approve `rightout_reconcile_submission`;
-the agent must not infer the result. The plugin cannot self-schedule.
+If `teamAccess` is configured, the boundary is stricter: merge **all** values
+from `.contracts.tools` into the existing Gateway deny list. A missing RightOut
+tool on `/tools/invoke` is a critical audit finding because that full-operator
+surface is above session-bound team roles.
+
+```bash
+jq -c '.contracts.tools' openclaw.plugin.json
+```
+
+Do not overwrite unrelated existing deny entries when applying either list.
+
+For closed-loop work, first approve `rightout_start_campaign`, then approve
+`rightout_worker_enable` in the exact trusted session that will run it. The
+worker schedules only that session, leases one deterministic command at a time,
+and checkpoints the observed campaign effect. If the host scheduler is not
+available, the enable result contains a PII-free explicit Cron handoff instead
+of claiming background work. `rightout_worker_revoke` immediately closes the
+worker; `rightout_worker_resume` needs a new approval and unchanged session,
+campaign, runtime, catalog, and recipe policy.
+
+If `campaign.resume_mode` is `reconcile_before_external_writes`, the operator
+must inspect provider-side evidence and approve
+`rightout_reconcile_submission`; the agent must not infer the result. A worker
+stops at this state. Campaigns expire after at most 720 hours and workers never
+renew them.
 
 Example weekly read-only campaign monitor (replace only the opaque profile and
 agent IDs). Configure the named agent itself with a tool allow-list containing
@@ -296,14 +330,75 @@ openclaw cron add '17 9 * * 1' \
   --no-deliver
 ```
 
-This job performs no provider call. A later interactive turn may execute a live
-action only through its own native approval or a still-active matching campaign.
+This fallback monitor performs no provider call. A later interactive turn may
+execute a live action only through its own native approval or a still-active
+matching campaign.
 Use `openclaw cron run <job-id> --wait --wait-timeout 10m` and
 `openclaw cron runs --id <job-id> --limit 50` to validate sanitized output before
-enabling delivery. A campaign expires after at most 720 hours; Cron never renews
-it automatically.
+enabling delivery. Cron never renews a campaign automatically.
 
-## 6. Readiness gate
+## 6. Evidence, custom targets, teams, and local dashboards
+
+`rightout_create_evidence_snapshot` stores only the current sanitized case
+transition for one opaque profile/broker scope. `rightout_evidence_status`
+returns metadata; `rightout_export_evidence` requires native approval and writes
+one redacted private local artifact. Evidence purges and rotates with subject
+state. Never use the evidence vault for raw mail, screenshots, URLs, names, or
+other PII.
+
+Custom targets enter through the packaged local CLI, not a public tool. Provide
+the same active state key through the out-of-band
+`RIGHTOUT_STATE_ENCRYPTION_KEY` process environment, point `--state-dir` at the
+same OpenClaw state directory resolved for the plugin, and pass bounded JSON on
+stdin with only `profileId`, `actionUrl`, `sourceUrl`, `officialDomain`, and
+`method` (`web_form` or `email`). The only public result is `custom_<opaque>`.
+Raw URL/domain/source facts remain encrypted. A target stays quarantined unless
+an allowlisted Ed25519 key, valid signed recipe pack, and current permission bind
+the exact handle, recipe, official-domain digest, lifetime, and effect. Even
+then v0.9.0 deliberately has no custom-target provider execution tool.
+
+```bash
+chmod 600 /secure/custom-target.json
+npm run custom-target:intake -- --state-dir "$RIGHTOUT_STATE_DIR" \
+  < /secure/custom-target.json
+```
+
+For local family/team use, call `rightout_team_session_binding({})` separately
+from each intended OpenClaw session, then configure exact role records. The
+digest is one-way; never place the raw session key in config.
+
+```json
+{
+  "teamAccess": {
+    "member_0123456789abcdef": {
+      "role": "owner",
+      "sessionBindingDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "authorizedProfileIds": ["profile_a1b2c3d4e5f60718"]
+    },
+    "member_fedcba9876543210": {
+      "role": "viewer",
+      "sessionBindingDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "authorizedProfileIds": ["profile_a1b2c3d4e5f60718"]
+    }
+  }
+}
+```
+
+At least one owner is mandatory. Session bindings must be unique. Managers and
+viewers can read only sanitized authorized profiles and cannot reuse campaign or
+worker authority. Owners also fail outside their configured profile set.
+`rightout_team_overview({})` is read-only;
+`rightout_export_dashboard({"format":"html"})` is owner/manager-only and needs
+native approval. The result is a static private local file with no server,
+script, remote asset, form, or network request.
+
+`rightout_effectiveness` reports explicit state-based numerators and
+denominators. It remains `needs_evidence` unless optional
+`effectivenessCanaries` contain an out-of-band proof reference consistent with
+the exact profile, broker, state, and observation time. A canary reference is
+not raw evidence and technical test success is never operational effectiveness.
+
+## 7. Readiness gate
 
 ```bash
 openclaw config validate
