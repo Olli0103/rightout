@@ -6109,77 +6109,88 @@ export default definePluginEntry({
                     const report = { report_version: 1, ...claim, raw_pii_in_report: false };
                     return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
-                const planned = await campaignNextReport(toolContext, context.campaign.campaign_id);
-                const safeReason = typeof planned.reason === "string" && /^[a-z0-9_]{3,120}$/.test(planned.reason)
-                    ? planned.reason
-                    : "campaign_human_gate";
-                if (planned.state === "action_ready") {
-                    if (interactiveWorkerTools.has(planned.command?.tool)) {
+                try {
+                    const planned = await campaignNextReport(toolContext, context.campaign.campaign_id);
+                    const safeReason = typeof planned.reason === "string" && /^[a-z0-9_]{3,120}$/.test(planned.reason)
+                        ? planned.reason
+                        : "campaign_human_gate";
+                    if (planned.state === "action_ready") {
+                        if (interactiveWorkerTools.has(planned.command?.tool)) {
+                            const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
+                                outcome: "human_gate",
+                                reason: "interactive_session_requires_operator_continuation",
+                            });
+                            const report = {
+                                report_version: 1,
+                                ...completed,
+                                deferred_command_tool: planned.command.tool,
+                                provider_reads: 0,
+                                provider_writes: 0,
+                                raw_pii_in_report: false,
+                            };
+                            return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                        }
+                        const baseline = await campaignLedger.status(context.campaign.campaign_id);
+                        const issued = await workerLedger.issue(input.workerId, claim.lease_id, planned.command, {
+                            campaignUsedEffects: baseline.used_effects,
+                            campaignLastEffectReference: baseline.last_effect_reference,
+                        });
+                        const watchdog = await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(claim.lease_expires_at) - Date.now() + 1_000));
+                        const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, watchdog, "lease_watchdog_unavailable");
+                        if (gated)
+                            return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
+                        const report = {
+                            report_version: 1,
+                            ...issued,
+                            recipe_pack_digest: (await loadRecipePack()).recipe_digest,
+                            lease_watchdog_registered: watchdog.scheduled_job_registered === true,
+                            ...watchdog,
+                        };
+                        return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+                    }
+                    const deferredHumanGates = Number(planned.consolidated_digest?.human_gates ?? 0);
+                    if (planned.state === "human_gate" || deferredHumanGates > 0) {
                         const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
                             outcome: "human_gate",
-                            reason: "interactive_session_requires_operator_continuation",
+                            reason: planned.state === "human_gate" ? safeReason : "deferred_human_gates_present",
                         });
                         const report = {
                             report_version: 1,
                             ...completed,
-                            deferred_command_tool: planned.command.tool,
-                            provider_reads: 0,
-                            provider_writes: 0,
+                            campaign_state: planned.state,
+                            deferred_human_gate_count: deferredHumanGates,
                             raw_pii_in_report: false,
                         };
                         return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                     }
-                    const baseline = await campaignLedger.status(context.campaign.campaign_id);
-                    const issued = await workerLedger.issue(input.workerId, claim.lease_id, planned.command, {
-                        campaignUsedEffects: baseline.used_effects,
-                        campaignLastEffectReference: baseline.last_effect_reference,
-                    });
-                    const watchdog = await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(claim.lease_expires_at) - Date.now() + 1_000));
-                    const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, watchdog, "lease_watchdog_unavailable");
-                    if (gated)
-                        return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
-                    const report = {
-                        report_version: 1,
-                        ...issued,
-                        recipe_pack_digest: (await loadRecipePack()).recipe_digest,
-                        lease_watchdog_registered: watchdog.scheduled_job_registered === true,
-                        ...watchdog,
-                    };
-                    return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
-                }
-                const deferredHumanGates = Number(planned.consolidated_digest?.human_gates ?? 0);
-                if (planned.state === "human_gate" || deferredHumanGates > 0) {
+                    if (planned.state !== "done_for_now" && !planned.terminal)
+                        throw new Error("rightout_worker_plan_invalid");
+                    const nextWakeAt = typeof planned.next_wake_at === "string" ? planned.next_wake_at : null;
                     const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
-                        outcome: "human_gate",
-                        reason: planned.state === "human_gate" ? safeReason : "deferred_human_gates_present",
+                        outcome: "done_for_now",
+                        nextWakeAt,
+                        reason: planned.terminal ? "campaign_terminal" : "done_for_now",
                     });
-                    const report = {
-                        report_version: 1,
-                        ...completed,
-                        campaign_state: planned.state,
-                        deferred_human_gate_count: deferredHumanGates,
-                        raw_pii_in_report: false,
-                    };
+                    const scheduler = completed.state === "active" && completed.worker.next_wake_at
+                        ? await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()))
+                        : { scheduler_state: "not_scheduled_terminal" };
+                    if (completed.state === "active") {
+                        const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, scheduler, "scheduled_wake_replacement_unavailable");
+                        if (gated)
+                            return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
+                    }
+                    const report = { report_version: 1, ...completed, ...scheduler, raw_pii_in_report: false };
                     return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
                 }
-                if (planned.state !== "done_for_now" && !planned.terminal)
-                    throw new Error("rightout_worker_plan_invalid");
-                const nextWakeAt = typeof planned.next_wake_at === "string" ? planned.next_wake_at : null;
-                const completed = await workerLedger.complete(input.workerId, claim.lease_id, {
-                    outcome: "done_for_now",
-                    nextWakeAt,
-                    reason: planned.terminal ? "campaign_terminal" : "done_for_now",
-                });
-                const scheduler = completed.state === "active" && completed.worker.next_wake_at
-                    ? await scheduleWorkerTurn(toolContext, input.workerId, Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()))
-                    : { scheduler_state: "not_scheduled_terminal" };
-                if (completed.state === "active") {
-                    const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, scheduler, "scheduled_wake_replacement_unavailable");
-                    if (gated)
-                        return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
+                catch (error) {
+                    try {
+                        await workerLedger.gateRecovery(input.workerId, "post_claim_tick_failed");
+                    }
+                    catch {
+                        api.logger?.warn?.("RightOut failed to persist the post-claim worker gate; operator recovery is required");
+                    }
+                    throw error;
                 }
-                const report = { report_version: 1, ...completed, ...scheduler, raw_pii_in_report: false };
-                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
             },
         }), { name: "rightout_worker_tick", optional: true });
         api.registerTool((toolContext) => ({

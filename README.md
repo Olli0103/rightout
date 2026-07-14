@@ -101,6 +101,10 @@ are distinct effects with distinct gates.
    approval and the original unchanged session, campaign, runtime, catalog, and
    signed-recipe policy.
 
+Once a wake claims a lease, any local planning or ledger failure before a
+watchdog is confirmed moves the worker to a durable human gate. A one-shot wake
+cannot disappear while leaving an apparently active worker behind.
+
 While an action is unresolved, a lease watchdog remains scheduled. Gateway
 startup reconstructs missing worker wakes from the encrypted session route; an
 unavailable or partially failed replacement schedule moves the worker to a

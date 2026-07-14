@@ -59,6 +59,8 @@ All notable changes to RightOut are documented here.
   startup recovery, lease watchdogs, later wakes, and worker resume.
 - Added cross-process worker-schedule coordination and a durable state token so
   stale startup recovery cannot replace a newer lease watchdog.
+- Made every post-claim worker planning/ledger failure persist a human gate, so
+  a consumed one-shot wake cannot leave an active leased worker unscheduled.
 - Expanded controller-reply qualification handling for neither/nor,
   although/remaining, legal-retention/extent exceptions, and German equivalent
   wording; only a narrow unqualified completion grammar can be high confidence.
