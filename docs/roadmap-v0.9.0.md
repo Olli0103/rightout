@@ -1,6 +1,6 @@
 # RightOut v0.9.0 autonomy-platform plan
 
-Status: implementation complete through R1; four independent review/fix cycles
+Status: implementation complete through R1; five independent review/fix cycles
 are complete, while the final post-fix re-review and release audit remain open. This document is the requirement and
 evidence contract for the v0.9.0 work; a checked test or prose claim is not
 sufficient unless the corresponding runtime boundary is also implemented.
@@ -55,7 +55,9 @@ provider permission or ambiguous evidence into success.
   partial wake replacement failures gate startup recovery, watchdogs, later
   wakes, and resume before another command is exposed. A state-directory-wide
   schedule transaction lock plus durable schedule token prevents stale startup
-  recovery from replacing a newer watchdog.
+  recovery from replacing a newer watchdog. Every post-claim planner or local
+  ledger failure is caught and persisted as a human gate, so a consumed
+  one-shot wake cannot silently disappear.
   Evidence: `autonomy-worker.test.mjs` and
   `autonomy-worker-runtime.test.mjs`.
 - A3 implemented: the release-attested 22-route pack binds the exact source and
@@ -122,18 +124,19 @@ provider permission or ambiguous evidence into success.
   branches, and 91.34% functions. The release checker has no implementation,
   package, privacy, provenance, or security finding; it intentionally remains
   open only for the requested independent review and final versioned audit.
-  After the third review fixes, technical parity, typecheck, build, and the
-  complete 353/353 plugin suite are green; coverage is 90.64% lines, 74.80%
-  branches, and 91.33% functions. The full Python, installer, dummy, package,
+  After the fifth review fixes, technical parity, typecheck, build, and the
+  complete 354/354 plugin suite are green; coverage is 90.68% lines, 74.92%
+  branches, and 91.26% functions. The full Python, installer, dummy, package,
   workflow, dependency, and release-check matrix will be rerun after the final
   independent re-review.
 - R2 remains open until the explicitly requested autonomous independent review
-  confirms this fourth post-fix tree has no open P0/P1/P2/P3 finding. Four prior
+  confirms the latest post-fix tree has no open P0/P1/P2/P3 finding. Five prior
   rounds found and closed crash recovery, command/result correlation, evidence
   lifecycle, strict recipe signature, classifier, lease-expiry, and scheduler
   replacement issues. The fourth round's cross-instance lifecycle and stale
-  recovery races are fixed but require another frozen-tree review; none is
-  treated as closed merely from prose.
+  recovery races were closed in round five; its newly found post-claim lost-wake
+  path is fixed but requires another frozen-tree review. None is treated as
+  closed merely from prose.
 
 ## Non-goals and hard stops
 

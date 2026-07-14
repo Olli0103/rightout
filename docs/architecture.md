@@ -61,7 +61,9 @@ expanding campaign profile, broker, effect, time, or budget scope. An
 unavailable or partially failed replacement schedule moves the worker to a
 durable human gate before another command is exposed. Schedule replacement is
 state-directory coordinated across processes, and startup recovery must still
-match the durable worker schedule token before it may replace a wake.
+match the durable worker schedule token before it may replace a wake. Any local
+planning or state failure after a lease is claimed is caught and persisted as a
+human gate before the consumed one-shot wake can be lost.
 
 Optional team mode binds each `owner`, `manager`, or `viewer` to one exact
 OpenClaw session digest and configured profile set. Managers and viewers receive

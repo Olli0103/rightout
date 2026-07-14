@@ -5,7 +5,8 @@
   recovery failure gate, checkpoint, backoff, revoke/resume, conclusive-result
   policy, live-lease enforcement, partial schedule-replacement gates, bounded
   hook-receipt wait, state-token/cross-process schedule coordination, and
-  fixed-command grammar are implemented and runtime-tested.
+  post-claim planner-failure gating after a consumed wake are implemented and
+  runtime-tested with the fixed-command grammar.
 - [x] A3 release-attested recipes, strict Ed25519 external trust, expiry, and
   drift quarantine are implemented and package-bound.
 - [x] M1 password/OAuth2 transport compatibility, expiry, mutation, protocol

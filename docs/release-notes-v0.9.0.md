@@ -12,7 +12,8 @@ provider-terms, uncertainty, encryption, and evidence boundary.
   watchdogs recover on startup; unavailable or partially failed schedule
   replacement becomes a human gate before a command is exposed. Cross-process
   coordination plus a durable worker-state token prevents stale recovery from
-  replacing a newer watchdog.
+  replacing a newer watchdog. A planning or local-ledger failure after claim is
+  durably human-gated before the consumed one-shot wake can be lost.
   Unsupported hosts receive an explicit PII-free Cron handoff on enable.
 - A release-attested declarative 22-route recipe pack now binds source and
   compiled digests. External packs require an allowlisted Ed25519 key and valid

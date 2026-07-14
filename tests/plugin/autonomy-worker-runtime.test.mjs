@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -354,6 +354,33 @@ test("startup recovery cannot replace a concurrently issued lease watchdog with 
   assert.equal(tick.details.lease_watchdog_registered, true);
   assert.equal(restarted.scheduled.length, 1);
   assert.ok(restarted.scheduled[0].delayMs > 60_000);
+});
+
+test("a planner failure after claim durably gates the worker after its one-shot wake is consumed", async () => {
+  const runtime = await runtimeFixture();
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "planner-failure-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("planner-failure-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "planner-failure-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("planner-failure-enable", enableInput);
+  runtime.scheduled.splice(0, runtime.scheduled.length);
+
+  const stateDirectory = join(runtime.stateDir, "rightout-plugin-state-v1");
+  mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
+  writeFileSync(join(stateDirectory, "rightout-cases-v1.json.enc"), "corrupt-case-ledger", { mode: 0o600 });
+  await assert.rejects(
+    runtime.tools.get("rightout_worker_tick").execute("planner-failure-tick", { workerId: enabled.details.worker_id }),
+    /rightout_state_corrupt/,
+  );
+  const status = await runtime.tools.get("rightout_worker_status").execute("planner-failure-status", { workerId: enabled.details.worker_id });
+  assert.equal(status.details.status, "human_gate");
+  assert.equal(status.details.last_reason, "post_claim_tick_failed");
+  assert.equal(status.details.lease_active, true);
+  assert.equal(status.details.unresolved_action, false);
+  assert.equal(runtime.scheduled.length, 0);
 });
 
 test("worker startup recovery moves an unwakeable active worker to a human gate", async () => {
