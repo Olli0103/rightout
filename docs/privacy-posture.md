@@ -1,6 +1,6 @@
 # Privacy posture
 
-Review date: 2026-07-13. Engineering documentation, not legal advice or certification.
+Review date: 2026-07-14. Engineering documentation, not legal advice or certification.
 
 The model sees only opaque references, catalog field names, and current redacted
 browser refs. OpenClaw resolves active SecretRefs eagerly during Gateway
@@ -43,7 +43,14 @@ recorded field categories. Generic form and Gmail sessions resolve those values
 inside the plugin; model-visible snapshots replace them with placeholders and
 strip unrelated inbox/message content.
 
-EU and US controller emails use fixed request templates and stop at `submitted`; any controller response or proportionate identity follow-up is human work. RightOut sends zero attachments or identity documents. A separately approved record can store only the reviewed outcome category and an opaque correlation reference, never response content. EDAA and emetriq browser-preference controls are human-only and never recorded as controller erasure.
+EU and US controller emails use fixed request templates and stop at `submitted`.
+An exact recipient, post-submission, receiver-DKIM-authenticated, official-domain,
+Message-ID-thread reply may become an encrypted literal candidate. Conflicting,
+quoted, or unknown text and every proportionate identity follow-up remain human
+work; recording any outcome needs separate approval. RightOut sends zero
+attachments or identity documents and never stores response content. EDAA and
+emetriq browser-preference controls are human-only and never recorded as
+controller erasure.
 
 SMTP/IMAP/webmail providers and brokers process data under their own policies.
 RightOut does not claim zero provider retention. IMAP opens recent INBOX content
@@ -52,8 +59,17 @@ catalog-bound outbound compose controls; the inbound browser-mail tool performs
 zero mailbox I/O and hands off to a human because authenticated receiver headers
 are unavailable in the normal UI contract. IMAP confirmation links stay behind
 opaque short-lived handles and pass HTTPS/domain/credential/port scoring.
+Password and short-lived OAuth2 modes are mutually exclusive. OAuth tokens are
+SecretRefs, never tool arguments or reports, and must expire between one minute
+and 24 hours in the future when used.
 
-The durable ledger stores opaque subject/broker IDs, state, timestamps, disclosure field names, sanitized reasons, due dates, and opaque proofs. It excludes profile values, queries, candidate URLs, messages, page bodies, credentials, Message-IDs, and raw receipts.
+The durable ledger stores opaque subject/broker IDs, state, timestamps,
+disclosure field names, sanitized reasons, due dates, and opaque proofs. It
+excludes profile values, queries, candidate URLs, messages, page bodies,
+credentials, Message-IDs, and raw receipts. Durable workers store only opaque
+campaign/profile/broker references, policy/session digests, lease state, and
+sanitized reasons. Optional evidence records accept only sanitized bounded
+state facts; custom target facts remain encrypted behind random opaque handles.
 
 Encrypted subject cases expire after the configured 30-730 day inactivity
 period (365 days by default). Short-lived verification, listing, and dedupe
@@ -65,11 +81,25 @@ temporary previous SecretRef keys; every store is rewritten under the active
 key without exposing key material or PII, and prior refs are removed after
 successful verification.
 
+Optional team mode binds owner, manager, and viewer sessions to exact configured
+profile sets. Team views never expose raw session identifiers or campaign/worker
+authority. Static local dashboard exports are limited to the bound member's
+authorized profiles and contain sanitized cases, due counts, route health,
+evidence-reference counts, and aggregates only. The files are private and start
+no network service. Team roles are not a hosted tenant boundary; every RightOut
+tool must be denied on full-operator direct invoke.
+
 Catalog `last_verified` plus `freshness_days` is an execute-time privacy and
 destination gate, not only a release-time lint. A stale official source disables
 live provider I/O and appears in the PII-free catalog-health report until the
 source fact is reviewed and released again.
 
 Evidence semantics are deliberately scoped: `indirect_exposure` is an index or publisher-browser candidate signal; `submission_uncertain` is a write that must not be retried; `submitted` is outbound transport evidence; `verification_pending` is a form/mail step; `awaiting_processing` follows a broker link or first direct absence. People-search `confirmed_removed` requires prior removal plus two time-separated direct absences across the encrypted known listing set. EU and US controller emails never automatically enter it; a human-reviewed official response can confirm only `controller_response_only`. New/unindexed URLs, unidentified controller records, other identifiers, non-registered DROP targets, and FCRA exceptions are always gaps.
+
+Effectiveness reports expose state-based numerators and denominators but default
+to `needs_evidence`. Only an explicit out-of-band authorized canary reference
+consistent with the profile, broker, state, and observation time can evidence a
+narrow operational outcome. Software capability, route count, SMTP acceptance,
+and CI success are never treated as deletion effectiveness.
 
 Consent and attestations are exact-scope, digest-bound, non-future technical gates. They are not proof of legal capacity, statutory applicability, or broker compliance. Operators remain responsible for SecretRef protection, subject authority, provider/publisher terms, least-privilege tool policy, Cron scope, and Gateway isolation.

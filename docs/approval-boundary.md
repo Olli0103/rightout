@@ -40,6 +40,14 @@ never substitutes for publisher permission.
 command, source/human gate, or `done_for_now` digest. It does not execute network
 effects itself.
 
+`rightout_worker_enable` adds a separately approved durable loop around that
+planner. The worker is encrypted and bound to one campaign, the exact current
+trusted session, runtime/catalog policy, and signed recipe pack. It leases one
+fixed-grammar command at a time and accepts completion only after the campaign
+ledger evidences the matching effect. A scheduler wake is not new authority.
+`rightout_worker_resume` needs another approval; revoke is immediate and can
+only reduce authority.
+
 ## Assisted mode
 
 Without a campaign ID, each provider-I/O tool uses its own `before_tool_call`
@@ -58,6 +66,7 @@ field.
 | SMTP removal | profile, broker, request kind, recipient, SMTP snapshot | retry, another broker, completion claim |
 | Browser form | profile, broker, catalog route/fields, current written provider authorization | arbitrary browsing, CAPTCHA/ID, a route authorized only by subject consent |
 | Inbox poll | profile, broker, read-only mailbox snapshot | link open or write |
+| Controller-reply poll | profile, broker, read-only Gmail snapshot, exact outgoing Message-ID thread | automatic controller outcome, write, unrelated message |
 | Confirmation open | profile, broker, opaque link handle | another link, mailbox read, removal claim |
 | Browser-mail handoff | opaque profile/broker/campaign refs; zero provider I/O | inbox search, message open, link open, campaign budget consumption |
 
@@ -86,9 +95,12 @@ The following never inherit campaign authority:
 - encrypted-state key rotation;
 - controller-outcome recording;
 - ambiguous-write reconciliation;
-- California DROP filing attestation; and
+- evidence export;
+- static local dashboard export;
+- worker enable and resume;
+- California DROP filing attestation;
 - campaign revocation;
-- official parity-source refresh; and
+- official parity-source refresh;
 - official CPPA registry refresh.
 
 DOB is a separate sensitive-disclosure exception: the campaign may plan the
@@ -114,7 +126,9 @@ resolved config or encrypted state without an approval but do not disclose it
 or contact a broker with subject data.
 
 `/tools/invoke` is a full-operator surface. Production guidance denies every
-manifest tool with `replaySafe: false` unless direct invocation is intended.
+manifest tool with `replaySafe: false` unless direct invocation is intended. If
+session-bound `teamAccess` is configured, all 50 RightOut tools must be denied
+on that surface; any omission is a critical role-bypass audit finding.
 OpenClaw plugins are trusted in-process code; approval is not a sandbox against
 a malicious plugin or mutually untrusted tenant. Use separate Gateways and OS
 identities for that boundary.

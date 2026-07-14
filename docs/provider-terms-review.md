@@ -145,7 +145,7 @@ Official sources:
 
 The EDPB says controllers should facilitate electronic requests, respond within one month, may extend by two months for complexity after notifying the subject within the first month, and may request additional identity information only where reasonable doubts exist. Erasure is conditional and has exceptions; direct-marketing objection does not require reasons. Consent withdrawal must be as easy as giving consent.
 
-Decision: 18 catalog-locked `gdpr_erasure_objection` email lanes are enabled. Each source record must explicitly support the controller right and email-submission channel. Lead411, 6sense, Cognism, and Lusha disclose full name, subject-controlled email, and country; the others disclose only email and country. Every lane requires a consistent EU/EEA country, private-profile consent and digest, exact broker/request attestations, SMTP identity, and a fresh native `allow-once`. No prior listing is required to exercise the right. SMTP acceptance is only `submitted`; controller replies and any requested identity follow-up are human work.
+Decision: 18 catalog-locked `gdpr_erasure_objection` email lanes are enabled. Each source record must explicitly support the controller right and email-submission channel. Lead411, 6sense, Cognism, and Lusha disclose full name, subject-controlled email, and country; the others disclose only email and country. Every lane requires a consistent EU/EEA country, private-profile consent and digest, exact broker/request attestations, SMTP identity, and a fresh native `allow-once`. No prior listing is required to exercise the right. SMTP acceptance is only `submitted`; an authenticated exact-thread controller reply may become an encrypted literal candidate, but the outcome and any requested identity follow-up remain human decisions under separate approval.
 
 EDAA YourOnlineChoices and emetriq's own browser opt-out are cataloged as preference controls, not controller erasure. Criteo, Zeotap, Quantcast, Lotame/Epsilon, and ID5 remain human-only controller portals because their official flows require controller forms, verification, scope judgment, or device/browser identifiers not covered by a closed, deterministic RightOut form recipe. Lotame explicitly distinguishes deletion of a behavior profile from retention of identifiers used to honor restrictions, so total-erasure wording is prohibited. The reviewed primary sources did not evidence a universal pan-EU data-broker erasure registry; that negative remains a bounded research conclusion, not a legal certification.
 
@@ -155,7 +155,18 @@ Official source:
 
 - [Microsoft Exchange Online Basic authentication deprecation](https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/deprecation-of-basic-authentication-exchange-online).
 
-RightOut 0.7.1 through 0.8.1 support app-password SMTP/IMAP only and have no OAuth 2.0 token contract. Microsoft documents permanent removal of Basic authentication for SMTP AUTH client submission beginning in March 2026; Microsoft 365 does not fit this password-only contract. SMTP remains pinned to Gmail, Yahoo, iCloud, and Fastmail. IMAP verification is Gmail-only and accepts exactly one receiver-added `mx.google.com` authentication result; Yahoo, iCloud, Fastmail, and Microsoft 365 IMAP remain unsupported until their authserv/OAuth behavior is separately evidenced and implemented.
+RightOut 0.9.0 adds mutually exclusive short-lived OAuth2 bearer authentication
+to the existing pinned SMTP providers and Gmail IMAP contract. Tokens must be
+SecretRefs with a one-minute-to-24-hour future lifetime and are bound into
+protocol-separated transport digests. This does **not** add Microsoft 365:
+Microsoft documents permanent removal of Basic authentication for SMTP AUTH
+client submission beginning in March 2026, while RightOut has not implemented
+or evidenced Microsoft endpoints, tenant OAuth flows, or receiver-authentication
+semantics. SMTP remains pinned to Gmail, Yahoo, iCloud, and Fastmail. IMAP
+verification remains Gmail-only and accepts exactly one receiver-added
+`mx.google.com` authentication result; Yahoo, iCloud, Fastmail, and Microsoft
+365 IMAP remain unsupported until their authserv behavior is separately
+evidenced and implemented.
 
 ## Stable-release meaning
 

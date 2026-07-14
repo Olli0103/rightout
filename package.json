@@ -1,6 +1,6 @@
 {
   "name": "@olli0103/openclaw-rightout",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Bounded autonomous data-broker discovery, removal, verification, registry, and recheck campaigns for OpenClaw",
   "type": "module",
   "license": "MIT",

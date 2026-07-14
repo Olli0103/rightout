@@ -54,7 +54,7 @@ test("runtime stores authenticated controller replies as encrypted candidates an
     return {
       uid: 1,
       internalDate: new Date(Date.now() - 30_000),
-      envelope: { messageId: "<controller-reply@fullenrich.com>", from: [{ address: "support@fullenrich.com" }] },
+      envelope: { messageId: "<controller-reply@controller.invalid>", from: [{ address: "support@fullenrich.com" }] },
       source: Buffer.from([
         "From: FullEnrich Support <support@fullenrich.com>",
         `To: ${profile.contactEmail}`,
@@ -62,7 +62,7 @@ test("runtime stores authenticated controller replies as encrypted candidates an
         `In-Reply-To: ${expectedMessageId}`,
         `References: ${expectedMessageId}`,
         "Subject: Re: GDPR request",
-        "Message-ID: <controller-reply@fullenrich.com>",
+        "Message-ID: <controller-reply@controller.invalid>",
         "Content-Type: text/plain; charset=utf-8",
         "",
         "We have successfully erased your personal data.",

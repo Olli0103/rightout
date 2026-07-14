@@ -79,6 +79,11 @@ def main() -> None:
     upstream_refresh = read_json(ROOT / "docs/unbroker-upstream-refresh.json")
     scan_coverage = read_json(ROOT / "docs/scan-coverage.json")
     sbom = read_json(ROOT / "SBOM.spdx.json")
+    skill_sbom_path = ROOT / "skills/data-broker-removal/SBOM.spdx.json"
+    if not skill_sbom_path.is_file():
+        fail(errors, "skill SBOM is missing")
+    elif read_json(skill_sbom_path) != sbom:
+        fail(errors, "skill SBOM must exactly match the root production SBOM")
     skill_version = (ROOT / "skills/data-broker-removal/VERSION").read_text(encoding="utf-8").strip()
     release_notes_path = ROOT / f"docs/release-notes-v{version}.md"
     if not release_notes_path.is_file():
@@ -268,6 +273,11 @@ def main() -> None:
         "browser-backend-runtime.test.mjs", "full-autonomy-runtime.test.mjs", "form-session-runtime.test.mjs",
         "provider-terms.test.mjs", "peopleconnect-runtime.test.mjs", "scan-catalog.test.mjs",
         "campaign-live-scan-runtime.test.mjs", "upstream-contract.test.mjs",
+        "autonomy-worker.test.mjs", "autonomy-worker-runtime.test.mjs", "recipes.test.mjs",
+        "smtp.test.mjs", "imap.test.mjs", "transport-digest.test.mjs",
+        "controller-replies.test.mjs", "controller-reply-runtime.test.mjs",
+        "evidence-vault.test.mjs", "evidence-runtime.test.mjs", "custom-targets.test.mjs",
+        "effectiveness.test.mjs", "team-access.test.mjs", "team-runtime.test.mjs", "dashboard.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -338,6 +348,9 @@ def main() -> None:
         ROOT / "dist/lib/cases.mjs", ROOT / "dist/lib/smtp.mjs", ROOT / "dist/lib/campaigns.mjs",
         ROOT / "dist/lib/parity-catalog.mjs", ROOT / "dist/lib/parity-email.mjs", ROOT / "dist/lib/parity-autopilot.mjs",
         ROOT / "dist/lib/registry.mjs", ROOT / "dist/lib/report-export.mjs", ROOT / "dist/lib/parity-source-refresh.mjs",
+        ROOT / "dist/lib/autonomy-worker.mjs", ROOT / "dist/lib/recipes.mjs", ROOT / "dist/lib/controller-replies.mjs",
+        ROOT / "dist/lib/evidence-vault.mjs", ROOT / "dist/lib/custom-targets.mjs", ROOT / "dist/lib/effectiveness.mjs",
+        ROOT / "dist/lib/team-access.mjs", ROOT / "dist/lib/dashboard.mjs",
     ]:
         if not path.is_file():
             fail(errors, f"compiled release file missing: {path.relative_to(ROOT)}")
@@ -449,6 +462,9 @@ def main() -> None:
                     Path("lib/cases.mjs"), Path("lib/smtp.mjs"), Path("lib/campaigns.mjs"),
                     Path("lib/parity-catalog.mjs"), Path("lib/parity-email.mjs"), Path("lib/parity-autopilot.mjs"), Path("lib/provider-terms.mjs"),
                     Path("lib/registry.mjs"), Path("lib/report-export.mjs"), Path("lib/parity-source-refresh.mjs"),
+                    Path("lib/autonomy-worker.mjs"), Path("lib/recipes.mjs"), Path("lib/controller-replies.mjs"),
+                    Path("lib/evidence-vault.mjs"), Path("lib/custom-targets.mjs"), Path("lib/effectiveness.mjs"),
+                    Path("lib/team-access.mjs"), Path("lib/dashboard.mjs"),
                 ]:
                     generated = Path(tmp) / relative
                     committed = ROOT / "dist" / relative
@@ -462,13 +478,20 @@ def main() -> None:
     reconciliation_tool = manifest.get("toolMetadata", {}).get("rightout_reconcile_submission", {})
     rotation_tool = manifest.get("toolMetadata", {}).get("rightout_rotate_state_key", {})
     health_tool = manifest.get("toolMetadata", {}).get("rightout_catalog_health", {})
+    dashboard_tool = manifest.get("toolMetadata", {}).get("rightout_export_dashboard", {})
+    effectiveness_tool = manifest.get("toolMetadata", {}).get("rightout_effectiveness", {})
+    team_overview_tool = manifest.get("toolMetadata", {}).get("rightout_team_overview", {})
     expected_tools = [
         "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
-        "rightout_submit_form_removal", "rightout_poll_verification", "rightout_open_verification",
+        "rightout_submit_form_removal", "rightout_poll_verification", "rightout_poll_controller_reply", "rightout_open_verification",
         "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome",
+        "rightout_create_evidence_snapshot", "rightout_evidence_status", "rightout_export_evidence", "rightout_custom_target_status",
+        "rightout_effectiveness", "rightout_team_session_binding", "rightout_team_overview", "rightout_export_dashboard",
         "rightout_reconcile_submission", "rightout_next_actions", "rightout_case_status",
         "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks",
-        "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign",
+        "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next",
+        "rightout_worker_enable", "rightout_worker_status", "rightout_worker_tick", "rightout_worker_complete",
+        "rightout_worker_resume", "rightout_worker_revoke", "rightout_revoke_campaign",
         "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
         "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session",
         "rightout_webmail_session_step", "rightout_begin_webmail_verification",
@@ -491,6 +514,10 @@ def main() -> None:
         fail(errors, "state-key rotation tool must be optional and non-replay-safe")
     if health_tool.get("optional") is not True or health_tool.get("replaySafe") is not True:
         fail(errors, "catalog-health tool must be optional and replay-safe")
+    if dashboard_tool.get("optional") is not True or dashboard_tool.get("replaySafe") is not False:
+        fail(errors, "dashboard export must be optional and non-replay-safe")
+    if effectiveness_tool.get("replaySafe") is not True or team_overview_tool.get("replaySafe") is not True:
+        fail(errors, "effectiveness and team overview must be replay-safe")
     if set((purge_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey"}:
         fail(errors, "subject purge config signals are incomplete")
     if set((rotation_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey", "previousStateEncryptionKeys"}:
@@ -498,17 +525,21 @@ def main() -> None:
     secret_paths = {item.get("path") for item in manifest.get("configContracts", {}).get("secretInputs", {}).get("paths", [])}
     if secret_paths != {
         "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
-        "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
-        "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*", "browserControlToken",
+        "smtpTransport.oauthAccessToken", "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
+        "imapTransport.oauthAccessToken", "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*", "browserControlToken",
     }:
         fail(errors, "SecretInput contract mismatch")
     config_properties = manifest.get("configSchema", {}).get("properties", {})
     retention_schema = config_properties.get("stateRetentionDays", {})
     previous_keys_schema = config_properties.get("previousStateEncryptionKeys", {})
+    team_schema = config_properties.get("teamAccess", {})
+    canary_schema = config_properties.get("effectivenessCanaries", {})
     if retention_schema != {"type": "integer", "minimum": 30, "maximum": 730, "default": 365}:
         fail(errors, "state retention schema mismatch")
     if previous_keys_schema.get("minItems") != 1 or previous_keys_schema.get("maxItems") != 3 or previous_keys_schema.get("uniqueItems") is not True:
         fail(errors, "previous state-key schema mismatch")
+    if team_schema.get("maxProperties") != 100 or canary_schema.get("maxProperties") != 20:
+        fail(errors, "team/effectiveness config schema mismatch")
     required_config = set(tool.get("configSignals", [{}])[0].get("required", []))
     if {"operatorAttestations", "stateEncryptionKey"} - required_config:
         fail(errors, "operator attestation config signal is missing")
@@ -813,6 +844,9 @@ def main() -> None:
                 "dist/lib/cases.mjs", "dist/lib/smtp.mjs", "dist/lib/campaigns.mjs",
                 "dist/lib/parity-catalog.mjs", "dist/lib/parity-email.mjs", "dist/lib/parity-autopilot.mjs", "dist/lib/provider-terms.mjs",
                 "dist/lib/registry.mjs", "dist/lib/report-export.mjs", "dist/lib/parity-source-refresh.mjs", "scripts/compute-removal-bindings.mjs",
+                "dist/lib/autonomy-worker.mjs", "dist/lib/recipes.mjs", "dist/lib/controller-replies.mjs",
+                "dist/lib/evidence-vault.mjs", "dist/lib/custom-targets.mjs", "dist/lib/effectiveness.mjs",
+                "dist/lib/team-access.mjs", "dist/lib/dashboard.mjs", "scripts/custom-target-intake.mjs",
                 "openclaw.plugin.json", "skills/data-broker-removal/SKILL.md", "LICENSE",
                 "THIRD_PARTY_NOTICES.md", "SBOM.spdx.json", "npm-shrinkwrap.json",
                 "CONTRIBUTING.md", "docs/README.md", "docs/authorized-canary.md",
@@ -822,6 +856,7 @@ def main() -> None:
                 "scripts/unbroker-upstream-contract.mjs", "scripts/verify-scan-coverage.mjs", "dist/lib/scan-catalog.mjs",
                 "skills/data-broker-removal/references/brokers/unbroker-parity.json",
                 "skills/data-broker-removal/references/brokers/provider-terms.json",
+                "skills/data-broker-removal/references/brokers/recipe-pack.json",
             ]:
                 if required not in packed:
                     fail(errors, f"release archive missing: {required}")

@@ -1716,9 +1716,13 @@ def cmd_validate(args: argparse.Namespace) -> None:
         }
         expected_tools = [
             "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal", "rightout_submit_form_removal", "rightout_poll_verification",
-            "rightout_open_verification", "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission",
+            "rightout_poll_controller_reply", "rightout_open_verification", "rightout_rotate_state_key", "rightout_purge_subject_state", "rightout_record_controller_outcome",
+            "rightout_create_evidence_snapshot", "rightout_evidence_status", "rightout_export_evidence", "rightout_custom_target_status",
+            "rightout_effectiveness", "rightout_team_session_binding", "rightout_team_overview", "rightout_export_dashboard", "rightout_reconcile_submission",
             "rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks",
-            "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next", "rightout_revoke_campaign",
+            "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next",
+            "rightout_worker_enable", "rightout_worker_status", "rightout_worker_tick", "rightout_worker_complete", "rightout_worker_resume", "rightout_worker_revoke",
+            "rightout_revoke_campaign",
             "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
             "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step",
             "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step",
@@ -1771,8 +1775,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
             errors.append("direct rescan tool must require encrypted tokens, profiles, and direct attestations")
         required_secret_paths = {
             "braveApiKey", "profiles.*.payload", "smtpTransport.username", "smtpTransport.password",
-            "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
-            "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*", "browserControlToken",
+            "smtpTransport.oauthAccessToken", "smtpTransport.fromAddress", "imapTransport.username", "imapTransport.password",
+            "imapTransport.oauthAccessToken", "imapTransport.address", "stateEncryptionKey", "previousStateEncryptionKeys.*", "browserControlToken",
         }
         if required_secret_paths - secret_paths:
             errors.append("live secrets must use declared SecretInput contracts")

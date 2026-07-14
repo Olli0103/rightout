@@ -1,17 +1,20 @@
 # OpenClaw conformance
 
-Review date: 2026-07-13. Target: stable OpenClaw `2026.6.11` / Plugin API
+Review date: 2026-07-14. Target: stable OpenClaw `2026.6.11` / Plugin API
 `>=2026.6.11`, with compatibility inspection against npm beta
 `2026.7.1-beta.6`.
 
 ## Manifest and runtime
 
-- `openclaw.plugin.json` declares exactly the 35 registered tools, optional and
+- `openclaw.plugin.json` declares exactly the 50 registered tools, optional and
   replay-safety metadata, lazy config signals, SecretInput paths, strict closed
   JSON Schema, skill directory, and `onStartup: false`.
 - `definePluginEntry`, `api.registerTool`, typed `before_tool_call`,
   `api.registerSecurityAuditCollector`, `api.resolvePath`, and
   `api.runtime.state.resolveStateDir` are the public APIs used by the plugin.
+  Durable workers additionally use `api.session.workflow` only to schedule or
+  unschedule the exact current trusted session after native approval; hosts
+  without that capability receive an explicit Cron handoff.
 - The official SSRF-aware HTTP runtime is used for remote HTTP. Production
   sandboxed agents use OpenClaw's `toolContext.browser.sandboxBridgeUrl`
   contract backed by `agents.defaults.sandbox.browser`. Unsandboxed/host-profile
@@ -27,8 +30,9 @@ Review date: 2026-07-13. Target: stable OpenClaw `2026.6.11` / Plugin API
 
 ## Approval behavior
 
-Assisted provider I/O, campaign creation/revocation, DOB disclosure, and
-critical local decisions use `before_tool_call.requireApproval` with only
+Assisted provider I/O, campaign creation/revocation, worker enable/resume, DOB
+disclosure, evidence/dashboard export, and critical local decisions use
+`before_tool_call.requireApproval` with only
 `allow-once`/`deny`, a 120-second timeout, and typed `onResolution` bindings.
 Current OpenClaw fails closed for missing, malformed, cancelled, denied,
 unroutable, unresolved, and timed-out decisions. RightOut intentionally omits
@@ -65,9 +69,13 @@ approvals are not isolation against a malicious plugin.
 
 ## Cron
 
-RightOut does not self-schedule. Operators use the official `openclaw cron add`
-interface (the documented `cron create` alias is also accepted) and inspect
-runs with:
+An explicitly approved durable worker may schedule only its exact current
+trusted OpenClaw session. The scheduled turn still receives only one
+grammar-bound command under the unchanged finite campaign; scheduling never
+renews or widens authority. If the host does not expose the supported workflow
+scheduler, RightOut returns a deterministic PII-free handoff for the official
+`openclaw cron add` interface (the documented `cron create` alias is also
+accepted). Inspect fallback runs with:
 
 ```bash
 openclaw cron run <job-id> --wait --wait-timeout 10m
@@ -87,6 +95,11 @@ manifest/runtime tools and approval hook, and runs plugin doctor before target
 mutation. Release verification repeats stable/beta inspection, config and
 SecretRef audits, deep security audit, coverage, Python/installer matrices,
 package inspection, SBOM comparison, provenance, and transactional rollback.
+
+Optional team roles are an agent-session boundary, not a new OpenClaw tenant
+sandbox. Team mode requires every RightOut contract tool in
+`gateway.tools.deny` for the full-operator direct-invoke surface; the security
+audit treats any omission as critical.
 
 Official references: [manifest](https://docs.openclaw.ai/plugins/manifest),
 [building plugins](https://docs.openclaw.ai/plugins/building-plugins),

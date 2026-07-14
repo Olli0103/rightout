@@ -3,27 +3,36 @@
 ```text
 opaque tool input
       |
-before_tool_call: catalog scope + native allow-once OR encrypted campaign scope
+team session/profile/role scope (when enabled)
+      |
+before_tool_call: native allow-once OR encrypted finite campaign scope
       |
 OpenClaw activation-time SecretRef snapshot; RightOut post-approval use/preflight
+      |
+      +-- durable worker ----------------------> one leased grammar-bound command
+      |       +-- current trusted session schedule OR explicit Cron handoff
+      |       +-- checkpoint / backoff / human gate / revoke
       |
       +-- Brave POST discovery ----------------> indirect signal
       +-- publisher browser discovery ---------> encrypted indirect candidate
       |       +-- exact official URL -> AES-GCM opaque listing handle
       |
       +-- encrypted exact URL direct read -----> present / absent-known-set / inconclusive
-      +-- pinned SMTP / redacted webmail ------> submitted
+      +-- password/OAuth SMTP / webmail ------> submitted
       +-- managed/remote browser session ------> verification_pending / human task
       |       +-- blocked primary -> one distinct remote-CDP profile retry
-      +-- pinned IMAP --------------------------> opaque verification / provider page
+      +-- password/OAuth Gmail IMAP -----------> opaque verification / controller candidate
       +-- bound browser mail -------------------> authenticated opaque confirmation control
       +-- domain-bound confirmation GET --------> awaiting_processing
       |
 durable encrypted PII-safe case ledger in the OpenClaw state directory
+      +-- encrypted content-addressed evidence vault
+      +-- encrypted custom-target quarantine
       +-- next actions
       +-- case status
-      +-- due rechecks for official OpenClaw Cron
+      +-- due rechecks and effectiveness metrics
       +-- Markdown / JSON / Google Sheets rows
+      +-- static local HTML/JSON dashboard export
 ```
 
 ## Trust boundaries
@@ -36,6 +45,23 @@ single-use bindings keyed to host tool-call IDs. Autonomous effects match an
 encrypted finite campaign containing exact profile, brokers, effect classes,
 combined catalog/provider-terms digest, runtime-scope digest, expiry, and budget.
 Caller JSON, prose consent, or an unrelated approval are never security boundaries.
+
+An optional encrypted worker record adds a second boundary: campaign, signed
+recipe pack, runtime policy, and one-way trusted-session digests must still
+match. Atomic leases exclude concurrent turns, commands are validated against a
+fixed tool/parameter grammar, and completion is accepted only after the
+campaign ledger evidences the expected effect. Scheduling can target only the
+current bound session after native approval. No scheduler capability expands a
+campaign's profile, broker, effect, time, or budget scope.
+
+Optional team mode binds each `owner`, `manager`, or `viewer` to one exact
+OpenClaw session digest and configured profile set. Managers and viewers receive
+sanitized read views only; campaign/worker authority is deliberately omitted.
+Owners also fail outside their configured profile set. Because OpenClaw's
+full-operator direct tool-invoke surface is higher authority than an agent
+session, team mode treats any RightOut tool missing from `gateway.tools.deny` as
+a critical audit finding. This is deployment-local isolation, not a hosted
+multi-tenant security claim.
 
 Brave discovery and every subsequent live step are separate tools. Core scan,
 exact-listing read, SMTP, closed-form, IMAP, and link-open tools may be assisted
@@ -63,6 +89,13 @@ an allowlisted broker domain. Raw mail and link values stay in the browser
 control plane. IMAP opens INBOX read-only and returns an opaque handle only after
 intended-recipient and aligned-DKIM checks; links also pass fail-closed phishing
 scoring. SMTP has a provider/port/TLS allowlist and minimum-disclosure template.
+Password and OAuth2 transports are mutually exclusive. OAuth access tokens must
+be SecretRef-resolved, live between one minute and 24 hours, and are included in
+protocol-separated transport bindings without entering tool input or output.
+Authenticated controller replies additionally require exact recipient,
+receiver-added aligned DKIM, official sender domain, post-submission time, and
+the outgoing Message-ID thread; even then they become encrypted candidates, not
+automatic controller outcomes.
 
 ## State and evidence
 
@@ -70,6 +103,16 @@ The ledger supports `new`, `searching`, `inconclusive`, `not_found`, `found`, `i
 
 For people-search cases, only a second time-separated trusted direct absence after a prior removal and after the durable recheck time can produce `confirmed_removed`; the scope is the encrypted known listing set. A separately approved, operator-reviewed EU or US controller response can confirm only `controller_response_only`. Only trusted direct presence can turn a listing-set confirmation into `reappeared`. Brave observations never downgrade a confirmed state because search indexes can be stale.
 
-Every SMTP/form effect first commits an encrypted `submission_pending` intent. A possibly-effectful failure becomes `submission_uncertain`; the planner blocks new external writes until a separately approved human reconciliation records either `provider_write_not_started` or `provider_write_confirmed`. Opaque listing handles are retained in the encrypted case record so a later Cron turn can resume without raw URLs.
+Every SMTP/form effect first commits an encrypted `submission_pending` intent. A possibly-effectful failure becomes `submission_uncertain`; the planner blocks new external writes until a separately approved human reconciliation records either `provider_write_not_started` or `provider_write_confirmed`. Opaque listing handles are retained in the encrypted case record so a later worker or Cron turn can resume without raw URLs.
 
-The community plugin cannot use the bundled-only keyed-store or session-turn scheduler APIs. It uses only the public state-directory resolver with contained atomic encrypted files, and exposes deterministic replay-safe `rightout_due_rechecks` for official OpenClaw Cron. Cluster planning prefers an official parent request where registry evidence says one request covers related sites, while later verification remains per known site.
+The community plugin uses the public state-directory resolver with contained
+atomic encrypted files. Where the supported host exposes public
+`session.workflow` scheduling, an approved worker schedules only its bound
+current session; otherwise it emits a deterministic replay-safe Cron handoff.
+The evidence vault stores only sanitized bounded records, while custom target
+facts stay encrypted behind opaque handles and remain non-executable until a
+trusted signed recipe plus exact current permission is present. Static dashboard
+exports are private mode-0600 files with strict CSP, no scripts, remote assets,
+forms, or network service. Cluster planning prefers an official parent request
+where registry evidence says one request covers related sites, while later
+verification remains per known site.

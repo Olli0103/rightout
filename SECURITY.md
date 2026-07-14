@@ -2,9 +2,22 @@
 
 RightOut supports per-effect assisted tools and bounded autonomous campaigns. The core Brave, exact-URL direct-read, IMAP read/link, SMTP, and closed browser-form tools each receive their own native OpenClaw `allow-once` when invoked without a campaign. Generic-form/outbound-webmail sessions and publisher-browser discovery are campaign-bound. Every form/publisher route additionally requires current written provider authorization bound to the reviewed terms digest; subject/operator consent or an attestation alone is insufficient. Current public evidence authorizes zero reference form routes. In autonomous mode, one native `allow-once` creates a finite, encrypted, revocable campaign grant bound to one opaque profile, exact broker/effect sets, combined catalog/provider-terms and runtime-scope digests, a 1-720 hour lifetime, and a hard effect budget. Every later effect revalidates that durable scope and consumes budget; scope widening, mutation, renewal, or reuse after expiry/revocation is impossible.
 
-Destructive local purge, state-key rotation, ambiguous-write reconciliation, human-reviewed controller outcomes, California DROP filing attestation, campaign creation, and campaign revocation retain dedicated native approval boundaries. Interactive decisions time out to deny after two minutes and are bound to the host tool-call ID and exact normalized scope.
+An optional durable worker requires a second native approval and binds itself to
+that campaign, the current trusted session, the runtime/catalog policy, and the
+signed recipe pack. It holds at most one atomic lease, issues only a fixed
+RightOut tool/parameter command, and accepts completion only after the campaign
+ledger evidences the matching effect. It backs off on transient failures and
+stops on ambiguity, drift, repeated failure, human gates, campaign closure, or
+revocation. Resume requires another approval and the original unchanged scope.
 
-EU controller lanes additionally bind the exact request kind, EU/EEA plus country consistency, official recipient, fixed GDPR template, and catalog-minimum disclosure. The initial EU request uses contact email and country, plus full name only for Lead411, 6sense, Cognism, and Lusha. US-CA controller lanes bind `delete_and_opt_out`, California eligibility, the official recipient, and full name/contact email/region/country. No lane attaches identity documents, parses controller responses automatically, or claims erasure/deletion from SMTP acceptance. A separately approved tool can record only an operator-personally-reviewed controller outcome. Browser/device preference controls remain human-only and are never treated as deletion proof.
+Destructive local purge, state-key rotation, ambiguous-write reconciliation,
+human-reviewed controller outcomes, evidence/dashboard export, California DROP
+filing attestation, campaign creation/revocation, and worker enable/resume retain
+dedicated native approval boundaries. Interactive decisions time out to deny
+after two minutes and are bound to the host tool-call ID and exact normalized
+scope.
+
+EU controller lanes additionally bind the exact request kind, EU/EEA plus country consistency, official recipient, fixed GDPR template, and catalog-minimum disclosure. The initial EU request uses contact email and country, plus full name only for Lead411, 6sense, Cognism, and Lusha. US-CA controller lanes bind `delete_and_opt_out`, California eligibility, the official recipient, and full name/contact email/region/country. No lane attaches identity documents or claims erasure/deletion from SMTP acceptance. An authenticated exact-thread controller reply may produce only an encrypted literal outcome candidate. Conflicting, quoted, or unknown text stays manual, and a separately approved tool can record only an operator-personally-reviewed controller outcome. Browser/device preference controls remain human-only and are never treated as deletion proof.
 
 ## Data boundaries
 
@@ -18,6 +31,12 @@ EU controller lanes additionally bind the exact request kind, EU/EEA plus countr
   assisted approval or validated finite campaign grant.
 - Brave queries use POST to the fixed guarded endpoint. Query/result bodies and Brave result URLs are discarded and never returned. Only a separately provider-authorized browser discovery may encrypt its current official-domain URL into private state.
 - The durable case ledger stores broker IDs, state, dates, disclosure field names, sanitized reasons, and opaque proof references—never raw PII, messages, URLs, queries, or page bodies.
+- Optional evidence records accept only bounded sanitized case/controller/route
+  facts, are content-addressed and encrypted, and expose metadata only. Redacted
+  export requires native approval, a private contained directory, and a second
+  sensitive-value scan. Custom-target URLs and source facts enter only through
+  an out-of-band local CLI, stay encrypted behind a random opaque handle, and do
+  not create a provider execution lane.
 - Every subject/provider-effect lane is checked against catalog `last_verified`
   and `freshness_days` before approval and again immediately before execution.
   The separately approved PII-free maintenance refreshes are the narrow
@@ -28,11 +47,23 @@ EU controller lanes additionally bind the exact request kind, EU/EEA plus countr
 - Direct rechecks decrypt exact candidate URLs only inside the plugin, allow only catalog official domains, deny redirects, bound responses to 1 MB, and require a full name plus one configured corroborator for presence.
 - IMAP is read-only and Gmail-only, bounded to post-submission INBOX messages, and requires the intended recipient, IMAP `INTERNALDATE` after the recorded submission, exactly one receiver-added `mx.google.com` authentication result with aligned DKIM for the catalog sender domain, plus a catalog-domain link. Raw mail and URLs never enter output; injected authentication headers fail closed.
 - SMTP is provider/port/TLS pinned and the sender must equal the subject contact
-  email. Browser form actions use closed catalog contracts through either the
+  email. Password and OAuth2 modes are mutually exclusive. OAuth access tokens
+  must be SecretRefs with a future lifetime between one minute and 24 hours and
+  are covered by protocol-separated transport bindings without entering tool
+  input/output. Browser form actions use closed catalog contracts through either the
   production OpenClaw sandbox bridge or the opt-in standalone host transport.
 - Generic browser sessions accept only current ARIA refs and catalog field names. Managed, remote/cloud CDP, and logged-in browser profiles use the loopback OpenClaw browser-control bridge; optional bearer tokens are SecretRefs. Outbound webmail snapshots redact compose content. Browser-only inbound verification performs zero mailbox I/O; authenticated Gmail IMAP is required for autonomous inbox processing.
 - Browser sessions pin the top-level page to catalog official origins before and after actions, but OpenClaw does not expose a per-session RightOut subresource/XHR egress allowlist. Embedded provider processors may receive requests; this is disclosed in approval/docs and publisher automation remains denied without current written authorization covering the processing.
 - Verification links are scored fail-closed for HTTPS, embedded credentials, non-standard ports, official-domain membership, and verification intent before becoming an opaque handle or clickable browser control.
+- Optional effectiveness reports use sanitized ledger states plus explicit
+  profile/broker/state/time-consistent authorized canary references. Software
+  capability, SMTP acceptance, and test coverage never count as operational
+  effectiveness proof; absent a qualifying canary the verdict is
+  `needs_evidence`.
+- Static dashboards contain only team-authorized sanitized cases, due work,
+  route health, evidence-reference counts, and effectiveness aggregates. They
+  are content-addressed private local files with strict CSP, no script, form,
+  iframe, remote asset, or network service.
 
 ## Fail-closed rules
 
@@ -40,8 +71,15 @@ CAPTCHA, distorted static text, OTP, identity-document requests, ambiguous form 
 
 Durable submission intent is written before every provider write. A possible write failure becomes `submission_uncertain`, retains dedupe, and survives Gateway restart; it is never automatically retried. Only a separately approved operator review may record `provider_write_not_started` and release retry eligibility, or `provider_write_confirmed` and continue tracking. Campaign autonomy stops at this state.
 
-Campaigns, cases, intents, dedupe records, and verified PeopleConnect flow
-handles are encrypted and restart-safe. Active form, discovery, and webmail
+Durable workers never reinterpret an unresolved lease as success. A policy,
+recipe, session, runtime, catalog, or campaign mutation fails before another
+command. An expired lease issued before its effect becomes a human gate; a lease
+that expired before a plan was issued may be safely reclaimed. Repeated
+transient failures stop at the configured threshold instead of looping.
+
+Campaigns, workers, cases, intents, dedupe records, evidence, custom targets,
+controller candidates, and verified PeopleConnect flow handles are encrypted
+and restart-safe. Active form, discovery, and webmail
 sessions are intentionally memory-only: RightOut cannot resume or automatically
 close their host/logged-in tabs after an unclean Gateway stop. Gmail may retain
 an autosaved PII-containing draft, and filled publisher tabs may remain open.
@@ -76,6 +114,14 @@ Operator attestations are deployment gates, not legal certification. RightOut do
 
 ## Deployment guidance
 
-Add every tool marked `replaySafe: false` in `openclaw.plugin.json` to `gateway.tools.deny` unless full-operator `/tools/invoke` is intentionally required. Run `openclaw secrets audit --check` and `openclaw security audit --deep` after every configuration change. Third-party OpenClaw plugins are trusted in-process code, not tenant sandboxes; isolate mutually untrusted operators by Gateway and OS identity.
+Add every tool marked `replaySafe: false` in `openclaw.plugin.json` to
+`gateway.tools.deny` unless full-operator `/tools/invoke` is intentionally
+required. If `teamAccess` is configured, deny **all 50 RightOut tools** on that
+surface; otherwise direct full-operator invocation is a critical role-bypass
+finding. Team members remain bound to exact session/profile scopes, but
+third-party OpenClaw plugins are trusted in-process code, not tenant sandboxes.
+Isolate mutually untrusted operators by Gateway and OS identity. Run `openclaw
+secrets audit --check` and `openclaw security audit --deep` after every
+configuration change.
 
 Report vulnerabilities privately through the repository security advisory channel. Do not include real PII, credentials, live listing URLs, or broker mail in reports or fixtures.

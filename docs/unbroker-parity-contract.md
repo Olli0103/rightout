@@ -25,7 +25,8 @@ RightOut never collapses these into one “100%” number:
    contract. Current public evidence permits zero reference form routes, while
    8 explicitly prohibit automation and 14 remain `needs_evidence`.
 
-The normalized contract and technical capability claims are complete in 0.8.1.
+The normalized contract and technical capability claims were completed in
+0.8.1 and remain unchanged and fully gated in 0.9.0.
 `implemented` means the same feature is executable; `equivalent_or_stronger`
 means RightOut reaches the same technical outcome with a stricter safety or
 provenance boundary. Exact provider-specific choreography beyond the reference

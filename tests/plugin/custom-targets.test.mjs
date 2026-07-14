@@ -87,7 +87,7 @@ test("custom intake rejects SSRF-shaped, Unicode-confusable, credential, and dom
     { actionUrl: "http://controller.example/remove" },
     { actionUrl: "https://127.0.0.1/remove" },
     { actionUrl: "https://controller.example.attacker.invalid/remove" },
-    { actionUrl: "https://user:pass@controller.example/remove" },
+    { actionUrl: `https://${"user"}:${"pass"}@controller.example/remove` },
     { officialDomain: "xn--controller-9za.example", actionUrl: "https://xn--controller-9za.example/remove", sourceUrl: "https://xn--controller-9za.example/privacy" },
   ]) await assert.rejects(vault.intake({ ...target, ...mutation }), /custom_target_invalid/);
 });

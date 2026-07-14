@@ -12,6 +12,9 @@ Proceed only when all of the following are evidenced outside the model:
 - the deployment-compliance gate is complete for the applicable jurisdictions;
 - Brave, SMTP, IMAP, secret storage, retention, and transfer terms are approved;
 - OpenClaw config, secret, security, runtime-inspection, and doctor checks pass;
+- `openclaw plugins inspect rightout --runtime --json` proves the installed
+  package exposes the exact v0.9.0 50-tool contract; a source checkout alone is
+  not runtime evidence;
 - the catalog-health report has zero stale entries;
 - the profile uses SecretRefs and contains only the minimum identifiers needed;
 - an operator is present for every native `allow-once` decision and human task.
@@ -36,7 +39,15 @@ provider.
 5. Restart the Gateway before the next due action. Verify that the case resumes
    without duplicate provider writes and that uncertain writes require explicit
    reconciliation.
-6. Complete a subject purge test after retaining only the sanitized operational
+6. Only after the assisted path is understood, approve one finite campaign and
+   one durable worker in the exact current session. Verify one leased command,
+   checkpointed effect, current-session scheduling (or explicit Cron handoff),
+   revoke behavior, and stop-on-human-gate semantics. Do not use a multi-broker
+   worker as the first live action.
+7. If team mode is in scope, verify viewer/manager/owner access from their exact
+   sessions, cross-profile denial, full Gateway direct-invoke denial, and one
+   static local dashboard export containing no PII or remote resource.
+8. Complete a subject purge test after retaining only the sanitized operational
    evidence required by the deployment policy.
 
 ## Sanitized evidence record
@@ -48,6 +59,10 @@ Record only:
 - approval decision type and timestamp, not prompt secrets or profile values;
 - state transitions and sanitized provider status classes;
 - duplicate-write count, unexpected disclosure count, and operator handoffs;
+- worker lease/checkpoint/revoke state and scheduler-vs-handoff status;
+- optional `canary_<opaque>` proof references for a state-consistent delivered
+  submission, controller confirmation, direct absence, or reappearance—never
+  the raw evidence behind the reference;
 - whether the documented retention and purge behavior completed.
 
 Never archive raw names, addresses, emails, phones, queries, listing URLs,
@@ -62,3 +77,7 @@ are zero, restart recovery is deterministic, ambiguous outcomes fail closed,
 and purge/retention behavior matches policy. A broker's eventual action remains
 narrow evidence for that controller and identifier set—not proof of universal
 deletion or future non-reappearance.
+
+The release does not claim this canary has run. Until an authorized deployment
+records consistent facts, `rightout_effectiveness` must remain
+`needs_evidence`.
