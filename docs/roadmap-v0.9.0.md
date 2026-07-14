@@ -1,7 +1,7 @@
 # RightOut v0.9.0 autonomy-platform plan
 
-Status: implementation complete through R1; independent review and final
-post-fix release audit remain open. This document is the requirement and
+Status: implementation complete through R1; three independent review/fix cycles
+are complete, while the final post-fix re-review and release audit remain open. This document is the requirement and
 evidence contract for the v0.9.0 work; a checked test or prose claim is not
 sufficient unless the corresponding runtime boundary is also implemented.
 
@@ -50,7 +50,10 @@ provider permission or ambiguous evidence into success.
   multi-step commands and inconclusive direct rescans stop for an operator
   instead of claiming completion. Receipts re-bind session, run, call ID, tool,
   normalized parameters, lease, and execution digest; failed wake recovery
-  becomes a durable human gate.
+  becomes a durable human gate. Exact commands and receipts additionally require
+  a still-live lease, completion boundedly waits for host-hook persistence, and
+  partial wake replacement failures gate startup recovery, watchdogs, later
+  wakes, and resume before another command is exposed.
   Evidence: `autonomy-worker.test.mjs` and
   `autonomy-worker-runtime.test.mjs`.
 - A3 implemented: the release-attested 22-route pack binds the exact source and
@@ -78,7 +81,9 @@ provider permission or ambiguous evidence into success.
   redacted export. An encrypted export index makes artifacts expire and purge
   with the subject, schedules idle cleanup, retains tracking on unlink failure,
   removes interrupted exports, and anchors the strictest deduplicated retention
-  to original creation. Evidence: `evidence-vault.test.mjs` and
+  to original creation. Export, cleanup, subject purge, and key rotation share
+  one transaction queue; deterministic latch tests cover export-versus-cleanup
+  and export-versus-purge races. Evidence: `evidence-vault.test.mjs` and
   `evidence-runtime.test.mjs`.
 - C1 implemented as a safe intake boundary, not a new write lane: the local CLI
   accepts raw target facts out of band, stores them encrypted, and returns only
@@ -113,15 +118,16 @@ provider permission or ambiguous evidence into success.
   branches, and 91.34% functions. The release checker has no implementation,
   package, privacy, provenance, or security finding; it intentionally remains
   open only for the requested independent review and final versioned audit.
-  After the second review fixes, technical parity, typecheck, and the complete
-  347/347 plugin suite are green; coverage is 90.42% lines, 74.88% branches,
-  and 91.49% functions. Build will be regenerated before the next frozen review
-  commit. The full Python, installer, dummy, package,
+  After the third review fixes, technical parity, typecheck, build, and the
+  complete 352/352 plugin suite are green; coverage is 90.86% lines, 74.99%
+  branches, and 91.94% functions. The full Python, installer, dummy, package,
   workflow, dependency, and release-check matrix will be rerun after the final
   independent re-review.
 - R2 remains open until the explicitly requested autonomous independent review
-  runs against the source-complete tree, all findings are fixed, and a second
-  reviewer confirms the post-fix tree.
+  confirms this third post-fix tree has no open P0/P1/P2/P3 finding. Three prior
+  rounds found and closed crash recovery, command/result correlation, evidence
+  lifecycle, strict recipe signature, classifier, lease-expiry, and scheduler
+  replacement issues; none is treated as closed merely from prose.
 
 ## Non-goals and hard stops
 

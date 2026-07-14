@@ -7,8 +7,10 @@ provider-terms, uncertainty, encryption, and evidence boundary.
 - Durable workers are encrypted, restart-safe, campaign- and session-bound,
   single-lease, backoff-aware, revocable, and able to schedule only their exact
   current trusted OpenClaw session. Exact result receipts bind session, run,
-  call ID, tool, normalized parameters, lease, and execution digest. Lease
-  watchdogs recover on startup; failed recovery becomes a human gate.
+  call ID, tool, normalized parameters, a still-live lease, and execution
+  digest. Completion boundedly waits for asynchronous hook persistence. Lease
+  watchdogs recover on startup; unavailable or partially failed schedule
+  replacement becomes a human gate before a command is exposed.
   Unsupported hosts receive an explicit PII-free Cron handoff on enable.
 - A release-attested declarative 22-route recipe pack now binds source and
   compiled digests. External packs require an allowlisted Ed25519 key and valid
@@ -27,7 +29,8 @@ provider-terms, uncertainty, encryption, and evidence boundary.
   retention-aware, tamper-checked, and metadata-only by default. Redacted local
   export requires a separate approval and contained private path. Managed
   exports have encrypted lifecycle tracking, creation-anchored stricter
-  retention, idle expiry scheduling, and fail-closed purge.
+  retention, idle expiry scheduling, fail-closed purge, and one transaction
+  queue across export, cleanup, subject purge, and key rotation.
 - Custom-target intake is an out-of-band encrypted quarantine boundary. Public
   tools see only opaque handles. A signed recipe and exact current permission
   can establish readiness, but v0.9.0 intentionally exposes no custom-target

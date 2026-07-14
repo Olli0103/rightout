@@ -51,13 +51,15 @@ recipe pack, runtime policy, and one-way trusted-session digests must still
 match. Atomic leases exclude concurrent turns, commands are validated against a
 fixed tool/parameter grammar, and completion is accepted only after the host
 records the terminal result of that exact tool, normalized parameters, session,
-run, call, lease, and execution digest. Interactive multi-step commands and
+run, call, still-live lease, and execution digest. Completion boundedly waits
+for asynchronous host-hook receipt persistence instead of racing it. Interactive multi-step commands and
 inconclusive direct rescans stop for operator continuation instead of being
 misclassified as complete. Scheduling can target
 only the current bound session after native approval. Lease watchdogs and
 startup reconstruction restore active wakes after a crash without renewing or
 expanding campaign profile, broker, effect, time, or budget scope. An
-unconfirmed replacement schedule moves the worker to a durable human gate.
+unavailable or partially failed replacement schedule moves the worker to a
+durable human gate before another command is exposed.
 
 Optional team mode binds each `owner`, `manager`, or `viewer` to one exact
 OpenClaw session digest and configured profile set. Managers and viewers receive
@@ -117,8 +119,10 @@ current session; otherwise it emits a deterministic replay-safe Cron handoff.
 The evidence vault stores only sanitized bounded records. Its encrypted export
 index makes private redacted artifacts subject-, retention-, purge-, and
 rotation-aware, schedules their next expiry while idle, and removes interrupted
-managed exports on cleanup. Failed unlink operations retain the encrypted index
-and fail closed. Custom target
+managed exports on cleanup. Export, cleanup, subject purge, and key rotation are
+serialized behind one vault transaction queue so a successful concurrent export
+is either durably tracked or subsequently purged, never orphaned after a reported
+purge. Failed unlink operations retain the encrypted index and fail closed. Custom target
 facts stay encrypted behind opaque handles and remain non-executable until a
 strict Ed25519-signed recipe plus exact current permission is present. Static
 dashboard exports are private mode-0600 files with strict CSP, no scripts,

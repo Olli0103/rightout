@@ -143,23 +143,31 @@ async function unlinkManagedArtifact(path, errorCode) {
 export function createEvidenceVault(store, options = {}) {
     const { now = () => new Date(), exportStore, exportRoot, setTimer = setTimeout, clearTimer = clearTimeout, onCleanupError = () => undefined, } = options;
     if (!store || typeof store.registerIfAbsent !== "function" || typeof store.lookup !== "function"
-        || typeof store.update !== "function" || typeof store.delete !== "function" || typeof store.entries !== "function")
+        || typeof store.update !== "function" || typeof store.delete !== "function" || typeof store.entries !== "function"
+        || typeof store.reencrypt !== "function")
         throw new Error("rightout_evidence_store_invalid");
     if ((exportStore === undefined) !== (exportRoot === undefined))
         throw new Error("rightout_evidence_export_store_invalid");
     if (exportStore && (typeof exportStore.register !== "function" || typeof exportStore.lookup !== "function"
         || typeof exportStore.entries !== "function" || typeof exportStore.update !== "function"
-        || typeof exportStore.delete !== "function"))
+        || typeof exportStore.delete !== "function" || typeof exportStore.reencrypt !== "function"))
         throw new Error("rightout_evidence_export_store_invalid");
     if (typeof setTimer !== "function" || typeof clearTimer !== "function" || typeof onCleanupError !== "function") {
         throw new Error("rightout_evidence_cleanup_scheduler_invalid");
     }
     let cleanupTimer;
+    let vaultTail = Promise.resolve();
+    /** @template T @param {() => Promise<T> | T} operation @returns {Promise<T>} */
+    function serialized(operation) {
+        const run = vaultTail.then(operation, operation);
+        vaultTail = run.then(() => undefined, () => undefined);
+        return run;
+    }
     function armCleanupTimer(delay) {
         cleanupTimer = setTimer(async () => {
             cleanupTimer = undefined;
             try {
-                await cleanupExpiredEvidence();
+                await serialized(cleanupExpiredEvidenceInternal);
             }
             catch (error) {
                 onCleanupError(error);
@@ -202,7 +210,7 @@ export function createEvidenceVault(store, options = {}) {
             });
         }
     }
-    async function cleanupExpiredExports() {
+    async function cleanupExpiredExportsInternal() {
         if (!exportStore || exportRoot === undefined)
             return { deleted: 0, orphaned: 0 };
         const directory = await privateExportDirectory(exportRoot);
@@ -234,7 +242,7 @@ export function createEvidenceVault(store, options = {}) {
         }
         return { deleted, orphaned };
     }
-    async function cleanupExpiredEvidence() {
+    async function cleanupExpiredEvidenceInternal() {
         const current = now().getTime();
         let deleted = 0;
         for (const entry of await store.entries()) {
@@ -244,7 +252,7 @@ export function createEvidenceVault(store, options = {}) {
                 deleted += 1;
             }
         }
-        await cleanupExpiredExports();
+        await cleanupExpiredExportsInternal();
         await scheduleNextCleanup();
         return deleted;
     }
@@ -252,13 +260,13 @@ export function createEvidenceVault(store, options = {}) {
         const record = validateRecord(await store.lookup(ref), ref);
         if (Date.parse(record.expiresAt) <= now().getTime()) {
             await store.delete(ref);
-            await cleanupExpiredExports();
+            await cleanupExpiredExportsInternal();
             throw new Error("rightout_evidence_expired");
         }
         return record;
     }
-    async function put({ profileId, brokerId, kind, retentionDays = 365, content }) {
-        await cleanupExpiredEvidence();
+    async function putInternal({ profileId, brokerId, kind, retentionDays = 365, content }) {
+        await cleanupExpiredEvidenceInternal();
         const scope = cleanScope({ profileId, brokerId, kind, retentionDays });
         const cleanContent = sanitized(content);
         const contentText = canonical(cleanContent);
@@ -297,10 +305,10 @@ export function createEvidenceVault(store, options = {}) {
             raw_content_in_report: false,
         };
     }
-    async function metadata(ref, profileId) {
+    async function metadataInternal(ref, profileId) {
         if (!SAFE_EVIDENCE_REF.test(ref ?? "") || !SAFE_PROFILE_ID.test(profileId ?? ""))
             throw new Error("rightout_evidence_ref_invalid");
-        await cleanupExpiredEvidence();
+        await cleanupExpiredEvidenceInternal();
         const record = await liveRecord(ref);
         if (record.profileId !== profileId)
             throw new Error("rightout_evidence_scope_mismatch");
@@ -317,12 +325,12 @@ export function createEvidenceVault(store, options = {}) {
             raw_content_in_report: false,
         };
     }
-    async function exportRedacted(ref, profileId, root, format = "json") {
+    async function exportRedactedInternal(ref, profileId, root, format = "json") {
         if (exportRoot !== undefined && root !== exportRoot)
             throw new Error("rightout_evidence_export_root_invalid");
         if (!new Set(["json", "markdown"]).has(format))
             throw new Error("rightout_evidence_export_format_invalid");
-        const meta = await metadata(ref, profileId);
+        const meta = await metadataInternal(ref, profileId);
         const record = await liveRecord(ref);
         const artifact = format === "json"
             ? `${JSON.stringify({ schema_version: 1, ...meta, content: record.content }, null, 2)}\n`
@@ -378,7 +386,7 @@ export function createEvidenceVault(store, options = {}) {
         }
         return { ...meta, state: "redacted_evidence_exported", format, artifact_path: file, export_approved_required: true };
     }
-    async function purgeExports(profileId) {
+    async function purgeExportsInternal(profileId) {
         if (!SAFE_PROFILE_ID.test(profileId ?? "") || !exportStore || exportRoot === undefined)
             return 0;
         const directory = await privateExportDirectory(exportRoot);
@@ -394,6 +402,37 @@ export function createEvidenceVault(store, options = {}) {
         await scheduleNextCleanup();
         return deleted;
     }
-    return { put, metadata, exportRedacted, purgeExports, cleanupExpiredEvidence, cleanupExpiredExports };
+    async function purgeSubjectInternal(profileId) {
+        if (!SAFE_PROFILE_ID.test(profileId ?? ""))
+            throw new Error("rightout_evidence_scope_invalid");
+        const evidenceExports = await purgeExportsInternal(profileId);
+        let evidenceEntries = 0;
+        for (const entry of await store.entries()) {
+            const record = validateRecord(entry.value, entry.key);
+            if (record.profileId !== profileId)
+                continue;
+            await store.delete(entry.key);
+            evidenceEntries += 1;
+        }
+        await scheduleNextCleanup();
+        return { evidence_exports: evidenceExports, evidence_entries: evidenceEntries };
+    }
+    async function reencryptInternal() {
+        const [evidenceEntries, evidenceExportEntries] = await Promise.all([
+            store.reencrypt(),
+            exportStore ? exportStore.reencrypt() : Promise.resolve(0),
+        ]);
+        return { evidence_entries: evidenceEntries, evidence_export_entries: evidenceExportEntries };
+    }
+    return {
+        put: (input) => serialized(() => putInternal(input)),
+        metadata: (ref, profileId) => serialized(() => metadataInternal(ref, profileId)),
+        exportRedacted: (ref, profileId, root, format) => serialized(() => exportRedactedInternal(ref, profileId, root, format)),
+        purgeExports: (profileId) => serialized(() => purgeExportsInternal(profileId)),
+        purgeSubject: (profileId) => serialized(() => purgeSubjectInternal(profileId)),
+        cleanupExpiredEvidence: () => serialized(cleanupExpiredEvidenceInternal),
+        cleanupExpiredExports: () => serialized(cleanupExpiredExportsInternal),
+        reencrypt: () => serialized(reencryptInternal),
+    };
 }
 export const __test = { canonical, sanitized, cleanScope, validateRecord, validateExportRecord, exportKey, privateExportDirectory };

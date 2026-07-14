@@ -32,8 +32,8 @@ says exactly what is known — and what is not.
 - **Closed-loop when you ask for it.** A session-bound worker leases one exact
   action, accepts success only from the host-observed terminal result bound to
   that exact session, run, call, tool, and normalized parameters, checkpoints
-  it in encrypted state, and stops on drift, ambiguity, revocation, or a human
-  gate.
+  it in encrypted state while the lease is still live, and stops on drift,
+  ambiguity, revocation, or a human gate.
 - **Provider rules are runtime rules.** Missing or prohibited automation
   permission produces a deterministic human handoff, not a clever workaround.
 - **Built to recover.** Campaigns, cases, rechecks, duplicate suppression,
@@ -47,13 +47,13 @@ says exactly what is known — and what is not.
 | Live discovery | Country-aware Brave Web Search POST scans across 56 code-enforced public-index lanes: 30 people-search plus 26 EU/US controller and B2B domains |
 | Removal | 28 independently locked email/removal targets, including 18 EU/EEA controller lanes |
 | Campaigns | Revocable grants for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 broker-effect units |
-| Durable autonomy | Encrypted workers, single leases, exact-command result receipts, lease watchdogs, restart recovery, exponential backoff, current-session scheduling, explicit Cron handoff, resume approval, and revocation |
+| Durable autonomy | Encrypted workers, live single leases, exact-command result receipts, lease watchdogs, fail-closed schedule replacement/restart recovery, exponential backoff, current-session scheduling, explicit Cron handoff, resume approval, and revocation |
 | Recipe trust | Release-attested 22-route built-in pack, strictly Ed25519 external packs, expiry, exact-domain binding, and semantic/sensitive drift quarantine |
 | Browser forms | Bounded semantic form engine for 20 normalized contracts plus a separately staged PeopleConnect flow |
 | Email | Catalog-locked password or short-lived OAuth2 SMTP and privacy-redacted Gmail compose, with rescue routes reported separately |
 | Verification | Receiver-authenticated Gmail IMAP, authenticated thread-bound controller reply candidates, pinned HTTPS/domain checks, explicit human gates, and a separate link-open effect |
 | Rechecks | Encrypted listing handles, timed absence confirmation, reappearance detection, and OpenClaw Cron handoff |
-| Evidence | Optional encrypted content-addressed snapshots, non-extending bounded retention, tamper checks, and separately approved managed local exports that expire and purge with their subject |
+| Evidence | Optional encrypted content-addressed snapshots, non-extending bounded retention, tamper checks, and transactionally serialized managed local exports that expire and purge with their subject |
 | Custom targets | Out-of-band encrypted intake with opaque handles; unknown routes remain quarantined until a signed recipe and current exact permission exist |
 | Family / team | Session-bound owner, manager, and viewer roles with exact profile scopes; full-operator direct invoke must be disabled in team mode |
 | Reporting | PII-safe Markdown, structured JSON, consolidated digests, Google Sheets-compatible rows, evidence-based effectiveness metrics, and static local HTML/JSON dashboards |
@@ -93,15 +93,18 @@ are distinct effects with distinct gates.
 3. Each wake leases one deterministic command from a fixed RightOut
    tool/parameter grammar. The worker cannot invent a tool or widen scope.
 4. The host hook binds the invocation to the issued tool and normalized
-   parameters. Only its exact terminal result creates a durable success receipt;
-   interactive sessions, uncertain results, and mismatches stop for a human.
+   parameters. Only its exact terminal result, observed before lease expiry,
+   creates a durable success receipt; completion briefly waits for asynchronous
+   host-hook persistence. Interactive sessions, uncertain results, mismatches,
+   and expired leases stop for a human.
 5. Revocation closes future work. `rightout_worker_resume` requires a new
    approval and the original unchanged session, campaign, runtime, catalog, and
    signed-recipe policy.
 
 While an action is unresolved, a lease watchdog remains scheduled. Gateway
 startup reconstructs missing worker wakes from the encrypted session route; an
-unconfirmed replacement schedule moves the worker to a visible human gate.
+unavailable or partially failed replacement schedule moves the worker to a
+visible human gate before another command is exposed.
 Unsupported schedulers do not disappear into “best effort”: RightOut returns a
 PII-free explicit Cron handoff. See the [installation guide](INSTALL.md) for the
 worker, team, evidence, and dashboard configuration.

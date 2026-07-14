@@ -141,7 +141,16 @@ test("active leases exclude races and an issued expired lease becomes a human ga
     kind: "execute_tool", tool: "rightout_poll_verification",
     parameters: { profileId, brokerId: "spokeo", campaignId }, reason: "poll_due_verification",
   }, effectBaseline);
+  const pending = await ledger.pending(workerId, first.lease_id);
   nowRef.value += 31_000;
+  await assert.rejects(ledger.matchExecution("rightout_poll_verification", {
+    profileId, brokerId: "spokeo", campaignId,
+  }, sessionDigest), /rightout_worker_lease_expired/);
+  await assert.rejects(ledger.recordExecutionResult(workerId, first.lease_id, {
+    executionDigest: pending.execution_digest,
+    state: "completed",
+    resultState: "verification_pending",
+  }), /rightout_worker_action_missing/);
   const recovered = await ledger.claim(workerId, { campaign, policyDigest, sessionBindingDigest: sessionDigest });
   assert.equal(recovered.state, "human_gate");
   assert.equal(recovered.worker.last_reason, "expired_lease_with_unresolved_action");

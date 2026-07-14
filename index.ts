@@ -2025,6 +2025,9 @@ export default definePluginEntry({
       let replaced = { removed: 0, failed: 0 };
       try {
         replaced = await api.session.workflow.unscheduleSessionTurnsByTag({ sessionKey: session.sessionKey, tag });
+        if (!Number.isInteger(replaced.failed) || replaced.failed > 0) {
+          throw new Error("rightout_worker_schedule_replacement_unconfirmed");
+        }
         const handle = await api.session.workflow.scheduleSessionTurn({
           sessionKey: session.sessionKey,
           agentId: session.agentId,
@@ -2045,13 +2048,14 @@ export default definePluginEntry({
           };
         }
       } catch {
-        api.logger.warn("RightOut host scheduler handoff failed; explicit handoff is required");
+        api.logger?.warn?.("RightOut host scheduler handoff failed; explicit handoff is required");
       }
       return {
         scheduler_state: "explicit_handoff_required",
         scheduled_job_registered: false,
         scheduled_delay_ms: boundedDelay,
         replaced_scheduled_turns: replaced.removed,
+        failed_scheduled_turn_replacements: replaced.failed,
         cron_handoff: {
           target: "current_trusted_session",
           delay_ms: boundedDelay,
@@ -2067,6 +2071,32 @@ export default definePluginEntry({
     async function scheduleWorkerTurn(context: Record<string, any>, workerId: string, delayMs: number): Promise<Record<string, unknown>> {
       const session = trustedWorkerSession(context);
       return scheduleWorkerRoute(session, workerId, delayMs);
+    }
+
+    async function gateOnUnconfirmedWorkerSchedule(
+      workerId: string,
+      scheduler: Record<string, unknown>,
+      reason: string,
+    ): Promise<Record<string, unknown> | undefined> {
+      if (scheduler.scheduled_job_registered === true) return undefined;
+      const worker = await workerLedger.gateRecovery(workerId, reason);
+      return {
+        report_version: 1,
+        state: "human_gate",
+        worker,
+        ...scheduler,
+        raw_pii_in_report: false,
+      };
+    }
+
+    async function pendingWorkerReceipt(workerId: string, leaseId: string): Promise<Record<string, any>> {
+      const deadline = Date.now() + 1_000;
+      let pending = await workerLedger.pending(workerId, leaseId) as Record<string, any>;
+      while (!pending.execution_receipt && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        pending = await workerLedger.pending(workerId, leaseId) as Record<string, any>;
+      }
+      return pending;
     }
 
     async function recoverWorkerSchedules(): Promise<void> {
@@ -5396,13 +5426,12 @@ export default definePluginEntry({
           }
           const config = api.pluginConfig as RightOutConfig | undefined;
           if (!stateRotationReady(config)) throw new Error("rightout_state_rotation_not_configured");
-          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceEntries, evidenceExportEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
+          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceState, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
             caseStore.reencrypt(),
             profileSnapshotStore.reencrypt(),
             verificationTokens.reencrypt(),
             controllerReplyCandidates.reencrypt(),
-            evidenceStore.reencrypt(),
-            evidenceExportStore.reencrypt(),
+            evidenceVault.reencrypt(),
             customTargetStore.reencrypt(),
             verificationOpenDedupe.reencrypt(),
             portalFlowStore.reencrypt(),
@@ -5422,8 +5451,8 @@ export default definePluginEntry({
               profile_snapshots: profileSnapshots,
               verification_handles: verificationHandles,
               controller_reply_candidates: controllerReplyHandles,
-              evidence_entries: evidenceEntries,
-              evidence_export_index_entries: evidenceExportEntries,
+              evidence_entries: evidenceState.evidence_entries,
+              evidence_export_index_entries: evidenceState.evidence_export_entries,
               custom_target_entries: customTargetEntries,
               verification_open_guards: verificationOpenGuards,
               verified_portal_flows: portalFlows,
@@ -5465,13 +5494,12 @@ export default definePluginEntry({
           if (!stateEncryptionReady(config)) throw new Error("rightout_not_configured");
           const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
           const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
-          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceExports, evidenceEntries, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
+          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceState, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
             caseLedger.purge(input.profileId),
             profileSnapshotStore.delete(input.profileId),
             purgeProfileEntries(verificationTokens, input.profileId),
             purgeProfileEntries(controllerReplyCandidates, input.profileId),
-            evidenceVault.purgeExports(input.profileId),
-            purgeProfileEntries(evidenceStore, input.profileId),
+            evidenceVault.purgeSubject(input.profileId),
             purgeProfileEntries(customTargetStore, input.profileId),
             purgeProfileEntries(verificationOpenDedupe, input.profileId),
             purgeProfileEntries(portalFlowStore, input.profileId),
@@ -5491,8 +5519,8 @@ export default definePluginEntry({
               profile_snapshot: profileSnapshotDeleted ? 1 : 0,
               verification_handles: verificationHandles,
               controller_reply_candidates: controllerReplyHandles,
-              evidence_exports: evidenceExports,
-              evidence_entries: evidenceEntries,
+              evidence_exports: evidenceState.evidence_exports,
+              evidence_entries: evidenceState.evidence_entries,
               custom_target_entries: customTargetEntries,
               verification_open_guards: verificationOpenGuards,
               verified_portal_flows: portalFlows,
@@ -6594,6 +6622,8 @@ export default definePluginEntry({
           if (claim.state === "not_due") {
             const wakeAt = Date.parse(claim.worker.next_wake_at);
             const scheduler = await scheduleWorkerTurn(toolContext as Record<string, any>, input.workerId, Math.max(1_000, wakeAt - Date.now()));
+            const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, scheduler, "scheduled_wake_replacement_unavailable");
+            if (gated) return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
             const report = { report_version: 1, ...claim, ...scheduler };
             return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
           }
@@ -6631,6 +6661,8 @@ export default definePluginEntry({
               input.workerId,
               Math.max(1_000, Date.parse(claim.lease_expires_at) - Date.now() + 1_000),
             );
+            const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, watchdog, "lease_watchdog_unavailable");
+            if (gated) return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
             const report = {
               report_version: 1,
               ...issued,
@@ -6669,6 +6701,10 @@ export default definePluginEntry({
               Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()),
             )
             : { scheduler_state: "not_scheduled_terminal" };
+          if (completed.state === "active") {
+            const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, scheduler, "scheduled_wake_replacement_unavailable");
+            if (gated) return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
+          }
           const report = { report_version: 1, ...completed, ...scheduler, raw_pii_in_report: false };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
@@ -6685,7 +6721,9 @@ export default definePluginEntry({
         async execute(_toolCallId, params) {
           const input = validateWorkerCompleteInput(params);
           const context = await workerExecutionContext(input.workerId, toolContext as Record<string, any>);
-          const pending = await workerLedger.pending(input.workerId, input.leaseId);
+          const pending = input.outcome === "action_succeeded"
+            ? await pendingWorkerReceipt(input.workerId, input.leaseId)
+            : await workerLedger.pending(input.workerId, input.leaseId);
           const receipt = pending.execution_receipt;
           const exactCommandCompleted = receipt?.state === "completed" && receipt.executionDigest === pending.execution_digest;
           if (input.outcome === "action_succeeded" && !exactCommandCompleted) throw new Error("rightout_worker_success_evidence_missing");
@@ -6704,6 +6742,10 @@ export default definePluginEntry({
               Math.max(1_000, Date.parse(completed.worker.next_wake_at) - Date.now()),
             )
             : { scheduler_state: "not_scheduled_gate_or_terminal" };
+          if (completed.state === "active") {
+            const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, scheduler, "scheduled_wake_replacement_unavailable");
+            if (gated) return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
+          }
           const report = {
             report_version: 1,
             ...completed,
@@ -6745,6 +6787,8 @@ export default definePluginEntry({
             sessionBindingDigest: context.sessionBindingDigest,
           }) as unknown as Record<string, any>;
           const scheduler = await scheduleWorkerTurn(toolContext as Record<string, any>, input.workerId, 1_000);
+          const gated = await gateOnUnconfirmedWorkerSchedule(input.workerId, scheduler, "scheduler_resume_unavailable");
+          if (gated) return { content: [{ type: "text", text: JSON.stringify(gated) }], details: gated };
           const report = { report_version: 1, ...worker, ...scheduler, raw_pii_in_report: false };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
