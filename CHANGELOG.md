@@ -33,6 +33,15 @@ All notable changes to RightOut are documented here.
 - Expanded the manifest to 50 tools and retained every v0.8.1 provider-terms,
   approval, uncertainty, encryption, retention, purge, and technical-parity
   invariant.
+- Fixed durable-worker crash recovery with lease watchdogs and startup wake
+  reconstruction, and bound success to the host-observed terminal result of the
+  exact issued command rather than any campaign activity.
+- Fixed evidence-export lifecycle tracking so managed artifacts honor stricter
+  deduplicated retention, interrupted-export cleanup, subject purge, and state
+  key rotation.
+- Tightened external recipe trust to the Ed25519 key type and 64-byte signatures,
+  and made qualified or negated controller completion text fail closed to manual
+  review.
 
 ## 0.8.1 - 2026-07-13
 

@@ -113,6 +113,17 @@ test("literal controller classifications remain candidates and conflicting or qu
   assert.equal(classifyControllerReply({
     text: "We received your request, but we cannot process your request.", processClass: "eu_controller_email_erasure",
   }).outcome_candidate, "needs_manual_check");
+  for (const text of [
+    "We have not deleted your data.",
+    "We have deleted some records, but retained the remaining profile.",
+    "Ihre Daten wurden nicht gelöscht.",
+    "Ihre Daten wurden gelöscht, jedoch werden bestimmte Datensätze aufbewahrt.",
+  ]) {
+    const classified = classifyControllerReply({ text, processClass: "us_data_broker_email_deletion" });
+    assert.equal(classified.outcome_candidate, "needs_manual_check");
+    assert.equal(classified.confidence, "none");
+    assert.equal(classified.terminal, false);
+  }
 });
 
 test("controller poller requires exact recipient, aligned receiver DKIM, official sender, time, and thread", async () => {

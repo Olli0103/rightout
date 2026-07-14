@@ -280,6 +280,8 @@ export function verifyExternalRecipePack(pack, trustedKeys, { now = Date.now() }
     catch {
         throw new Error("rightout_recipe_pack_key_invalid");
     }
+    if (key.asymmetricKeyType !== "ed25519")
+        throw new Error("rightout_recipe_pack_key_invalid");
     let signature;
     try {
         signature = Buffer.from(pack.signature, "base64url");
@@ -287,6 +289,8 @@ export function verifyExternalRecipePack(pack, trustedKeys, { now = Date.now() }
     catch {
         throw new Error("rightout_recipe_pack_signature_invalid");
     }
+    if (signature.byteLength !== 64)
+        throw new Error("rightout_recipe_pack_signature_invalid");
     if (!verifySignature(null, Buffer.from(canonicalRecipeJson(unsigned)), key, signature))
         throw new Error("rightout_recipe_pack_signature_invalid");
     return {

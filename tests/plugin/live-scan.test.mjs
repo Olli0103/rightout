@@ -795,7 +795,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   let unattestedHook;
   plugin.register({
     runtime: fakeRuntime(),
-    on(_name, handler) { unattestedHook = handler; },
+    on(name, handler) { if (name === "before_tool_call") unattestedHook = handler; },
     registerTool() {},
     registerSecurityAuditCollector() {},
     pluginConfig: {
@@ -812,7 +812,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   let missingStateHook;
   plugin.register({
     runtime: fakeRuntime(),
-    on(_name, handler) { missingStateHook = handler; },
+    on(name, handler) { if (name === "before_tool_call") missingStateHook = handler; },
     registerTool() {}, registerSecurityAuditCollector() {},
     pluginConfig: {
       braveApiKey: "dummy-test-key",

@@ -22,11 +22,11 @@ const profilePayload = JSON.stringify({
 });
 const trusted = { sessionKey: "agent:main:rightout-worker-test", agentId: "main", browser: {} };
 
-async function runtimeFixture({ schedulerAvailable = true } = {}) {
-  const stateDir = mkdtempSync(join(tmpdir(), "rightout-worker-runtime-"));
+async function runtimeFixture({ schedulerAvailable = true, stateDir = mkdtempSync(join(tmpdir(), "rightout-worker-runtime-")) } = {}) {
   const tools = new Map();
   const scheduled = [];
   let beforeToolCall;
+  let afterToolCall;
   const config = {
     stateEncryptionKey: "dummy-worker-runtime-state-key-with-more-than-32-characters",
     braveApiKey: "dummy-brave-api-key",
@@ -38,7 +38,9 @@ async function runtimeFixture({ schedulerAvailable = true } = {}) {
       subjectConsentReviewed: true,
       authorizedProfileIds: [profileId],
       authorizedProfileDigests: { [profileId]: scanProfileDigest(profilePayload) },
-      authorizedBrokerIds: ["truepeoplesearch"],
+      authorizedBrokerIds: [
+        "advancedbackgroundchecks", "dealfront_eu", "emetriq_eu", "fullenrich_eu", "kaspr_eu", "snov_eu", "truepeoplesearch",
+      ],
     },
   };
   const plugin = (await import("../../index.ts")).default;
@@ -51,10 +53,18 @@ async function runtimeFixture({ schedulerAvailable = true } = {}) {
           if (!schedulerAvailable) return undefined;
           return { id: `job-${scheduled.length}`, pluginId: "rightout", sessionKey: params.sessionKey, kind: "cron" };
         },
-        async unscheduleSessionTurnsByTag() { return { removed: 1, failed: 0 }; },
+        async unscheduleSessionTurnsByTag({ tag }) {
+          const retained = scheduled.filter((item) => item.tag !== tag);
+          const removed = scheduled.length - retained.length;
+          scheduled.splice(0, scheduled.length, ...retained);
+          return { removed, failed: 0 };
+        },
       },
     },
-    on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
+    on(name, handler) {
+      if (name === "before_tool_call") beforeToolCall = handler;
+      if (name === "after_tool_call") afterToolCall = handler;
+    },
     registerTool(tool) {
       const resolved = typeof tool === "function" ? tool(trusted) : tool;
       tools.set(resolved.name, resolved);
@@ -67,7 +77,9 @@ async function runtimeFixture({ schedulerAvailable = true } = {}) {
   return {
     tools,
     scheduled,
+    stateDir,
     beforeToolCall: (event, context = trusted) => beforeToolCall(event, { ...context, toolName: event.toolName, toolCallId: event.toolCallId }),
+    afterToolCall: (event, context = trusted) => afterToolCall(event, { ...context, toolName: event.toolName, toolCallId: event.toolCallId }),
   };
 }
 
@@ -126,13 +138,19 @@ test("durable worker schedules, executes one evidenced effect, survives a turn b
     assert.equal(effect.details.mode, "campaign_gated_live_scan");
     assert.equal(effect.details.results.length, 1);
     assert.ok(effect.details.results[0].vectors_attempted > 0);
+    await runtime.afterToolCall({
+      toolName: tick.details.command.tool,
+      params: tick.details.command.parameters,
+      toolCallId: "worker-effect",
+      result: effect,
+    });
 
     const completed = await runtime.tools.get("rightout_worker_complete").execute("worker-complete", {
       workerId: enabled.details.worker_id,
       leaseId: tick.details.lease_id,
       outcome: "action_succeeded",
     });
-    assert.equal(completed.details.campaign_effect_observed, true);
+    assert.equal(completed.details.exact_command_completed, true);
     assert.equal(completed.details.worker.actions_completed, 1);
     assert.equal(completed.details.scheduler_state, "host_scheduled");
 
@@ -183,4 +201,70 @@ test("worker enable returns a deterministic PII-free Cron handoff when host sche
     message: runtime.scheduled[0].message,
   });
   assert.doesNotMatch(JSON.stringify(enabled.details.cron_handoff), /Avery|Exampleville|profile_|agent:main/u);
+});
+
+test("worker rejects cross-broker campaign activity as proof of its exact issued command", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ web: { results: [] } }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  try {
+    const runtime = await runtimeFixture();
+    const brokerIds = ["dealfront_eu", "emetriq_eu", "fullenrich_eu", "kaspr_eu", "snov_eu"];
+    const campaignInput = { profileId, brokerIds, effects: ["discover"], durationHours: 24, maxEffects: 5 };
+    const campaignApproval = await runtime.beforeToolCall({
+      toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "cross-campaign",
+    });
+    campaignApproval.requireApproval.onResolution("allow-once");
+    const campaign = await runtime.tools.get("rightout_start_campaign").execute("cross-campaign", campaignInput);
+    const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+    const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "cross-enable" });
+    enableApproval.requireApproval.onResolution("allow-once");
+    const enabled = await runtime.tools.get("rightout_worker_enable").execute("cross-enable", enableInput);
+    const tick = await runtime.tools.get("rightout_worker_tick").execute("cross-tick", { workerId: enabled.details.worker_id });
+    assert.equal(tick.details.state, "action_ready");
+    assert.equal(tick.details.command.parameters.brokerIds.includes("snov_eu"), false);
+
+    const wrongParams = { profileId, brokerIds: ["snov_eu"], campaignId: campaign.details.campaign_id };
+    const wrongHook = await runtime.beforeToolCall({ toolName: "rightout_live_scan", params: wrongParams, toolCallId: "cross-wrong-effect" });
+    assert.equal(wrongHook.requireApproval, undefined);
+    const wrongEffect = await runtime.tools.get("rightout_live_scan").execute("cross-wrong-effect", wrongParams);
+    await runtime.afterToolCall({ toolName: "rightout_live_scan", params: wrongParams, toolCallId: "cross-wrong-effect", result: wrongEffect });
+
+    await assert.rejects(runtime.tools.get("rightout_worker_complete").execute("cross-complete", {
+      workerId: enabled.details.worker_id,
+      leaseId: tick.details.lease_id,
+      outcome: "action_succeeded",
+    }), /rightout_worker_success_evidence_missing/);
+    const status = await runtime.tools.get("rightout_worker_status").execute("cross-status", { workerId: enabled.details.worker_id });
+    assert.equal(status.details.actions_completed, 0);
+    assert.equal(status.details.unresolved_action, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("worker startup recovery re-registers a lease watchdog after restart", async () => {
+  const runtime = await runtimeFixture();
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "recovery-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("recovery-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "recovery-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("recovery-enable", enableInput);
+  const tick = await runtime.tools.get("rightout_worker_tick").execute("recovery-tick", { workerId: enabled.details.worker_id });
+  assert.equal(tick.details.lease_watchdog_registered, true);
+  assert.equal(runtime.scheduled.length, 1);
+
+  const restarted = await runtimeFixture({ stateDir: runtime.stateDir });
+  for (let attempt = 0; attempt < 20 && restarted.scheduled.length === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(restarted.scheduled.length, 1);
+  assert.match(restarted.scheduled[0].tag, /^rightout-worker-/);
+  assert.equal(restarted.scheduled[0].sessionKey, trusted.sessionKey);
+  assert.ok(restarted.scheduled[0].delayMs >= 1_000);
+  assert.doesNotMatch(restarted.scheduled[0].message, /Avery|Exampleville|profile_/u);
 });

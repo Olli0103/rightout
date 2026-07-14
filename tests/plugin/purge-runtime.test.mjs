@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -28,7 +28,7 @@ test("subject purge is separately approved and removes only local encrypted subj
       tools.set(resolved.name, resolved);
     },
     registerSecurityAuditCollector() {},
-    pluginConfig: { stateEncryptionKey: stateKey },
+    pluginConfig: { stateEncryptionKey: stateKey, profiles: { [profileId]: { payload: "{}" } } },
     resolvePath(value) { return value; },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   });
@@ -47,6 +47,18 @@ test("subject purge is separately approved and removes only local encrypted subj
   await listings.register("listing_0123456789abcdef01234567", { profileId, brokerId: "beenverified" });
   await dedupe.register("dedupe_" + "a".repeat(64), { profileId, brokerId: "beenverified", channel: "smtp_email" });
 
+  const evidence = await tools.get("rightout_create_evidence_snapshot").execute("purge-evidence-create", {
+    profileId, brokerId: "beenverified",
+  });
+  const evidenceExportInput = { profileId, evidenceRef: evidence.details.evidence_ref, format: "json" };
+  const evidenceApproval = await beforeToolCall({
+    toolName: "rightout_export_evidence", params: evidenceExportInput, toolCallId: "purge-evidence-export",
+  });
+  evidenceApproval.requireApproval.onResolution("allow-once");
+  const evidenceExport = await tools.get("rightout_export_evidence").execute("purge-evidence-export", evidenceExportInput);
+  const evidenceExportPath = join(stateDir, "rightout-evidence-exports-v1", evidenceExport.details.artifact_name);
+  assert.equal(existsSync(evidenceExportPath), true);
+
   const input = { profileId };
   const denied = await beforeToolCall({ toolName: "rightout_purge_subject_state", params: input, toolCallId: "purge-denied" });
   assert.match(denied.requireApproval.description, /P profile_/);
@@ -63,7 +75,8 @@ test("subject purge is separately approved and removes only local encrypted subj
     profile_snapshot: 0,
     verification_handles: 1,
     controller_reply_candidates: 0,
-    evidence_entries: 0,
+    evidence_exports: 1,
+    evidence_entries: 1,
     custom_target_entries: 0,
     verification_open_guards: 0,
     verified_portal_flows: 0,
@@ -85,4 +98,5 @@ test("subject purge is separately approved and removes only local encrypted subj
   assert.equal(await cases.lookup(profileId), undefined);
   assert.equal(await verification.lookup("verify_0123456789abcdef01234567"), undefined);
   assert.equal(await listings.lookup("listing_0123456789abcdef01234567"), undefined);
+  assert.equal(existsSync(evidenceExportPath), false);
 });

@@ -1,16 +1,17 @@
 # Release checklist: v0.9.0
 
 - [x] A1/A2/A4 durable worker, trusted-session scheduling/handoff, lease,
-  checkpoint, backoff, revoke/resume, and fixed-command grammar are implemented
-  and runtime-tested.
-- [x] A3 release-attested recipes, Ed25519 external trust, expiry, and drift
-  quarantine are implemented and package-bound.
+  exact-command result receipt, watchdog/startup recovery, checkpoint, backoff,
+  revoke/resume, and fixed-command grammar are implemented and runtime-tested.
+- [x] A3 release-attested recipes, strict Ed25519 external trust, expiry, and
+  drift quarantine are implemented and package-bound.
 - [x] M1 password/OAuth2 transport compatibility, expiry, mutation, protocol
   separation, and redaction are tested.
 - [x] M2 authenticated exact-thread controller replies remain encrypted
   candidates and every outcome retains a separate human approval.
 - [x] E1 evidence encryption, addressing, retention, tamper, purge/rotation,
-  metadata-only reads, and approved private export are tested.
+  metadata-only reads, and approved managed private export expiry/purge are
+  tested.
 - [x] C1 custom-target intake is encrypted/opaque and cannot become a provider
   action from raw URL input or unsigned/unpermitted recipes.
 - [x] L1 effectiveness metrics expose denominators and default to

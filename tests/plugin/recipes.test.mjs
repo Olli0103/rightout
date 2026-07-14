@@ -75,6 +75,21 @@ test("external recipe packs require an exact trusted Ed25519 signature and bound
   assert.throws(() => verifyExternalRecipePack(pack, { "publisher-test-key": publicKey }, { now: Date.parse("2027-01-01T00:00:00Z") }), /pack_expired/);
   const long = signedPack({ expires_at: "2028-07-14T10:00:00Z" });
   assert.throws(() => verifyExternalRecipePack(long.pack, { "publisher-test-key": long.publicKey }, { now }), /pack_expired/);
+
+  const unsigned = { ...pack };
+  delete unsigned.signature;
+  for (const [type, options] of [
+    ["ec", { namedCurve: "P-256" }],
+    ["rsa", { modulusLength: 512 }],
+  ]) {
+    const foreign = generateKeyPairSync(type, options);
+    const foreignPack = {
+      ...unsigned,
+      signature: sign(null, Buffer.from(canonicalRecipeJson(unsigned)), foreign.privateKey).toString("base64url"),
+    };
+    const foreignPublic = foreign.publicKey.export({ type: "spki", format: "pem" }).toString();
+    assert.throws(() => verifyExternalRecipePack(foreignPack, { "publisher-test-key": foreignPublic }, { now }), /key_invalid/);
+  }
 });
 
 test("recipe validation binds recipe identity, official domains, and fixed fields", () => {

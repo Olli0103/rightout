@@ -1,8 +1,11 @@
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, realpath, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 const SAFE_EVIDENCE_REF = /^evidence_[a-f0-9]{64}$/;
+const SAFE_EXPORT_KEY = /^export_[a-f0-9]{64}$/;
+const SAFE_EXPORT_NAME = /^evidence_[a-f0-9]{64}\.(?:json|md)$/;
+const SAFE_EXPORT_TEMP_NAME = /^\.evidence_[a-f0-9]{64}\.[a-f0-9]{16}\.tmp$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_BROKER_ID = /^[a-z0-9_]{2,80}$/;
 const SAFE_KIND = /^(?:case_transition|controller_candidate|route_health)_snapshot$/;
@@ -70,12 +73,33 @@ function validateRecord(record, ref) {
         || record.ref !== ref || !SAFE_EVIDENCE_REF.test(ref) || !SAFE_PROFILE_ID.test(record.profileId ?? "")
         || !SAFE_BROKER_ID.test(record.brokerId ?? "") || !SAFE_KIND.test(record.kind ?? "")
         || typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))
+        || typeof record.expiresAt !== "string" || !Number.isFinite(Date.parse(record.expiresAt))
+        || Date.parse(record.expiresAt) <= Date.parse(record.createdAt)
+        || !Number.isInteger(record.retentionDays) || record.retentionDays < 1 || record.retentionDays > MAX_RETENTION_DAYS
         || typeof record.contentDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.contentDigest))
         throw new Error("rightout_evidence_record_invalid");
     const content = sanitized(record.content);
     if (createHash("sha256").update(canonical(content)).digest("hex") !== record.contentDigest)
         throw new Error("rightout_evidence_tampered");
     return { ...record, content };
+}
+function exportKey(ref, format) {
+    return `export_${createHash("sha256").update(canonical(["rightout-evidence-export-v1", ref, format])).digest("hex")}`;
+}
+function validateExportRecord(record, key) {
+    if (!record || typeof record !== "object" || Array.isArray(record) || record.schemaVersion !== 1
+        || !SAFE_EXPORT_KEY.test(key ?? "") || record.key !== key || !SAFE_EVIDENCE_REF.test(record.evidenceRef ?? "")
+        || !SAFE_PROFILE_ID.test(record.profileId ?? "") || !["json", "markdown"].includes(record.format)
+        || !SAFE_EXPORT_NAME.test(record.artifactName ?? "")
+        || typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))
+        || typeof record.expiresAt !== "string" || !Number.isFinite(Date.parse(record.expiresAt))
+        || Date.parse(record.expiresAt) <= Date.parse(record.createdAt))
+        throw new Error("rightout_evidence_export_record_invalid");
+    const extension = record.format === "json" ? "json" : "md";
+    if (record.artifactName !== `${record.evidenceRef}.${extension}` || key !== exportKey(record.evidenceRef, record.format)) {
+        throw new Error("rightout_evidence_export_record_invalid");
+    }
+    return structuredClone(record);
 }
 async function privateExportDirectory(root) {
     const base = await realpath(root).catch(() => { throw new Error("rightout_evidence_export_root_invalid"); });
@@ -98,19 +122,112 @@ async function privateExportDirectory(root) {
         throw new Error("rightout_evidence_export_path_invalid");
     return directory;
 }
-export function createEvidenceVault(store, { now = () => new Date() } = {}) {
-    if (!store || typeof store.registerIfAbsent !== "function" || typeof store.lookup !== "function")
+/**
+ * @param {any} store
+ * @param {{ now?: () => Date, exportStore?: any, exportRoot?: string }} [options]
+ */
+export function createEvidenceVault(store, options = {}) {
+    const { now = () => new Date(), exportStore, exportRoot } = options;
+    if (!store || typeof store.registerIfAbsent !== "function" || typeof store.lookup !== "function"
+        || typeof store.update !== "function" || typeof store.delete !== "function" || typeof store.entries !== "function")
         throw new Error("rightout_evidence_store_invalid");
+    if ((exportStore === undefined) !== (exportRoot === undefined))
+        throw new Error("rightout_evidence_export_store_invalid");
+    if (exportStore && (typeof exportStore.register !== "function" || typeof exportStore.lookup !== "function"
+        || typeof exportStore.entries !== "function" || typeof exportStore.update !== "function"
+        || typeof exportStore.delete !== "function"))
+        throw new Error("rightout_evidence_export_store_invalid");
+    async function tightenExportExpiry(ref, expiresAt) {
+        if (!exportStore)
+            return;
+        for (const entry of await exportStore.entries()) {
+            const record = validateExportRecord(entry.value, entry.key);
+            if (record.evidenceRef !== ref || Date.parse(record.expiresAt) <= Date.parse(expiresAt))
+                continue;
+            await exportStore.update(entry.key, (value) => {
+                const current = validateExportRecord(value, entry.key);
+                return { ...current, expiresAt };
+            });
+        }
+    }
+    async function cleanupExpiredExports() {
+        if (!exportStore || exportRoot === undefined)
+            return { deleted: 0, orphaned: 0 };
+        const directory = await privateExportDirectory(exportRoot);
+        const current = now().getTime();
+        const liveNames = new Set();
+        let deleted = 0;
+        for (const entry of await exportStore.entries()) {
+            const record = validateExportRecord(entry.value, entry.key);
+            if (Date.parse(record.expiresAt) <= current) {
+                if (await unlink(join(directory, record.artifactName)).then(() => true).catch(() => false))
+                    deleted += 1;
+                await exportStore.delete(entry.key);
+            }
+            else {
+                liveNames.add(record.artifactName);
+            }
+        }
+        let orphaned = 0;
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+            if (SAFE_EXPORT_TEMP_NAME.test(entry.name)) {
+                if (await unlink(join(directory, entry.name)).then(() => true).catch(() => false))
+                    orphaned += 1;
+                continue;
+            }
+            if (!SAFE_EXPORT_NAME.test(entry.name) || liveNames.has(entry.name))
+                continue;
+            if (await unlink(join(directory, entry.name)).then(() => true).catch(() => false))
+                orphaned += 1;
+        }
+        return { deleted, orphaned };
+    }
+    async function cleanupExpiredEvidence() {
+        const current = now().getTime();
+        let deleted = 0;
+        for (const entry of await store.entries()) {
+            const record = validateRecord(entry.value, entry.key);
+            if (Date.parse(record.expiresAt) <= current) {
+                await store.delete(entry.key);
+                deleted += 1;
+            }
+        }
+        await cleanupExpiredExports();
+        return deleted;
+    }
+    async function liveRecord(ref) {
+        const record = validateRecord(await store.lookup(ref), ref);
+        if (Date.parse(record.expiresAt) <= now().getTime()) {
+            await store.delete(ref);
+            await cleanupExpiredExports();
+            throw new Error("rightout_evidence_expired");
+        }
+        return record;
+    }
     async function put({ profileId, brokerId, kind, retentionDays = 365, content }) {
+        await cleanupExpiredEvidence();
         const scope = cleanScope({ profileId, brokerId, kind, retentionDays });
         const cleanContent = sanitized(content);
         const contentText = canonical(cleanContent);
         const contentDigest = createHash("sha256").update(contentText).digest("hex");
         const ref = `evidence_${createHash("sha256").update(canonical(["rightout-evidence-v1", scope.profileId, scope.brokerId, scope.kind, contentDigest])).digest("hex")}`;
-        const createdAt = now().toISOString();
-        const record = { schemaVersion: 1, ref, ...scope, contentDigest, content: cleanContent, createdAt };
-        await store.registerIfAbsent(ref, record, { ttlMs: retentionDays * 24 * 60 * 60_000 });
-        const persisted = validateRecord(await store.lookup(ref), ref);
+        const at = now();
+        const createdAt = at.toISOString();
+        const expiresAt = new Date(at.getTime() + retentionDays * 24 * 60 * 60_000).toISOString();
+        const record = { schemaVersion: 1, ref, ...scope, contentDigest, content: cleanContent, createdAt, expiresAt };
+        if (!await store.registerIfAbsent(ref, record)) {
+            await store.update(ref, (value) => {
+                const existing = validateRecord(value, ref);
+                const nextExpiry = Math.min(Date.parse(existing.expiresAt), Date.parse(expiresAt));
+                return {
+                    ...existing,
+                    retentionDays: Math.min(existing.retentionDays, retentionDays),
+                    expiresAt: new Date(nextExpiry).toISOString(),
+                };
+            });
+        }
+        const persisted = await liveRecord(ref);
+        await tightenExportExpiry(ref, persisted.expiresAt);
         return {
             evidence_ref: ref,
             subject_ref: persisted.profileId,
@@ -118,6 +235,7 @@ export function createEvidenceVault(store, { now = () => new Date() } = {}) {
             kind: persisted.kind,
             content_sha256: persisted.contentDigest,
             created_at: persisted.createdAt,
+            expires_at: persisted.expiresAt,
             retention_days: persisted.retentionDays,
             encrypted_at_rest: true,
             raw_content_in_report: false,
@@ -126,7 +244,8 @@ export function createEvidenceVault(store, { now = () => new Date() } = {}) {
     async function metadata(ref, profileId) {
         if (!SAFE_EVIDENCE_REF.test(ref ?? "") || !SAFE_PROFILE_ID.test(profileId ?? ""))
             throw new Error("rightout_evidence_ref_invalid");
-        const record = validateRecord(await store.lookup(ref), ref);
+        await cleanupExpiredEvidence();
+        const record = await liveRecord(ref);
         if (record.profileId !== profileId)
             throw new Error("rightout_evidence_scope_mismatch");
         return {
@@ -136,16 +255,19 @@ export function createEvidenceVault(store, { now = () => new Date() } = {}) {
             kind: record.kind,
             content_sha256: record.contentDigest,
             created_at: record.createdAt,
+            expires_at: record.expiresAt,
             retention_days: record.retentionDays,
             encrypted_at_rest: true,
             raw_content_in_report: false,
         };
     }
     async function exportRedacted(ref, profileId, root, format = "json") {
+        if (exportRoot !== undefined && root !== exportRoot)
+            throw new Error("rightout_evidence_export_root_invalid");
         if (!new Set(["json", "markdown"]).has(format))
             throw new Error("rightout_evidence_export_format_invalid");
         const meta = await metadata(ref, profileId);
-        const record = validateRecord(await store.lookup(ref), ref);
+        const record = await liveRecord(ref);
         const artifact = format === "json"
             ? `${JSON.stringify({ schema_version: 1, ...meta, content: record.content }, null, 2)}\n`
             : [
@@ -177,8 +299,43 @@ export function createEvidenceVault(store, { now = () => new Date() } = {}) {
             await handle?.close().catch(() => undefined);
             await unlink(temp).catch(() => undefined);
         }
+        if (exportStore) {
+            const key = exportKey(ref, format);
+            const exportRecord = {
+                schemaVersion: 1,
+                key,
+                profileId,
+                evidenceRef: ref,
+                format,
+                artifactName: `${ref}.${extension}`,
+                createdAt: now().toISOString(),
+                expiresAt: record.expiresAt,
+            };
+            try {
+                await exportStore.register(key, exportRecord);
+            }
+            catch {
+                await unlink(file).catch(() => undefined);
+                throw new Error("rightout_evidence_export_failed");
+            }
+        }
         return { ...meta, state: "redacted_evidence_exported", format, artifact_path: file, export_approved_required: true };
     }
-    return { put, metadata, exportRedacted };
+    async function purgeExports(profileId) {
+        if (!SAFE_PROFILE_ID.test(profileId ?? "") || !exportStore || exportRoot === undefined)
+            return 0;
+        const directory = await privateExportDirectory(exportRoot);
+        let deleted = 0;
+        for (const entry of await exportStore.entries()) {
+            const record = validateExportRecord(entry.value, entry.key);
+            if (record.profileId !== profileId)
+                continue;
+            await unlink(join(directory, record.artifactName)).catch(() => undefined);
+            await exportStore.delete(entry.key);
+            deleted += 1;
+        }
+        return deleted;
+    }
+    return { put, metadata, exportRedacted, purgeExports, cleanupExpiredEvidence, cleanupExpiredExports };
 }
-export const __test = { canonical, sanitized, cleanScope, validateRecord, privateExportDirectory };
+export const __test = { canonical, sanitized, cleanScope, validateRecord, validateExportRecord, exportKey, privateExportDirectory };

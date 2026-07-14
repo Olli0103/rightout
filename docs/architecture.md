@@ -49,10 +49,13 @@ Caller JSON, prose consent, or an unrelated approval are never security boundari
 An optional encrypted worker record adds a second boundary: campaign, signed
 recipe pack, runtime policy, and one-way trusted-session digests must still
 match. Atomic leases exclude concurrent turns, commands are validated against a
-fixed tool/parameter grammar, and completion is accepted only after the
-campaign ledger evidences the expected effect. Scheduling can target only the
-current bound session after native approval. No scheduler capability expands a
-campaign's profile, broker, effect, time, or budget scope.
+fixed tool/parameter grammar, and completion is accepted only after the host
+records the terminal result of that exact tool, normalized parameters, session,
+lease, and execution digest. Interactive multi-step commands stop for operator
+continuation instead of being misclassified as complete. Scheduling can target
+only the current bound session after native approval. Lease watchdogs and
+startup reconstruction restore active wakes after a crash without renewing or
+expanding campaign profile, broker, effect, time, or budget scope.
 
 Optional team mode binds each `owner`, `manager`, or `viewer` to one exact
 OpenClaw session digest and configured profile set. Managers and viewers receive
@@ -109,10 +112,12 @@ The community plugin uses the public state-directory resolver with contained
 atomic encrypted files. Where the supported host exposes public
 `session.workflow` scheduling, an approved worker schedules only its bound
 current session; otherwise it emits a deterministic replay-safe Cron handoff.
-The evidence vault stores only sanitized bounded records, while custom target
+The evidence vault stores only sanitized bounded records. Its encrypted export
+index makes private redacted artifacts subject-, retention-, purge-, and
+rotation-aware and removes interrupted managed exports on cleanup. Custom target
 facts stay encrypted behind opaque handles and remain non-executable until a
-trusted signed recipe plus exact current permission is present. Static dashboard
-exports are private mode-0600 files with strict CSP, no scripts, remote assets,
-forms, or network service. Cluster planning prefers an official parent request
-where registry evidence says one request covers related sites, while later
-verification remains per known site.
+strict Ed25519-signed recipe plus exact current permission is present. Static
+dashboard exports are private mode-0600 files with strict CSP, no scripts,
+remote assets, forms, or network service. Cluster planning prefers an official
+parent request where registry evidence says one request covers related sites,
+while later verification remains per known site.
