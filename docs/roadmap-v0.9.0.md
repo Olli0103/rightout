@@ -1,7 +1,7 @@
 # RightOut v0.9.0 autonomy-platform plan
 
-Status: implementation complete through R1; five independent review/fix cycles
-are complete, while the final post-fix re-review and release audit remain open. This document is the requirement and
+Status: implementation complete through R2; five finding/fix rounds plus a
+clean sixth independent review and the final source audit are complete. This document is the requirement and
 evidence contract for the v0.9.0 work; a checked test or prose claim is not
 sufficient unless the corresponding runtime boundary is also implemented.
 
@@ -127,16 +127,14 @@ provider permission or ambiguous evidence into success.
   After the fifth review fixes, technical parity, typecheck, build, and the
   complete 354/354 plugin suite are green; coverage is 90.68% lines, 74.92%
   branches, and 91.26% functions. The full Python, installer, dummy, package,
-  workflow, dependency, and release-check matrix will be rerun after the final
-  independent re-review.
-- R2 remains open until the explicitly requested autonomous independent review
-  confirms the latest post-fix tree has no open P0/P1/P2/P3 finding. Five prior
-  rounds found and closed crash recovery, command/result correlation, evidence
-  lifecycle, strict recipe signature, classifier, lease-expiry, and scheduler
-  replacement issues. The fourth round's cross-instance lifecycle and stale
-  recovery races were closed in round five; its newly found post-claim lost-wake
-  path is fixed but requires another frozen-tree review. None is treated as
-  closed merely from prose.
+  workflow, dependency, and release-check matrix was rerun after the final
+  independent re-review and is green.
+- R2 passed: five prior rounds found and closed crash recovery, command/result
+  correlation, evidence lifecycle, strict recipe signature, classifier,
+  lease-expiry, scheduler replacement, cross-instance coordination, stale
+  recovery, and post-claim lost-wake defects. The independent sixth review of
+  frozen commit `9312d54e369387dba9ce315c8852d51fbb7240c2` returned `CLEAN`
+  with no open P0/P1/P2/P3 finding.
 
 ## Non-goals and hard stops
 
