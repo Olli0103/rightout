@@ -33,9 +33,9 @@
   release notes, and parity matrix are synchronized.
 - [x] Run every source/package/coverage/Python/installer/dummy/security/workflow
   release gate on the source-complete tree and inspect the packed archive.
-- [ ] Run the requested autonomous independent source review, fix every
+- [x] Run the requested autonomous independent source review, fix every
   evidenced P0/P1/P2/P3 finding, and repeat review on the post-fix tree.
-- [ ] Write the final versioned audit only after the last fix, rerun all release
+- [x] Write the final versioned audit only after the last fix, rerun all release
   gates, and confirm a clean worktree plus publishable signed-tag state.
 
 Publication remains a separate external signed-tag CI action. This checklist
