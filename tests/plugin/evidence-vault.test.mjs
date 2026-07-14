@@ -25,25 +25,32 @@ function fakeTimerHarness() {
   };
 }
 
-function fixture({ mutableNow, timerHarness } = {}) {
+function fixture({ mutableNow, timerHarness, decorateExportStore } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "rightout-evidence-vault-"));
   const store = createEncryptedFileKeyedStore({
     stateDir, namespace: "rightout-evidence-vault-v1", maxEntries: 500,
     getSecret: () => stateKey, ...(mutableNow ? { now: () => mutableNow.value } : {}),
   });
-  const exportStore = createEncryptedFileKeyedStore({
+  const exportStoreBacking = createEncryptedFileKeyedStore({
     stateDir, namespace: "rightout-evidence-export-index-v1", maxEntries: 1_000,
     getSecret: () => stateKey, ...(mutableNow ? { now: () => mutableNow.value } : {}),
   });
+  const exportStore = decorateExportStore ? decorateExportStore(exportStoreBacking) : exportStoreBacking;
   return {
     stateDir,
     store,
-    exportStore,
+    exportStore: exportStoreBacking,
     vault: createEvidenceVault(store, {
       now: () => new Date(mutableNow?.value ?? Date.now()), exportStore, exportRoot: stateDir,
       ...(timerHarness ? { setTimer: timerHarness.setTimer, clearTimer: timerHarness.clearTimer } : {}),
     }),
   };
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => { resolve = next; });
+  return { promise, resolve };
 }
 
 const content = {
@@ -170,4 +177,54 @@ test("purge retains its tracking record and fails if a managed artifact cannot b
   await assert.rejects(vault.purgeExports(profileId), /export_purge_failed/);
   assert.equal((await exportStore.entries()).length, 1);
   assert.equal(existsSync(exported.artifact_path), true);
+});
+
+test("cleanup waits for an in-flight export to become durably tracked", async () => {
+  const registerEntered = deferred();
+  const releaseRegister = deferred();
+  const { stateDir, exportStore, vault } = fixture({
+    decorateExportStore: (backing) => ({
+      ...backing,
+      async register(...args) {
+        registerEntered.resolve();
+        await releaseRegister.promise;
+        return backing.register(...args);
+      },
+    }),
+  });
+  const evidence = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
+  const exporting = vault.exportRedacted(evidence.evidence_ref, profileId, stateDir, "json");
+  await registerEntered.promise;
+  const cleaning = vault.cleanupExpiredEvidence();
+  releaseRegister.resolve();
+  const exported = await exporting;
+  await cleaning;
+  assert.equal(existsSync(exported.artifact_path), true);
+  assert.equal((await exportStore.entries()).length, 1);
+});
+
+test("subject purge waits for an in-flight export and removes the file and both indexes", async () => {
+  const registerEntered = deferred();
+  const releaseRegister = deferred();
+  const { stateDir, store, exportStore, vault } = fixture({
+    decorateExportStore: (backing) => ({
+      ...backing,
+      async register(...args) {
+        registerEntered.resolve();
+        await releaseRegister.promise;
+        return backing.register(...args);
+      },
+    }),
+  });
+  const evidence = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
+  const exporting = vault.exportRedacted(evidence.evidence_ref, profileId, stateDir, "json");
+  await registerEntered.promise;
+  const purging = vault.purgeSubject(profileId);
+  releaseRegister.resolve();
+  const exported = await exporting;
+  const purged = await purging;
+  assert.deepEqual(purged, { evidence_exports: 1, evidence_entries: 1 });
+  assert.equal(existsSync(exported.artifact_path), false);
+  assert.equal((await exportStore.entries()).length, 0);
+  assert.equal((await store.entries()).length, 0);
 });

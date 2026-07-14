@@ -22,11 +22,16 @@ const profilePayload = JSON.stringify({
 });
 const trusted = { sessionKey: "agent:main:rightout-worker-test", agentId: "main", browser: {} };
 
-async function runtimeFixture({ schedulerAvailable = true, stateDir = mkdtempSync(join(tmpdir(), "rightout-worker-runtime-")) } = {}) {
+async function runtimeFixture({
+  schedulerAvailable = true,
+  unscheduleFailureCalls = [],
+  stateDir = mkdtempSync(join(tmpdir(), "rightout-worker-runtime-")),
+} = {}) {
   const tools = new Map();
   const scheduled = [];
   let beforeToolCall;
   let afterToolCall;
+  let unscheduleCalls = 0;
   const config = {
     stateEncryptionKey: "dummy-worker-runtime-state-key-with-more-than-32-characters",
     braveApiKey: "dummy-brave-api-key",
@@ -54,6 +59,8 @@ async function runtimeFixture({ schedulerAvailable = true, stateDir = mkdtempSyn
           return { id: `job-${scheduled.length}`, pluginId: "rightout", sessionKey: params.sessionKey, kind: "cron" };
         },
         async unscheduleSessionTurnsByTag({ tag }) {
+          unscheduleCalls += 1;
+          if (unscheduleFailureCalls.includes(unscheduleCalls)) return { removed: 0, failed: 1 };
           const retained = scheduled.filter((item) => item.tag !== tag);
           const removed = scheduled.length - retained.length;
           scheduled.splice(0, scheduled.length, ...retained);
@@ -169,23 +176,20 @@ test("durable worker schedules, executes one evidenced effect, survives a turn b
       toolCallId: "worker-effect",
       result: effect,
     });
-    await assert.rejects(runtime.tools.get("rightout_worker_complete").execute("worker-premature-complete", {
-      workerId: enabled.details.worker_id,
-      leaseId: tick.details.lease_id,
-      outcome: "action_succeeded",
-    }), /rightout_worker_success_evidence_missing/);
-    await runtime.afterToolCall({
-      toolName: tick.details.command.tool,
-      params: tick.details.command.parameters,
-      toolCallId: "worker-effect",
-      result: effect,
-    });
-
-    const completed = await runtime.tools.get("rightout_worker_complete").execute("worker-complete", {
+    const delayedReceipt = new Promise((resolve, reject) => setTimeout(() => {
+      runtime.afterToolCall({
+        toolName: tick.details.command.tool,
+        params: tick.details.command.parameters,
+        toolCallId: "worker-effect",
+        result: effect,
+      }).then(resolve, reject);
+    }, 25));
+    const completion = runtime.tools.get("rightout_worker_complete").execute("worker-complete", {
       workerId: enabled.details.worker_id,
       leaseId: tick.details.lease_id,
       outcome: "action_succeeded",
     });
+    const [completed] = await Promise.all([completion, delayedReceipt]);
     assert.equal(completed.details.exact_command_completed, true);
     assert.equal(completed.details.worker.actions_completed, 1);
     assert.equal(completed.details.scheduler_state, "host_scheduled");
@@ -326,4 +330,73 @@ test("worker startup recovery moves an unwakeable active worker to a human gate"
   assert.equal(status.details.status, "human_gate");
   assert.equal(status.details.last_reason, "scheduler_recovery_unavailable");
   assert.equal(status.details.next_wake_at, null);
+});
+
+test("worker startup recovery gates when replacement of an old wake is only partially confirmed", async () => {
+  const runtime = await runtimeFixture();
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "partial-recovery-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("partial-recovery-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "partial-recovery-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("partial-recovery-enable", enableInput);
+
+  const restarted = await runtimeFixture({ stateDir: runtime.stateDir, unscheduleFailureCalls: [1] });
+  let status;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    status = await restarted.tools.get("rightout_worker_status").execute("partial-recovery-status", { workerId: enabled.details.worker_id });
+    if (status.details.status === "human_gate") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(status.details.status, "human_gate");
+  assert.equal(status.details.last_reason, "scheduler_recovery_unavailable");
+  assert.equal(restarted.scheduled.length, 0);
+});
+
+test("worker watchdog failure hides the issued command and moves the worker to a human gate", async () => {
+  const runtime = await runtimeFixture({ unscheduleFailureCalls: [2] });
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "watchdog-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("watchdog-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "watchdog-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("watchdog-enable", enableInput);
+  const tick = await runtime.tools.get("rightout_worker_tick").execute("watchdog-tick", { workerId: enabled.details.worker_id });
+  assert.equal(tick.details.state, "human_gate");
+  assert.equal(tick.details.worker.last_reason, "lease_watchdog_unavailable");
+  assert.equal("command" in tick.details, false);
+  assert.equal(tick.details.failed_scheduled_turn_replacements, 1);
+  assert.equal(runtime.scheduled.length, 1);
+});
+
+test("worker resume returns to a human gate when wake replacement is not confirmed", async () => {
+  const runtime = await runtimeFixture();
+  const campaignInput = { profileId, brokerIds: ["truepeoplesearch"], effects: ["discover"], durationHours: 24, maxEffects: 1 };
+  const campaignApproval = await runtime.beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "resume-campaign" });
+  campaignApproval.requireApproval.onResolution("allow-once");
+  const campaign = await runtime.tools.get("rightout_start_campaign").execute("resume-campaign", campaignInput);
+  const enableInput = { campaignId: campaign.details.campaign_id, intervalMinutes: 15, maxConsecutiveFailures: 2 };
+  const enableApproval = await runtime.beforeToolCall({ toolName: "rightout_worker_enable", params: enableInput, toolCallId: "resume-enable" });
+  enableApproval.requireApproval.onResolution("allow-once");
+  const enabled = await runtime.tools.get("rightout_worker_enable").execute("resume-enable", enableInput);
+
+  const restarted = await runtimeFixture({ stateDir: runtime.stateDir, unscheduleFailureCalls: [1, 2] });
+  let status;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    status = await restarted.tools.get("rightout_worker_status").execute("resume-gated-status", { workerId: enabled.details.worker_id });
+    if (status.details.status === "human_gate") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const resumeInput = { workerId: enabled.details.worker_id };
+  const resumeApproval = await restarted.beforeToolCall({ toolName: "rightout_worker_resume", params: resumeInput, toolCallId: "resume-partial" });
+  resumeApproval.requireApproval.onResolution("allow-once");
+  const resumed = await restarted.tools.get("rightout_worker_resume").execute("resume-partial", resumeInput);
+  assert.equal(resumed.details.state, "human_gate");
+  assert.equal(resumed.details.worker.last_reason, "scheduler_resume_unavailable");
+  assert.equal(resumed.details.failed_scheduled_turn_replacements, 1);
+  assert.equal(restarted.scheduled.length, 0);
 });

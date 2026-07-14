@@ -119,8 +119,12 @@ test("literal controller classifications remain candidates and conflicting or qu
     "None of your data has been deleted.",
     "Nothing has been successfully deleted.",
     "We have deleted none of your data.",
+    "We have deleted neither your profile nor associated data.",
+    "We have deleted your data, although backups remain.",
     "We have deleted some records, but retained the remaining profile.",
     "Ihre Daten wurden nicht gelöscht.",
+    "Ihre Daten wurden keineswegs gelöscht.",
+    "Ihre Daten wurden gelöscht, allerdings bleiben Backups erhalten.",
     "Ihre Daten wurden gelöscht, jedoch werden bestimmte Datensätze aufbewahrt.",
   ]) {
     const classified = classifyControllerReply({ text, processClass: "us_data_broker_email_deletion" });

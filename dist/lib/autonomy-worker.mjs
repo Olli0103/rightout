@@ -431,6 +431,8 @@ export function createAutonomyWorkerLedger(store, { now = () => Date.now(), rand
         if (!SAFE_SHA256.test(sessionBindingDigest ?? ""))
             throw new Error("rightout_worker_session_required");
         const matches = [];
+        let expiredExactMatch = false;
+        const at = now();
         for (const entry of await store.entries()) {
             const record = validateWorkerRecord(entry.value);
             if (record.status !== "active" || record.sessionBindingDigest !== sessionBindingDigest
@@ -445,8 +447,14 @@ export function createAutonomyWorkerLedger(store, { now = () => Date.now(), rand
             }
             if (commandExecutionDigest(tool, clean) !== record.lease.plan.executionDigest)
                 continue;
+            if (record.lease.expiresAt <= at) {
+                expiredExactMatch = true;
+                continue;
+            }
             matches.push({ worker_id: record.workerId, lease_id: record.lease.leaseId, execution_digest: record.lease.plan.executionDigest });
         }
+        if (expiredExactMatch)
+            throw new Error("rightout_worker_lease_expired");
         if (matches.length > 1)
             throw new Error("rightout_worker_execution_ambiguous");
         return matches[0];
@@ -463,7 +471,7 @@ export function createAutonomyWorkerLedger(store, { now = () => Date.now(), rand
         await store.update(workerId, (stored) => {
             const record = validateWorkerRecord(stored);
             if (!record.lease || record.lease.leaseId !== leaseId || !record.lease.plan
-                || record.lease.plan.executionDigest !== value.executionDigest)
+                || record.lease.plan.executionDigest !== value.executionDigest || record.lease.expiresAt <= now())
                 throw new Error("rightout_worker_action_missing");
             if (record.lease.plan.receipt) {
                 if (record.lease.plan.receipt.state !== value.state
