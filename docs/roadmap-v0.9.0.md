@@ -1,6 +1,6 @@
 # RightOut v0.9.0 autonomy-platform plan
 
-Status: implementation complete through R1; three independent review/fix cycles
+Status: implementation complete through R1; four independent review/fix cycles
 are complete, while the final post-fix re-review and release audit remain open. This document is the requirement and
 evidence contract for the v0.9.0 work; a checked test or prose claim is not
 sufficient unless the corresponding runtime boundary is also implemented.
@@ -53,7 +53,9 @@ provider permission or ambiguous evidence into success.
   becomes a durable human gate. Exact commands and receipts additionally require
   a still-live lease, completion boundedly waits for host-hook persistence, and
   partial wake replacement failures gate startup recovery, watchdogs, later
-  wakes, and resume before another command is exposed.
+  wakes, and resume before another command is exposed. A state-directory-wide
+  schedule transaction lock plus durable schedule token prevents stale startup
+  recovery from replacing a newer watchdog.
   Evidence: `autonomy-worker.test.mjs` and
   `autonomy-worker-runtime.test.mjs`.
 - A3 implemented: the release-attested 22-route pack binds the exact source and
@@ -82,8 +84,10 @@ provider permission or ambiguous evidence into success.
   with the subject, schedules idle cleanup, retains tracking on unlink failure,
   removes interrupted exports, and anchors the strictest deduplicated retention
   to original creation. Export, cleanup, subject purge, and key rotation share
-  one transaction queue; deterministic latch tests cover export-versus-cleanup
-  and export-versus-purge races. Evidence: `evidence-vault.test.mjs` and
+  one state-directory-wide cross-process transaction lock; deterministic latch
+  tests cover export-versus-cleanup
+  and export-versus-purge races across two independent vault/store instances
+  sharing one state directory. Evidence: `evidence-vault.test.mjs` and
   `evidence-runtime.test.mjs`.
 - C1 implemented as a safe intake boundary, not a new write lane: the local CLI
   accepts raw target facts out of band, stores them encrypted, and returns only
@@ -119,15 +123,17 @@ provider permission or ambiguous evidence into success.
   package, privacy, provenance, or security finding; it intentionally remains
   open only for the requested independent review and final versioned audit.
   After the third review fixes, technical parity, typecheck, build, and the
-  complete 352/352 plugin suite are green; coverage is 90.86% lines, 74.99%
-  branches, and 91.94% functions. The full Python, installer, dummy, package,
+  complete 353/353 plugin suite are green; coverage is 90.64% lines, 74.80%
+  branches, and 91.33% functions. The full Python, installer, dummy, package,
   workflow, dependency, and release-check matrix will be rerun after the final
   independent re-review.
 - R2 remains open until the explicitly requested autonomous independent review
-  confirms this third post-fix tree has no open P0/P1/P2/P3 finding. Three prior
+  confirms this fourth post-fix tree has no open P0/P1/P2/P3 finding. Four prior
   rounds found and closed crash recovery, command/result correlation, evidence
   lifecycle, strict recipe signature, classifier, lease-expiry, and scheduler
-  replacement issues; none is treated as closed merely from prose.
+  replacement issues. The fourth round's cross-instance lifecycle and stale
+  recovery races are fixed but require another frozen-tree review; none is
+  treated as closed merely from prose.
 
 ## Non-goals and hard stops
 

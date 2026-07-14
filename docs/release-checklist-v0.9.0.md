@@ -4,7 +4,8 @@
   session/run/call/tool/parameter-bound result receipt, watchdog/startup
   recovery failure gate, checkpoint, backoff, revoke/resume, conclusive-result
   policy, live-lease enforcement, partial schedule-replacement gates, bounded
-  hook-receipt wait, and fixed-command grammar are implemented and runtime-tested.
+  hook-receipt wait, state-token/cross-process schedule coordination, and
+  fixed-command grammar are implemented and runtime-tested.
 - [x] A3 release-attested recipes, strict Ed25519 external trust, expiry, and
   drift quarantine are implemented and package-bound.
 - [x] M1 password/OAuth2 transport compatibility, expiry, mutation, protocol
@@ -14,7 +15,8 @@
 - [x] E1 evidence encryption, addressing, retention, tamper, purge/rotation,
   metadata-only reads, creation-anchored strict retention, idle expiry, and
   approved managed private export fail-closed purge are tested, including
-  deterministic export-versus-cleanup and export-versus-subject-purge races.
+  deterministic two-instance export-versus-cleanup and
+  export-versus-subject-purge races sharing one state directory.
 - [x] C1 custom-target intake is encrypted/opaque and cannot become a provider
   action from raw URL input or unsigned/unpermitted recipes.
 - [x] L1 effectiveness metrics expose denominators and default to

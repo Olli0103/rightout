@@ -41,6 +41,7 @@ import {
 } from "./lib/controller-replies.mjs";
 import { createListingTokenVault } from "./lib/listing-tokens.mjs";
 import { createEncryptedFileKeyedStore } from "./lib/file-keyed-store.mjs";
+import { createStateTransactionLock } from "./lib/state-transaction-lock.mjs";
 import { createEvidenceVault } from "./lib/evidence-vault.mjs";
 import { createCustomTargetVault } from "./lib/custom-targets.mjs";
 import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
@@ -1675,6 +1676,7 @@ export default definePluginEntry({
       browserSessionTimers.set(sessionId, timer);
     }
     const stateDir = api.runtime.state.resolveStateDir(process.env);
+    const workerScheduleLock = createStateTransactionLock({ stateDir, namespace: "rightout-worker-schedule-v1" });
     const configuredRetentionDays = (api.pluginConfig as RightOutConfig | undefined)?.stateRetentionDays;
     const stateRetentionDays = Number.isInteger(configuredRetentionDays) && configuredRetentionDays! >= 30 && configuredRetentionDays! <= 730
       ? configuredRetentionDays!
@@ -1716,6 +1718,7 @@ export default definePluginEntry({
       maxEntries: 1_000,
     });
     const evidenceVault = createEvidenceVault(evidenceStore, {
+      stateDir,
       exportStore: evidenceExportStore,
       exportRoot: stateDir,
       onCleanupError: () => api.logger?.warn?.("RightOut scheduled evidence retention cleanup failed; managed exports remain tracked and fail closed"),
@@ -2019,53 +2022,83 @@ export default definePluginEntry({
       session: { sessionKey: string; agentId: string },
       workerId: string,
       delayMs: number,
+      expectedScheduleToken?: string,
     ): Promise<Record<string, unknown>> {
       const boundedDelay = Math.max(1_000, Math.min(30 * 24 * 60 * 60_000, Math.ceil(delayMs)));
-      const tag = `rightout-worker-${workerId.slice("worker_".length)}`;
-      let replaced = { removed: 0, failed: 0 };
       try {
-        replaced = await api.session.workflow.unscheduleSessionTurnsByTag({ sessionKey: session.sessionKey, tag });
-        if (!Number.isInteger(replaced.failed) || replaced.failed > 0) {
-          throw new Error("rightout_worker_schedule_replacement_unconfirmed");
-        }
-        const handle = await api.session.workflow.scheduleSessionTurn({
-          sessionKey: session.sessionKey,
-          agentId: session.agentId,
-          delayMs: boundedDelay,
-          deleteAfterRun: true,
-          deliveryMode: "none",
-          name: `RightOut worker ${workerId.slice(-8)}`,
-          tag,
-          message: workerScheduleMessage(workerId),
-        });
-        if (handle) {
+        return await workerScheduleLock.run(async () => {
+          if (expectedScheduleToken && await workerLedger.scheduleToken(workerId) !== expectedScheduleToken) {
+            return {
+              scheduler_state: "stale_recovery_skipped",
+              scheduled_job_registered: false,
+              scheduled_delay_ms: boundedDelay,
+              raw_session_key_in_report: false,
+            };
+          }
+          const tag = `rightout-worker-${workerId.slice("worker_".length)}`;
+          let replaced = { removed: 0, failed: 0 };
+          try {
+            replaced = await api.session.workflow.unscheduleSessionTurnsByTag({ sessionKey: session.sessionKey, tag });
+            if (!Number.isInteger(replaced.failed) || replaced.failed > 0) {
+              throw new Error("rightout_worker_schedule_replacement_unconfirmed");
+            }
+            const handle = await api.session.workflow.scheduleSessionTurn({
+              sessionKey: session.sessionKey,
+              agentId: session.agentId,
+              delayMs: boundedDelay,
+              deleteAfterRun: true,
+              deliveryMode: "none",
+              name: `RightOut worker ${workerId.slice(-8)}`,
+              tag,
+              message: workerScheduleMessage(workerId),
+            });
+            if (handle) {
+              return {
+                scheduler_state: "host_scheduled",
+                scheduled_job_registered: true,
+                scheduled_delay_ms: boundedDelay,
+                replaced_scheduled_turns: replaced.removed,
+                raw_session_key_in_report: false,
+              };
+            }
+          } catch {
+            api.logger?.warn?.("RightOut host scheduler handoff failed; explicit handoff is required");
+          }
           return {
-            scheduler_state: "host_scheduled",
-            scheduled_job_registered: true,
+            scheduler_state: "explicit_handoff_required",
+            scheduled_job_registered: false,
             scheduled_delay_ms: boundedDelay,
             replaced_scheduled_turns: replaced.removed,
+            failed_scheduled_turn_replacements: replaced.failed,
+            cron_handoff: {
+              target: "current_trusted_session",
+              delay_ms: boundedDelay,
+              delete_after_run: true,
+              delivery_mode: "none",
+              message: workerScheduleMessage(workerId),
+            },
+            next_action: `call_rightout_worker_tick_with_${workerId}_from_the_same_openclaw_session`,
             raw_session_key_in_report: false,
           };
-        }
+        });
       } catch {
-        api.logger?.warn?.("RightOut host scheduler handoff failed; explicit handoff is required");
+        api.logger?.warn?.("RightOut worker schedule coordinator failed; explicit handoff is required");
+        return {
+          scheduler_state: "explicit_handoff_required",
+          scheduled_job_registered: false,
+          scheduled_delay_ms: boundedDelay,
+          scheduler_coordination_failed: true,
+          cron_handoff: {
+            target: "current_trusted_session",
+            delay_ms: boundedDelay,
+            delete_after_run: true,
+            delivery_mode: "none",
+            message: workerScheduleMessage(workerId),
+          },
+          next_action: `call_rightout_worker_tick_with_${workerId}_from_the_same_openclaw_session`,
+          raw_session_key_in_report: false,
+        };
       }
-      return {
-        scheduler_state: "explicit_handoff_required",
-        scheduled_job_registered: false,
-        scheduled_delay_ms: boundedDelay,
-        replaced_scheduled_turns: replaced.removed,
-        failed_scheduled_turn_replacements: replaced.failed,
-        cron_handoff: {
-          target: "current_trusted_session",
-          delay_ms: boundedDelay,
-          delete_after_run: true,
-          delivery_mode: "none",
-          message: workerScheduleMessage(workerId),
-        },
-        next_action: `call_rightout_worker_tick_with_${workerId}_from_the_same_openclaw_session`,
-        raw_session_key_in_report: false,
-      };
     }
 
     async function scheduleWorkerTurn(context: Record<string, any>, workerId: string, delayMs: number): Promise<Record<string, unknown>> {
@@ -2108,8 +2141,11 @@ export default definePluginEntry({
             { sessionKey: worker.session_key, agentId: worker.agent_id },
             worker.worker_id,
             Math.max(1_000, Date.parse(wakeAt) - Date.now() + (worker.unresolved_action ? 1_000 : 0)),
+            worker.schedule_token,
           );
+          if (scheduled.scheduler_state === "stale_recovery_skipped") continue;
           if (scheduled.scheduled_job_registered !== true) {
+            if (await workerLedger.scheduleToken(worker.worker_id) !== worker.schedule_token) continue;
             await workerLedger.gateRecovery(worker.worker_id, "scheduler_recovery_unavailable");
             api.logger?.warn?.("RightOut could not restore a durable-worker wake; the worker was moved to a human gate");
           }

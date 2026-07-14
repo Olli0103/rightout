@@ -10,7 +10,9 @@ provider-terms, uncertainty, encryption, and evidence boundary.
   call ID, tool, normalized parameters, a still-live lease, and execution
   digest. Completion boundedly waits for asynchronous hook persistence. Lease
   watchdogs recover on startup; unavailable or partially failed schedule
-  replacement becomes a human gate before a command is exposed.
+  replacement becomes a human gate before a command is exposed. Cross-process
+  coordination plus a durable worker-state token prevents stale recovery from
+  replacing a newer watchdog.
   Unsupported hosts receive an explicit PII-free Cron handoff on enable.
 - A release-attested declarative 22-route recipe pack now binds source and
   compiled digests. External packs require an allowlisted Ed25519 key and valid
@@ -30,7 +32,8 @@ provider-terms, uncertainty, encryption, and evidence boundary.
   export requires a separate approval and contained private path. Managed
   exports have encrypted lifecycle tracking, creation-anchored stricter
   retention, idle expiry scheduling, fail-closed purge, and one transaction
-  queue across export, cleanup, subject purge, and key rotation.
+  lock across export, cleanup, subject purge, and key rotation for every plugin
+  instance sharing the state directory.
 - Custom-target intake is an out-of-band encrypted quarantine boundary. Public
   tools see only opaque handles. A signed recipe and exact current permission
   can establish readiness, but v0.9.0 intentionally exposes no custom-target

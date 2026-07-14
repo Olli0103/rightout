@@ -49,16 +49,19 @@ All notable changes to RightOut are documented here.
 - Tightened external recipe trust to the Ed25519 key type and 64-byte signatures,
   and made qualified or negated controller completion text fail closed to manual
   review.
-- Serialized evidence export, cleanup, subject purge, and key rotation so
-  concurrent lifecycle operations cannot orphan files or recreate state after a
-  reported purge.
+- Serialized evidence export, cleanup, subject purge, and key rotation with a
+  state-directory-wide cross-process transaction lock so concurrent plugin
+  instances cannot orphan files or recreate state after a reported purge.
 - Required a still-live worker lease both before provider I/O and when its exact
   result receipt is recorded; completion now boundedly waits for asynchronous
   host-hook persistence.
 - Made partial scheduled-turn replacement failures explicit and fail-closed for
   startup recovery, lease watchdogs, later wakes, and worker resume.
+- Added cross-process worker-schedule coordination and a durable state token so
+  stale startup recovery cannot replace a newer lease watchdog.
 - Expanded controller-reply qualification handling for neither/nor,
-  although/remaining, partial-retention, and German equivalent wording.
+  although/remaining, legal-retention/extent exceptions, and German equivalent
+  wording; only a narrow unqualified completion grammar can be high confidence.
 
 ## 0.8.1 - 2026-07-13
 
