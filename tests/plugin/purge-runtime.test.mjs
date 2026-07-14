@@ -62,6 +62,7 @@ test("subject purge is separately approved and removes only local encrypted subj
     case_record: 1,
     profile_snapshot: 0,
     verification_handles: 1,
+    controller_reply_candidates: 0,
     verification_open_guards: 0,
     verified_portal_flows: 0,
     listing_handles: 1,

@@ -16,6 +16,7 @@
       "rightout_submit_removal",
       "rightout_submit_form_removal",
       "rightout_poll_verification",
+      "rightout_poll_controller_reply",
       "rightout_open_verification",
       "rightout_rotate_state_key",
       "rightout_purge_subject_state",
@@ -122,6 +123,16 @@
             "profiles",
             "verificationAttestations"
           ]
+        }
+      ]
+    },
+    "rightout_poll_controller_reply": {
+      "optional": true,
+      "replaySafe": false,
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.rightout.config",
+          "required": ["imapTransport", "stateEncryptionKey", "profiles", "controllerReplyAttestations"]
         }
       ]
     },
@@ -482,6 +493,10 @@
           "expected": "string"
         },
         {
+          "path": "smtpTransport.oauthAccessToken",
+          "expected": "string"
+        },
+        {
           "path": "smtpTransport.fromAddress",
           "expected": "string"
         },
@@ -491,6 +506,10 @@
         },
         {
           "path": "imapTransport.password",
+          "expected": "string"
+        },
+        {
+          "path": "imapTransport.oauthAccessToken",
           "expected": "string"
         },
         {
@@ -537,6 +556,15 @@
       "help": "Use a provider-specific app password through an OpenClaw SecretRef.",
       "sensitive": true
     },
+    "smtpTransport.oauthAccessToken": {
+      "label": "SMTP OAuth2 access token",
+      "help": "Short-lived provider access token. Configure only through an OpenClaw SecretRef; mixed password and OAuth credentials are rejected.",
+      "sensitive": true
+    },
+    "smtpTransport.oauthExpiresAt": {
+      "label": "SMTP OAuth2 token expiry",
+      "help": "ISO timestamp between 1 minute and 24 hours in the future. Expired or unusually long-lived bearer tokens fail closed."
+    },
     "smtpTransport.fromAddress": {
       "label": "Removal sender address",
       "help": "Must equal the subject profile contact email. Configure as an OpenClaw SecretRef.",
@@ -556,6 +584,15 @@
       "help": "Configure as an OpenClaw SecretRef.",
       "sensitive": true
     },
+    "imapTransport.oauthAccessToken": {
+      "label": "IMAP OAuth2 access token",
+      "help": "Short-lived Gmail access token. Configure only through an OpenClaw SecretRef; mixed password and OAuth credentials are rejected.",
+      "sensitive": true
+    },
+    "imapTransport.oauthExpiresAt": {
+      "label": "IMAP OAuth2 token expiry",
+      "help": "ISO timestamp between 1 minute and 24 hours in the future. Expired or unusually long-lived bearer tokens fail closed."
+    },
     "imapTransport.address": {
       "label": "Verification mailbox address",
       "help": "Must equal the subject profile contact email. Configure as an OpenClaw SecretRef.",
@@ -574,6 +611,11 @@
     "verificationAttestations": {
       "label": "Inbox-verification attestations",
       "help": "Separate exact scope for subject consent, read-only inbox access, confirmation-link opening, and verification policy. Bind IMAP with imapTransportDigest or one existing_logged_in_cdp profile with the browserProfileDigest reported by rightout_setup.",
+      "advanced": true
+    },
+    "controllerReplyAttestations": {
+      "label": "Controller-reply attestations",
+      "help": "Separate exact scope for read-only mailbox access and authenticated, thread-bound controller reply candidates. Candidates never become outcomes without a new native human approval.",
       "advanced": true
     },
     "formAttestations": {
@@ -752,8 +794,19 @@
           "port",
           "secure",
           "username",
-          "password",
           "fromAddress"
+        ],
+        "oneOf": [
+          {
+            "required": ["password"],
+            "not": { "anyOf": [{ "required": ["oauthAccessToken"] }, { "required": ["oauthExpiresAt"] }] },
+            "properties": { "authMode": { "enum": ["password"] } }
+          },
+          {
+            "required": ["authMode", "oauthAccessToken", "oauthExpiresAt"],
+            "not": { "required": ["password"] },
+            "properties": { "authMode": { "const": "oauth2" } }
+          }
         ],
         "properties": {
           "host": {
@@ -780,12 +833,23 @@
             ],
             "minLength": 1
           },
+          "authMode": {
+            "enum": ["password", "oauth2"]
+          },
           "password": {
             "type": [
               "string",
               "object"
             ],
             "minLength": 1
+          },
+          "oauthAccessToken": {
+            "type": ["string", "object"],
+            "minLength": 16
+          },
+          "oauthExpiresAt": {
+            "type": "string",
+            "format": "date-time"
           },
           "fromAddress": {
             "type": [
@@ -804,8 +868,19 @@
           "port",
           "secure",
           "username",
-          "password",
           "address"
+        ],
+        "oneOf": [
+          {
+            "required": ["password"],
+            "not": { "anyOf": [{ "required": ["oauthAccessToken"] }, { "required": ["oauthExpiresAt"] }] },
+            "properties": { "authMode": { "enum": ["password"] } }
+          },
+          {
+            "required": ["authMode", "oauthAccessToken", "oauthExpiresAt"],
+            "not": { "required": ["password"] },
+            "properties": { "authMode": { "const": "oauth2" } }
+          }
         ],
         "properties": {
           "host": {
@@ -823,9 +898,20 @@
             "type": ["string", "object"],
             "minLength": 1
           },
+          "authMode": {
+            "enum": ["password", "oauth2"]
+          },
           "password": {
             "type": ["string", "object"],
             "minLength": 1
+          },
+          "oauthAccessToken": {
+            "type": ["string", "object"],
+            "minLength": 16
+          },
+          "oauthExpiresAt": {
+            "type": "string",
+            "format": "date-time"
           },
           "address": {
             "type": ["string", "object"],
@@ -1025,6 +1111,48 @@
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
           }
+        }
+      },
+      "controllerReplyAttestations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rightoutControllerReplyPolicyAccepted",
+          "rightoutControllerReplyPolicyVersion",
+          "subjectConsentReviewed",
+          "inboxReadAuthorized",
+          "authorizedProfileIds",
+          "authorizedProfileDigests",
+          "authorizedBrokerIds",
+          "imapTransportDigest"
+        ],
+        "properties": {
+          "rightoutControllerReplyPolicyAccepted": { "const": true },
+          "rightoutControllerReplyPolicyVersion": { "const": "2026-07-14-eu1" },
+          "subjectConsentReviewed": { "const": true },
+          "inboxReadAuthorized": { "const": true },
+          "authorizedProfileIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^profile_[a-f0-9]{16,32}$" }
+          },
+          "authorizedProfileDigests": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 100,
+            "propertyNames": { "pattern": "^profile_[a-f0-9]{16,32}$" },
+            "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          "authorizedBrokerIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9_]{2,24}$" }
+          },
+          "imapTransportDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
         }
       },
       "formAttestations": {

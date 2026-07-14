@@ -87,6 +87,34 @@ test("IMAP config is pinned to TLS providers and the subject mailbox", () => {
   assert.throws(() => validateImapConfig(transport, "other@example.invalid"), /rightout_imap_identity_mismatch/);
 });
 
+test("IMAP accepts bounded OAuth2 bearer credentials and rejects expiry or mixed secrets", async () => {
+  const oauth = {
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    username: transport.username,
+    authMode: "oauth2",
+    oauthAccessToken: "ya29.synthetic-short-lived-token",
+    oauthExpiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    address: transport.address,
+  };
+  assert.deepEqual(validateImapConfig(oauth, oauth.address), oauth);
+  assert.match(imapTransportDigest(oauth), /^[a-f0-9]{64}$/);
+  assert.throws(() => validateImapConfig({ ...oauth, password: "mixed" }, oauth.address), /rightout_imap_not_configured/);
+  assert.throws(() => validateImapConfig({ ...oauth, oauthExpiresAt: new Date(Date.now() - 60_000).toISOString() }, oauth.address), /rightout_imap_oauth_expired/);
+  assert.throws(() => validateImapConfig({ ...oauth, oauthExpiresAt: new Date(Date.now() + 25 * 60 * 60_000).toISOString() }, oauth.address), /rightout_imap_oauth_expired/);
+
+  let clientOptions;
+  const client = fakeClient([rawMessage()]);
+  const poll = createImapPoller({
+    clientFactory: (options) => { clientOptions = options; return client; },
+    now: () => new Date("2026-07-12T10:00:00Z"),
+  });
+  await poll({ transport: oauth, expectedAddress: oauth.address, broker, notBefore: "2026-07-12T07:00:00Z" });
+  assert.deepEqual(clientOptions.auth, { user: oauth.username, accessToken: oauth.oauthAccessToken });
+  assert.equal("pass" in clientOptions.auth, false);
+});
+
 test("verification links require both a broker sender and broker HTTPS link", () => {
   const base = {
     text: "Confirm https://www.beenverified.com/privacy/confirm?id=opaque",

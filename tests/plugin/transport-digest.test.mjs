@@ -42,3 +42,27 @@ test("transport credential bindings are deterministic, scoped, and protocol-sepa
   assert.throws(() => imapTransportDigest({ ...imap, secure: false }), /rightout_imap_not_configured/);
   assert.notEqual(smtpDigest, imapDigest);
 });
+
+test("OAuth2 transport bindings cover token, identity, expiry, and protocol", () => {
+  const oauthExpiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  const token = "ya29.synthetic-shared-token";
+  const smtp = {
+    host: "smtp.gmail.com", port: 465, secure: true,
+    username: "subject@example.invalid", authMode: "oauth2", oauthAccessToken: token,
+    oauthExpiresAt, fromAddress: "subject@example.invalid",
+  };
+  const imap = {
+    host: "imap.gmail.com", port: 993, secure: true,
+    username: "subject@example.invalid", authMode: "oauth2", oauthAccessToken: token,
+    oauthExpiresAt, address: "subject@example.invalid",
+  };
+  const smtpDigest = removalSmtpDigest(smtp);
+  const imapDigest = imapTransportDigest(imap);
+  assert.equal(removalSmtpDigest({ ...smtp }), smtpDigest);
+  assert.equal(imapTransportDigest({ ...imap }), imapDigest);
+  assert.notEqual(removalSmtpDigest({ ...smtp, oauthAccessToken: `${token}-changed` }), smtpDigest);
+  assert.notEqual(imapTransportDigest({ ...imap, oauthAccessToken: `${token}-changed` }), imapDigest);
+  assert.notEqual(removalSmtpDigest({ ...smtp, oauthExpiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString() }), smtpDigest);
+  assert.notEqual(imapTransportDigest({ ...imap, username: "other@example.invalid" }), imapDigest);
+  assert.notEqual(smtpDigest, imapDigest);
+});
