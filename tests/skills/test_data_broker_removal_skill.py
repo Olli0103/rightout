@@ -494,7 +494,10 @@ class InstallerTests(unittest.TestCase):
                 env_extra=env,
             )
             self.assertEqual(inspection["plugin"]["status"], "loaded")
-            self.assertEqual(inspection["typedHooks"], [{"name": "before_tool_call"}])
+            self.assertEqual(inspection["typedHooks"], [
+                {"name": "after_tool_call"},
+                {"name": "before_tool_call"},
+            ])
 
     def test_failed_preflight_does_not_register_plugin(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rightout-preflight-") as tmp_raw:
