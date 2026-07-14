@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,7 +11,21 @@ const profileId = "profile_0123456789abcdef";
 const brokerId = "fullenrich_eu";
 const stateKey = "dummy-evidence-key-with-more-than-32-characters";
 
-function fixture({ mutableNow } = {}) {
+function fakeTimerHarness() {
+  let callback;
+  return {
+    setTimer(next) { callback = next; return { unref() {} }; },
+    clearTimer() { callback = undefined; },
+    async fire() {
+      const current = callback;
+      assert.equal(typeof current, "function");
+      callback = undefined;
+      await current();
+    },
+  };
+}
+
+function fixture({ mutableNow, timerHarness } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "rightout-evidence-vault-"));
   const store = createEncryptedFileKeyedStore({
     stateDir, namespace: "rightout-evidence-vault-v1", maxEntries: 500,
@@ -27,6 +41,7 @@ function fixture({ mutableNow } = {}) {
     exportStore,
     vault: createEvidenceVault(store, {
       now: () => new Date(mutableNow?.value ?? Date.now()), exportStore, exportRoot: stateDir,
+      ...(timerHarness ? { setTimer: timerHarness.setTimer, clearTimer: timerHarness.clearTimer } : {}),
     }),
   };
 }
@@ -87,6 +102,18 @@ test("evidence dedupe atomically keeps the stricter retention", async () => {
   assert.equal(existsSync(exported.artifact_path), false);
 });
 
+test("late stricter retention is anchored to original creation and removes its export", async () => {
+  const mutableNow = { value: Date.parse("2026-01-01T10:00:00Z") };
+  const { stateDir, store, exportStore, vault } = fixture({ mutableNow });
+  const first = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 365, content });
+  const exported = await vault.exportRedacted(first.evidence_ref, profileId, stateDir, "json");
+  mutableNow.value += 100 * 24 * 60 * 60_000;
+  await assert.rejects(vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content }), /evidence_expired/);
+  assert.equal(await store.lookup(first.evidence_ref), undefined);
+  assert.equal((await exportStore.entries()).length, 0);
+  assert.equal(existsSync(exported.artifact_path), false);
+});
+
 test("redacted export is separately invoked, private, contained, and rejects a symlink directory", async () => {
   const { stateDir, store, exportStore, vault } = fixture();
   const saved = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
@@ -121,4 +148,26 @@ test("managed evidence exports are deleted on subject purge and retention expiry
   assert.equal(existsSync(expiredExport.artifact_path), false);
   assert.equal(existsSync(staleTemp), false);
   await assert.rejects(vault.metadata(expiring.evidence_ref, profileId), /record_invalid|expired/);
+});
+
+test("idle retention timer removes an expired managed export without another vault call", async () => {
+  const mutableNow = { value: Date.parse("2026-07-14T10:00:00Z") };
+  const timerHarness = fakeTimerHarness();
+  const { stateDir, vault } = fixture({ mutableNow, timerHarness });
+  const evidence = await vault.put({ profileId, brokerId, kind: "route_health_snapshot", retentionDays: 1, content: { state: "fresh", raw_pii_in_snapshot: false } });
+  const exported = await vault.exportRedacted(evidence.evidence_ref, profileId, stateDir, "json");
+  mutableNow.value += 25 * 60 * 60_000;
+  await timerHarness.fire();
+  assert.equal(existsSync(exported.artifact_path), false);
+});
+
+test("purge retains its tracking record and fails if a managed artifact cannot be unlinked", async () => {
+  const { stateDir, exportStore, vault } = fixture();
+  const evidence = await vault.put({ profileId, brokerId, kind: "case_transition_snapshot", retentionDays: 30, content });
+  const exported = await vault.exportRedacted(evidence.evidence_ref, profileId, stateDir, "json");
+  rmSync(exported.artifact_path);
+  mkdirSync(exported.artifact_path);
+  await assert.rejects(vault.purgeExports(profileId), /export_purge_failed/);
+  assert.equal((await exportStore.entries()).length, 1);
+  assert.equal(existsSync(exported.artifact_path), true);
 });

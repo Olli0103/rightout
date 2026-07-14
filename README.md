@@ -30,9 +30,10 @@ says exactly what is known — and what is not.
   finite, revocable campaign for an exact profile, broker set, effect set,
   lifetime, and budget.
 - **Closed-loop when you ask for it.** A session-bound worker leases one exact
-  action, accepts success only from the host-observed terminal result of that
-  exact command, checkpoints it in encrypted state, backs off on transient
-  failures, and stops on drift, ambiguity, revocation, or a human gate.
+  action, accepts success only from the host-observed terminal result bound to
+  that exact session, run, call, tool, and normalized parameters, checkpoints
+  it in encrypted state, and stops on drift, ambiguity, revocation, or a human
+  gate.
 - **Provider rules are runtime rules.** Missing or prohibited automation
   permission produces a deterministic human handoff, not a clever workaround.
 - **Built to recover.** Campaigns, cases, rechecks, duplicate suppression,
@@ -99,7 +100,8 @@ are distinct effects with distinct gates.
    signed-recipe policy.
 
 While an action is unresolved, a lease watchdog remains scheduled. Gateway
-startup reconstructs missing worker wakes from the encrypted session route.
+startup reconstructs missing worker wakes from the encrypted session route; an
+unconfirmed replacement schedule moves the worker to a visible human gate.
 Unsupported schedulers do not disappear into “best effort”: RightOut returns a
 PII-free explicit Cron handoff. See the [installation guide](INSTALL.md) for the
 worker, team, evidence, and dashboard configuration.

@@ -13,6 +13,8 @@ const FORBIDDEN_KEY = /(?:name|email|phone|address|url|uri|token|secret|password
 const FORBIDDEN_VALUE = /(?:https?:\/\/|[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,63}|\b(?:bearer|ya29\.)\b|(?:^|[\s"'])\/[A-Za-z0-9._/-]{2,})/iu;
 const MAX_CONTENT_BYTES = 32 * 1024;
 const MAX_RETENTION_DAYS = 730;
+const RETENTION_DAY_MS = 24 * 60 * 60_000;
+const MAX_TIMER_DELAY_MS = 2_147_000_000;
 function stable(value) {
     if (Array.isArray(value))
         return value.map(stable);
@@ -76,6 +78,7 @@ function validateRecord(record, ref) {
         || typeof record.expiresAt !== "string" || !Number.isFinite(Date.parse(record.expiresAt))
         || Date.parse(record.expiresAt) <= Date.parse(record.createdAt)
         || !Number.isInteger(record.retentionDays) || record.retentionDays < 1 || record.retentionDays > MAX_RETENTION_DAYS
+        || Date.parse(record.expiresAt) > Date.parse(record.createdAt) + record.retentionDays * RETENTION_DAY_MS
         || typeof record.contentDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.contentDigest))
         throw new Error("rightout_evidence_record_invalid");
     const content = sanitized(record.content);
@@ -122,12 +125,23 @@ async function privateExportDirectory(root) {
         throw new Error("rightout_evidence_export_path_invalid");
     return directory;
 }
+async function unlinkManagedArtifact(path, errorCode) {
+    try {
+        await unlink(path);
+        return true;
+    }
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return false;
+        throw new Error(errorCode);
+    }
+}
 /**
  * @param {any} store
- * @param {{ now?: () => Date, exportStore?: any, exportRoot?: string }} [options]
+ * @param {{ now?: () => Date, exportStore?: any, exportRoot?: string, setTimer?: typeof setTimeout, clearTimer?: typeof clearTimeout, onCleanupError?: (error: unknown) => void }} [options]
  */
 export function createEvidenceVault(store, options = {}) {
-    const { now = () => new Date(), exportStore, exportRoot } = options;
+    const { now = () => new Date(), exportStore, exportRoot, setTimer = setTimeout, clearTimer = clearTimeout, onCleanupError = () => undefined, } = options;
     if (!store || typeof store.registerIfAbsent !== "function" || typeof store.lookup !== "function"
         || typeof store.update !== "function" || typeof store.delete !== "function" || typeof store.entries !== "function")
         throw new Error("rightout_evidence_store_invalid");
@@ -137,6 +151,44 @@ export function createEvidenceVault(store, options = {}) {
         || typeof exportStore.entries !== "function" || typeof exportStore.update !== "function"
         || typeof exportStore.delete !== "function"))
         throw new Error("rightout_evidence_export_store_invalid");
+    if (typeof setTimer !== "function" || typeof clearTimer !== "function" || typeof onCleanupError !== "function") {
+        throw new Error("rightout_evidence_cleanup_scheduler_invalid");
+    }
+    let cleanupTimer;
+    function armCleanupTimer(delay) {
+        cleanupTimer = setTimer(async () => {
+            cleanupTimer = undefined;
+            try {
+                await cleanupExpiredEvidence();
+            }
+            catch (error) {
+                onCleanupError(error);
+                armCleanupTimer(60_000);
+            }
+        }, delay);
+        cleanupTimer?.unref?.();
+    }
+    async function scheduleNextCleanup() {
+        if (cleanupTimer !== undefined) {
+            clearTimer(cleanupTimer);
+            cleanupTimer = undefined;
+        }
+        let nextExpiry = Number.POSITIVE_INFINITY;
+        for (const entry of await store.entries()) {
+            const record = validateRecord(entry.value, entry.key);
+            nextExpiry = Math.min(nextExpiry, Date.parse(record.expiresAt));
+        }
+        if (exportStore) {
+            for (const entry of await exportStore.entries()) {
+                const record = validateExportRecord(entry.value, entry.key);
+                nextExpiry = Math.min(nextExpiry, Date.parse(record.expiresAt));
+            }
+        }
+        if (!Number.isFinite(nextExpiry))
+            return;
+        const delay = Math.max(1, Math.min(MAX_TIMER_DELAY_MS, nextExpiry - now().getTime()));
+        armCleanupTimer(delay);
+    }
     async function tightenExportExpiry(ref, expiresAt) {
         if (!exportStore)
             return;
@@ -160,7 +212,7 @@ export function createEvidenceVault(store, options = {}) {
         for (const entry of await exportStore.entries()) {
             const record = validateExportRecord(entry.value, entry.key);
             if (Date.parse(record.expiresAt) <= current) {
-                if (await unlink(join(directory, record.artifactName)).then(() => true).catch(() => false))
+                if (await unlinkManagedArtifact(join(directory, record.artifactName), "rightout_evidence_export_cleanup_failed"))
                     deleted += 1;
                 await exportStore.delete(entry.key);
             }
@@ -171,13 +223,13 @@ export function createEvidenceVault(store, options = {}) {
         let orphaned = 0;
         for (const entry of await readdir(directory, { withFileTypes: true })) {
             if (SAFE_EXPORT_TEMP_NAME.test(entry.name)) {
-                if (await unlink(join(directory, entry.name)).then(() => true).catch(() => false))
+                if (await unlinkManagedArtifact(join(directory, entry.name), "rightout_evidence_export_cleanup_failed"))
                     orphaned += 1;
                 continue;
             }
             if (!SAFE_EXPORT_NAME.test(entry.name) || liveNames.has(entry.name))
                 continue;
-            if (await unlink(join(directory, entry.name)).then(() => true).catch(() => false))
+            if (await unlinkManagedArtifact(join(directory, entry.name), "rightout_evidence_export_cleanup_failed"))
                 orphaned += 1;
         }
         return { deleted, orphaned };
@@ -193,6 +245,7 @@ export function createEvidenceVault(store, options = {}) {
             }
         }
         await cleanupExpiredExports();
+        await scheduleNextCleanup();
         return deleted;
     }
     async function liveRecord(ref) {
@@ -213,12 +266,13 @@ export function createEvidenceVault(store, options = {}) {
         const ref = `evidence_${createHash("sha256").update(canonical(["rightout-evidence-v1", scope.profileId, scope.brokerId, scope.kind, contentDigest])).digest("hex")}`;
         const at = now();
         const createdAt = at.toISOString();
-        const expiresAt = new Date(at.getTime() + retentionDays * 24 * 60 * 60_000).toISOString();
+        const expiresAt = new Date(at.getTime() + retentionDays * RETENTION_DAY_MS).toISOString();
         const record = { schemaVersion: 1, ref, ...scope, contentDigest, content: cleanContent, createdAt, expiresAt };
         if (!await store.registerIfAbsent(ref, record)) {
             await store.update(ref, (value) => {
                 const existing = validateRecord(value, ref);
-                const nextExpiry = Math.min(Date.parse(existing.expiresAt), Date.parse(expiresAt));
+                const stricterPolicyExpiry = Date.parse(existing.createdAt) + retentionDays * RETENTION_DAY_MS;
+                const nextExpiry = Math.min(Date.parse(existing.expiresAt), stricterPolicyExpiry);
                 return {
                     ...existing,
                     retentionDays: Math.min(existing.retentionDays, retentionDays),
@@ -226,8 +280,10 @@ export function createEvidenceVault(store, options = {}) {
                 };
             });
         }
+        const retained = validateRecord(await store.lookup(ref), ref);
+        await tightenExportExpiry(ref, retained.expiresAt);
         const persisted = await liveRecord(ref);
-        await tightenExportExpiry(ref, persisted.expiresAt);
+        await scheduleNextCleanup();
         return {
             evidence_ref: ref,
             subject_ref: persisted.profileId,
@@ -318,6 +374,7 @@ export function createEvidenceVault(store, options = {}) {
                 await unlink(file).catch(() => undefined);
                 throw new Error("rightout_evidence_export_failed");
             }
+            await scheduleNextCleanup();
         }
         return { ...meta, state: "redacted_evidence_exported", format, artifact_path: file, export_approved_required: true };
     }
@@ -330,10 +387,11 @@ export function createEvidenceVault(store, options = {}) {
             const record = validateExportRecord(entry.value, entry.key);
             if (record.profileId !== profileId)
                 continue;
-            await unlink(join(directory, record.artifactName)).catch(() => undefined);
+            await unlinkManagedArtifact(join(directory, record.artifactName), "rightout_evidence_export_purge_failed");
             await exportStore.delete(entry.key);
             deleted += 1;
         }
+        await scheduleNextCleanup();
         return deleted;
     }
     return { put, metadata, exportRedacted, purgeExports, cleanupExpiredEvidence, cleanupExpiredExports };

@@ -6,9 +6,10 @@ An optional durable worker requires a second native approval and binds itself to
 that campaign, the current trusted session, the runtime/catalog policy, and the
 signed recipe pack. It holds at most one atomic lease, issues only a fixed
 RightOut tool/parameter command, and accepts completion only after a host hook
-binds and records the terminal result of that exact command. It keeps a lease
-watchdog while an action is unresolved and reconstructs active worker wakes on
-Gateway startup. It backs off on transient failures and stops on ambiguity,
+binds and records the terminal result of that exact session, run, call, tool,
+and normalized parameter set. It keeps a lease watchdog while an action is
+unresolved and reconstructs active worker wakes on Gateway startup; a missing
+replacement schedule moves the worker to a human gate. It backs off on transient failures and stops on ambiguity,
 interactive continuation, drift, repeated failure, human gates, campaign
 closure, or revocation. Resume requires another approval and the original
 unchanged scope.
@@ -39,8 +40,10 @@ EU controller lanes additionally bind the exact request kind, EU/EEA plus countr
   export requires native approval, a private contained directory, and a second
   sensitive-value scan. The encrypted export index binds each managed artifact
   to its subject and evidence expiry; stricter later retention never extends it,
-  and expiry, interrupted-export cleanup, subject purge, and key rotation cover
-  the export index. Custom-target URLs and source facts enter only through
+  expiry is enforced by a next-expiry timer while the Gateway is idle, and
+  interrupted-export cleanup, subject purge, and key rotation cover the export
+  index. A failed artifact unlink retains tracking and fails closed instead of
+  claiming deletion. Custom-target URLs and source facts enter only through
   an out-of-band local CLI, stay encrypted behind a random opaque handle, and do
   not create a provider execution lane.
 - Every subject/provider-effect lane is checked against catalog `last_verified`
@@ -80,8 +83,9 @@ Durable submission intent is written before every provider write. A possible wri
 Durable workers never reinterpret an unresolved lease as success. A policy,
 recipe, session, runtime, catalog, or campaign mutation fails before another
 command. A host-observed result must match the exact issued tool, normalized
-parameters, session binding, lease, and execution digest. Interactive multi-step
-tools and non-terminal or uncertain results become human gates. An expired lease
+parameters, session, run, call, lease, and execution digest. Interactive
+multi-step tools and non-terminal, inconclusive, or uncertain results become
+human gates. An expired lease
 issued before its effect becomes a human gate; a lease that expired before a
 plan was issued may be safely reclaimed. Repeated transient failures stop at the
 configured threshold instead of looping.

@@ -43,8 +43,10 @@ effects itself.
 `rightout_worker_enable` adds a separately approved durable loop around that
 planner. The worker is encrypted and bound to one campaign, the exact current
 trusted session, runtime/catalog policy, and signed recipe pack. It leases one
-fixed-grammar command at a time and accepts completion only after the campaign
-ledger evidences the matching effect. A scheduler wake is not new authority.
+fixed-grammar command at a time and accepts completion only after the host
+re-binds a terminal result to the exact session, run, call ID, tool, normalized
+parameters, lease, and execution digest. Interactive or inconclusive results
+become human gates. A scheduler wake is not new authority.
 `rightout_worker_resume` needs another approval; revoke is immediate and can
 only reduce authority.
 

@@ -104,7 +104,7 @@ const SIGNALS = Object.freeze([
     ["confirmed", /\b(?:we have|has been|successfully|wurde|wurden)\b.{0,80}\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b/iu],
     ["processing", /\b(?:we have received|we received|receipt of|being processed|processing your|eingegangen|erhalten|wird bearbeitet)\b.{0,80}\b(?:request|anfrage|antrag)?\b/iu],
 ]);
-const QUALIFIED_COMPLETION = /(?:\b(?:not|never|cannot|can't|unable|except|however|but|retain|retained|nicht|nie|kein(?:e|en|er|es)?|außer|jedoch|aber|aufbewahr(?:t|en))\b.{0,100}\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b)|(?:\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b.{0,100}\b(?:not|never|except|however|but|retain|retained|nicht|nie|kein(?:e|en|er|es)?|außer|jedoch|aber|aufbewahr(?:t|en))\b)/iu;
+const QUALIFIED_COMPLETION = /(?:\b(?:no|none|nothing|not|never|cannot|can't|couldn't|didn't|doesn't|hasn't|haven't|unable|without|except|however|but|retain|retained|nicht|nie|nichts|kein(?:e|en|er|es)?|außer|jedoch|aber|aufbewahr(?:t|en))\b.{0,100}\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b)|(?:\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b.{0,100}\b(?:no|none|nothing|not|never|except|however|but|retain|retained|nicht|nie|nichts|kein(?:e|en|er|es)?|außer|jedoch|aber|aufbewahr(?:t|en))\b)/iu;
 export function classifyControllerReply({ text, processClass }) {
     if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(processClass))
         throw new Error("rightout_controller_reply_lane_unsupported");

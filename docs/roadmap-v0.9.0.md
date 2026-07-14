@@ -47,7 +47,10 @@ provider permission or ambiguous evidence into success.
   completion from exact host-observed command receipts, lease watchdogs,
   startup schedule recovery, exponential backoff, native session scheduling,
   deterministic Cron handoff, resume approval, and revocation. Interactive
-  multi-step commands stop for an operator instead of claiming completion.
+  multi-step commands and inconclusive direct rescans stop for an operator
+  instead of claiming completion. Receipts re-bind session, run, call ID, tool,
+  normalized parameters, lease, and execution digest; failed wake recovery
+  becomes a durable human gate.
   Evidence: `autonomy-worker.test.mjs` and
   `autonomy-worker-runtime.test.mjs`.
 - A3 implemented: the release-attested 22-route pack binds the exact source and
@@ -73,8 +76,9 @@ provider permission or ambiguous evidence into success.
   tamper or sensitive keys/values, return metadata only, purge and rotate with
   the subject, and require a separate native approval for a private contained
   redacted export. An encrypted export index makes artifacts expire and purge
-  with the subject, removes interrupted exports, and carries forward the
-  strictest deduplicated retention. Evidence: `evidence-vault.test.mjs` and
+  with the subject, schedules idle cleanup, retains tracking on unlink failure,
+  removes interrupted exports, and anchors the strictest deduplicated retention
+  to original creation. Evidence: `evidence-vault.test.mjs` and
   `evidence-runtime.test.mjs`.
 - C1 implemented as a safe intake boundary, not a new write lane: the local CLI
   accepts raw target facts out of band, stores them encrypted, and returns only
@@ -109,9 +113,10 @@ provider permission or ambiguous evidence into success.
   branches, and 91.34% functions. The release checker has no implementation,
   package, privacy, provenance, or security finding; it intentionally remains
   open only for the requested independent review and final versioned audit.
-  After the first review fixes, technical parity, typecheck, build, and the
-  complete 342/342 plugin suite are green; coverage is 90.34% lines, 74.75%
-  branches, and 91.14% functions. The full Python, installer, dummy, package,
+  After the second review fixes, technical parity, typecheck, and the complete
+  347/347 plugin suite are green; coverage is 90.42% lines, 74.88% branches,
+  and 91.49% functions. Build will be regenerated before the next frozen review
+  commit. The full Python, installer, dummy, package,
   workflow, dependency, and release-check matrix will be rerun after the final
   independent re-review.
 - R2 remains open until the explicitly requested autonomous independent review

@@ -302,9 +302,11 @@ Do not overwrite unrelated existing deny entries when applying either list.
 For closed-loop work, first approve `rightout_start_campaign`, then approve
 `rightout_worker_enable` in the exact trusted session that will run it. The
 worker schedules only that session, leases one deterministic command at a time,
-and checkpoints the observed campaign effect. If the host scheduler is not
-available, the enable result contains a PII-free explicit Cron handoff instead
-of claiming background work. `rightout_worker_revoke` immediately closes the
+and checkpoints only a terminal result re-bound to the exact session, run, call,
+tool, and normalized parameters. A lease watchdog covers unresolved work;
+failed startup wake recovery moves the worker to a human gate. If the host
+scheduler is not available, the enable result contains a PII-free explicit Cron
+handoff instead of claiming background work. `rightout_worker_revoke` immediately closes the
 worker; `rightout_worker_resume` needs a new approval and unchanged session,
 campaign, runtime, catalog, and recipe policy.
 
@@ -343,8 +345,10 @@ enabling delivery. Cron never renews a campaign automatically.
 transition for one opaque profile/broker scope. `rightout_evidence_status`
 returns metadata; `rightout_export_evidence` requires native approval and writes
 one redacted private local artifact. Evidence purges and rotates with subject
-state. Never use the evidence vault for raw mail, screenshots, URLs, names, or
-other PII.
+state. The encrypted export index schedules idle expiry and anchors stricter
+retention to the original evidence creation time. Purge fails without deleting
+the tracking record if artifact removal cannot be confirmed. Never use the
+evidence vault for raw mail, screenshots, URLs, names, or other PII.
 
 Custom targets enter through the packaged local CLI, not a public tool. Provide
 the same active state key through the out-of-band

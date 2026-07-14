@@ -51,11 +51,13 @@ recipe pack, runtime policy, and one-way trusted-session digests must still
 match. Atomic leases exclude concurrent turns, commands are validated against a
 fixed tool/parameter grammar, and completion is accepted only after the host
 records the terminal result of that exact tool, normalized parameters, session,
-lease, and execution digest. Interactive multi-step commands stop for operator
-continuation instead of being misclassified as complete. Scheduling can target
+run, call, lease, and execution digest. Interactive multi-step commands and
+inconclusive direct rescans stop for operator continuation instead of being
+misclassified as complete. Scheduling can target
 only the current bound session after native approval. Lease watchdogs and
 startup reconstruction restore active wakes after a crash without renewing or
-expanding campaign profile, broker, effect, time, or budget scope.
+expanding campaign profile, broker, effect, time, or budget scope. An
+unconfirmed replacement schedule moves the worker to a durable human gate.
 
 Optional team mode binds each `owner`, `manager`, or `viewer` to one exact
 OpenClaw session digest and configured profile set. Managers and viewers receive
@@ -114,7 +116,9 @@ atomic encrypted files. Where the supported host exposes public
 current session; otherwise it emits a deterministic replay-safe Cron handoff.
 The evidence vault stores only sanitized bounded records. Its encrypted export
 index makes private redacted artifacts subject-, retention-, purge-, and
-rotation-aware and removes interrupted managed exports on cleanup. Custom target
+rotation-aware, schedules their next expiry while idle, and removes interrupted
+managed exports on cleanup. Failed unlink operations retain the encrypted index
+and fail closed. Custom target
 facts stay encrypted behind opaque handles and remain non-executable until a
 strict Ed25519-signed recipe plus exact current permission is present. Static
 dashboard exports are private mode-0600 files with strict CSP, no scripts,
