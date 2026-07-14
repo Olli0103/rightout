@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "pack_id": "rightout_builtin_v1",
+  "trust": "release_attested_builtin",
+  "source_path": "skills/data-broker-removal/references/brokers/unbroker-parity.json",
+  "source_sha256": "faa27b44eff7ec4574b83de1b9ef30b7b805291a15e34e33b369463342828fca",
+  "compiled_recipes_sha256": "69fb35f6fcdaa3cfeaa211622713ddbf6f03e68f970b2c692d514e2115bb4d4e",
+  "expires_at": "2027-07-14"
+}
