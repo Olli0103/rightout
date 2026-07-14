@@ -16,7 +16,7 @@ OpenClaw activation-time SecretRef snapshot; RightOut post-approval use/prefligh
       +-- managed/remote browser session ------> verification_pending / human task
       |       +-- blocked primary -> one distinct remote-CDP profile retry
       +-- pinned IMAP --------------------------> opaque verification / provider page
-      +-- browser-mail handoff -----------------> zero-I/O human task
+      +-- bound browser mail -------------------> authenticated opaque confirmation control
       +-- domain-bound confirmation GET --------> awaiting_processing
       |
 durable encrypted PII-safe case ledger in the OpenClaw state directory
@@ -54,13 +54,15 @@ Email/form/verification implementations are independently catalog-locked.
 Browser sessions use only the OpenClaw bridge, named managed/remote/logged-in
 profiles, current ARIA refs, and internal catalog/profile values. The doctor
 deep-probes the selected profile; a blocked primary may retry once through a
-separate remote-CDP profile, without claiming challenge clearance. DOB is
+separate remote-CDP profile, without claiming a solver or bypass. DOB is
 disclosed only after an additional exact native human approval. Outbound webmail
-snapshots redact compose content. Browser-only inbound mail is not searched;
-that tool returns a zero-I/O human gate. IMAP opens INBOX read-only and returns
-an opaque handle only after intended-recipient and aligned-DKIM checks; links
-also pass fail-closed phishing scoring. SMTP has a provider/port/TLS allowlist
-and minimum-disclosure template.
+snapshots redact compose content. Browser inbound verification is bound to one
+exact logged-in Gmail profile and exposes only a recipient-matched message with
+an allowed `signed-by`/`mailed-by` domain plus one HTTPS confirmation control on
+an allowlisted broker domain. Raw mail and link values stay in the browser
+control plane. IMAP opens INBOX read-only and returns an opaque handle only after
+intended-recipient and aligned-DKIM checks; links also pass fail-closed phishing
+scoring. SMTP has a provider/port/TLS allowlist and minimum-disclosure template.
 
 ## State and evidence
 

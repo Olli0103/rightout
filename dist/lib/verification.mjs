@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { imapTransportDigest, validateImapConfig } from "./imap.mjs";
 import { parseRemovalProfile, removalProfileDigest } from "./removal.mjs";
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
@@ -88,14 +89,34 @@ export function resolveVerificationCatalogEntry(catalog, input) {
         raw: broker,
     };
 }
-export function validateVerificationAttestations(input, value) {
+export function browserVerificationProfileDigest({ browserControlBaseUrl, browserProfile, browserBackendMode }) {
+    let base;
+    try {
+        base = new URL(browserControlBaseUrl);
+    }
+    catch {
+        throw new Error("rightout_browser_webmail_profile_required");
+    }
+    if (base.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(base.hostname)
+        || base.username || base.password || base.search || base.hash
+        || typeof browserProfile !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(browserProfile)
+        || browserBackendMode !== "existing_logged_in_cdp")
+        throw new Error("rightout_browser_webmail_profile_required");
+    return createHash("sha256").update(JSON.stringify({
+        version: 1,
+        browserControlBaseUrl: base.toString(),
+        browserProfile,
+        browserBackendMode,
+    })).digest("hex");
+}
+export function validateVerificationAttestations(input, value, { transport = "imap" } = {}) {
     const publicInput = validateVerificationPollInput({ profileId: input?.profileId, brokerId: input?.brokerId });
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("rightout_verification_attestation_required");
     const allowed = new Set([
         "rightoutVerificationPolicyAccepted", "rightoutVerificationPolicyVersion", "subjectConsentReviewed",
         "inboxReadAuthorized", "verificationLinkOpenAuthorized", "authorizedProfileIds", "authorizedProfileDigests",
-        "authorizedBrokerIds", "imapTransportDigest",
+        "authorizedBrokerIds", "imapTransportDigest", "browserProfileDigest",
     ]);
     if (Object.keys(value).some((key) => !allowed.has(key))
         || value.rightoutVerificationPolicyAccepted !== true
@@ -103,8 +124,19 @@ export function validateVerificationAttestations(input, value) {
         || value.subjectConsentReviewed !== true
         || value.inboxReadAuthorized !== true
         || value.verificationLinkOpenAuthorized !== true
-        || typeof value.imapTransportDigest !== "string"
-        || !SAFE_SHA256.test(value.imapTransportDigest)) {
+        || !["imap", "browser_webmail"].includes(transport)) {
+        throw new Error("rightout_verification_attestation_required");
+    }
+    if (transport === "imap" && (typeof value.imapTransportDigest !== "string" || !SAFE_SHA256.test(value.imapTransportDigest))) {
+        throw new Error("rightout_verification_attestation_required");
+    }
+    if (transport === "browser_webmail" && (typeof value.browserProfileDigest !== "string" || !SAFE_SHA256.test(value.browserProfileDigest))) {
+        throw new Error("rightout_verification_attestation_required");
+    }
+    if (value.imapTransportDigest !== undefined && (typeof value.imapTransportDigest !== "string" || !SAFE_SHA256.test(value.imapTransportDigest))) {
+        throw new Error("rightout_verification_attestation_required");
+    }
+    if (value.browserProfileDigest !== undefined && (typeof value.browserProfileDigest !== "string" || !SAFE_SHA256.test(value.browserProfileDigest))) {
         throw new Error("rightout_verification_attestation_required");
     }
     const authorizedProfileIds = cleanStringArray(value.authorizedProfileIds, SAFE_PROFILE_ID);
@@ -122,7 +154,8 @@ export function validateVerificationAttestations(input, value) {
         authorizedProfileIds,
         authorizedProfileDigests,
         authorizedBrokerIds,
-        imapTransportDigest: value.imapTransportDigest,
+        ...(value.imapTransportDigest === undefined ? {} : { imapTransportDigest: value.imapTransportDigest }),
+        ...(value.browserProfileDigest === undefined ? {} : { browserProfileDigest: value.browserProfileDigest }),
     };
 }
 export function validateVerificationPreflight({ input, catalog, profilePayload, imapTransport, attestations }) {
@@ -137,6 +170,19 @@ export function validateVerificationPreflight({ input, catalog, profilePayload, 
     if (imapTransportDigest(imap) !== cleanAttestations.imapTransportDigest)
         throw new Error("rightout_verification_snapshot_changed");
     return { input: publicInput, broker, profile, imap, attestations: cleanAttestations };
+}
+export function validateBrowserVerificationPreflight({ input, catalog, profilePayload, browserControl, attestations }) {
+    const publicInput = validateVerificationPollInput({ profileId: input?.profileId, brokerId: input?.brokerId });
+    const broker = resolveVerificationCatalogEntry(catalog, publicInput);
+    const cleanAttestations = validateVerificationAttestations(publicInput, attestations, { transport: "browser_webmail" });
+    const profile = parseRemovalProfile(profilePayload);
+    if (removalProfileDigest(profilePayload) !== cleanAttestations.authorizedProfileDigests[publicInput.profileId]) {
+        throw new Error("rightout_verification_snapshot_changed");
+    }
+    const digest = browserVerificationProfileDigest(browserControl);
+    if (digest !== cleanAttestations.browserProfileDigest)
+        throw new Error("rightout_verification_snapshot_changed");
+    return { input: publicInput, broker, profile, browserControl, attestations: cleanAttestations };
 }
 export function verificationPollApprovalDescription(input, broker) {
     const publicInput = validateVerificationPollInput(input);

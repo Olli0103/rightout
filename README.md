@@ -42,7 +42,7 @@ says exactly what is known — and what is not.
 | Campaigns | Revocable grants for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 broker-effect units |
 | Browser forms | Bounded semantic form engine for 20 normalized contracts plus a separately staged PeopleConnect flow |
 | Email | Catalog-locked SMTP and privacy-redacted Gmail compose, with rescue routes reported separately |
-| Verification | Receiver-authenticated Gmail IMAP, pinned HTTPS/domain checks, explicit human gates, and separate link-open approval |
+| Verification | Receiver-authenticated Gmail IMAP or bound browser-webmail, pinned HTTPS/domain checks, explicit human gates, and a separate link-open effect |
 | Rechecks | Encrypted listing handles, timed absence confirmation, reappearance detection, and OpenClaw Cron handoff |
 | Reporting | PII-safe Markdown, structured JSON, consolidated digests, and Google Sheets-compatible rows |
 
@@ -81,50 +81,47 @@ are distinct effects with distinct gates.
 | `confirmed_removed` | Two time-separated trusted direct absences cover the complete known encrypted listing set, or a human-reviewed controller response confirms only that controller's scope |
 | `reappeared` | A trusted direct read found a previously confirmed listing again |
 
-## Coverage without marketing math
+## Coverage you can verify
 
-RightOut `0.8.1` is a clean-room implementation of the complete normalized
-contract surface from pinned Hermes Unbroker commit
-`e589b739ca70eba00aa90fd3d0228bada00dbf8f`.
+RightOut `0.8.1` ships a clean-room, machine-validated broker contract catalog.
+The counts below describe executable software surfaces, not measured deletion
+success and not permission to automate a provider.
 
 | Gate | Current evidence |
 | --- | ---: |
-| Pinned broker IDs and normalized method/route/input contracts | 22/22 |
+| Broker IDs and normalized method/route/input contracts | 22/22 |
 | Generic one-page synthetic form-contract tests | 20/20 |
 | Independently staged provider-specific multi-step E2E | PeopleConnect only |
+| Authenticated verification transports | Gmail IMAP + bound Gmail browser profile |
 | Published terms explicitly allowing automation | 0/22 |
 | Published terms explicitly prohibiting automation | 8/22 |
 | Automation permission still `needs_evidence` | 14/22 |
 | Default autonomous form routes | 0/20 |
 
-So “100% Unbroker” has one precise yes — and three important limits:
+All 20 form contracts run through the bounded semantic engine in synthetic E2E
+tests; PeopleConnect additionally has a separately staged, same-browser
+multi-step flow. Browser-webmail verification requires an exact logged-in
+profile binding, recipient match, an allowed `signed-by` or `mailed-by` domain,
+and an HTTPS confirmation link on an allowlisted broker domain.
 
-- **Normalized contract coverage:** yes, 22/22.
-- **Exact provider-specific playbook choreography:** no. All 20 normalized form
-  contracts have bounded synthetic coverage; only PeopleConnect has its own
-  staged multi-step E2E.
-- **Full capability parity:** no. Challenge clearance, authenticated
-  browser-only inbox verification, retrievable screenshots, and default full
-  autonomy remain gaps.
-- **Autonomous default under current public provider terms:** no. A form route
-  requires current written provider authorization bound to the reviewed terms
-  contract. Subject or operator consent cannot replace it.
+Autonomous form execution remains closed by default. Each live provider route
+requires current written authorization bound to the reviewed terms contract.
+Subject or operator consent cannot replace provider permission.
 
 The broader catalog adds 56 code-enforced scan lanes and 28 locked executable
 email/removal targets. It does **not** add private broker inventory, identity
 proof, or measured real-world removal effectiveness. Those remain
 `needs_evidence` until an authorized deployment produces evidence.
 
-See the [machine parity evidence](docs/unbroker-parity-evidence.json),
-[provider-terms matrix](docs/provider-terms-review.md),
+See the [provider-terms matrix](docs/provider-terms-review.md)
 and [feature benchmark](docs/feature-benchmark.md).
 
 ## Boundaries that matter
 
 RightOut intentionally will not:
 
-- bypass provider terms, access controls, CAPTCHA, OTP, identity checks, phone,
-  fax, mail, payment, or account requirements;
+- bypass provider terms, access controls, dynamic or behavioral CAPTCHA, OTP,
+  identity checks, phone, fax, mail, payment, or account requirements;
 - turn subject consent into permission to automate a provider's form;
 - treat a search-index candidate as the subject's record;
 - treat SMTP acceptance or a browser click as confirmed deletion;
@@ -136,9 +133,11 @@ RightOut intentionally will not:
   PII-redacted semantic evidence instead;
 - self-schedule. Recurrence belongs to an explicit OpenClaw Cron/operator setup.
 
-Challenges stop safely. Browser-only inbound mail remains a zero-I/O human
-handoff. Active browser sessions are memory-only, so an unclean Gateway stop may
-require manual tab or draft cleanup before the encrypted workflow resumes.
+Simple static arithmetic can be computed locally; an explicitly identified
+static text challenge can accept its one short snapshot-bound value. Dynamic CAPTCHA,
+slider, OTP, security-question, ID, account, payment, phone, fax, and mail gates
+stop safely. Active browser sessions are memory-only, so an unclean Gateway stop
+may require manual tab or draft cleanup before the encrypted workflow resumes.
 
 ## Privacy and approval boundary
 

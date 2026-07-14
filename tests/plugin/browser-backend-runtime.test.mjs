@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { removalProfileDigest } from "../../lib/removal.mjs";
+import { browserVerificationProfileDigest } from "../../lib/verification.mjs";
 import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
 
 const profileId = "profile_a1b2c3d4e5f60718";
@@ -16,7 +18,7 @@ const profile = JSON.stringify({
   },
 });
 
-async function inspectBackend({ mode, explicit = false, omitExplicitMode = false, webmailOnly = false }) {
+async function inspectBackend({ mode, explicit = false, omitExplicitMode = false, webmailOnly = false, browserVerification = false }) {
   const stateDir = mkdtempSync(join(tmpdir(), `rightout-browser-${mode}-`));
   const tools = new Map();
   const plugin = (await import("../../index.ts")).default;
@@ -40,6 +42,23 @@ async function inspectBackend({ mode, explicit = false, omitExplicitMode = false
         username: "dummy", password: "dummy", address: "avery@example.invalid",
       },
     }),
+    ...(browserVerification ? {
+      verificationAttestations: {
+        rightoutVerificationPolicyAccepted: true,
+        rightoutVerificationPolicyVersion: "2026-07-12",
+        subjectConsentReviewed: true,
+        inboxReadAuthorized: true,
+        verificationLinkOpenAuthorized: true,
+        authorizedProfileIds: [profileId],
+        authorizedProfileDigests: { [profileId]: removalProfileDigest(profile) },
+        authorizedBrokerIds: ["spokeo"],
+        browserProfileDigest: browserVerificationProfileDigest({
+          browserControlBaseUrl: "http://127.0.0.1:3001/browser",
+          browserProfile: `${mode}-profile`,
+          browserBackendMode: mode,
+        }),
+      },
+    } : {}),
   };
   plugin.register({
     runtime: { state: { resolveStateDir() { return stateDir; } } },
@@ -84,7 +103,7 @@ test("setup and doctor distinguish managed OpenClaw, remote cloud CDP, and logge
     const loggedIn = await inspectBackend({ mode: "existing_logged_in_cdp", explicit: true, webmailOnly: true });
     assert.equal(loggedIn.setup.selected_autonomous_modes.email_send, "browser_webmail");
     assert.equal(loggedIn.setup.selected_autonomous_modes.verification, "unavailable");
-    assert.ok(loggedIn.setup.missing.includes("receiver_authenticated_imap_verification"));
+    assert.ok(loggedIn.setup.missing.includes("receiver_authenticated_imap_or_bound_browser_webmail_verification"));
     assert.equal(loggedIn.doctor.checks.existing_logged_in_cdp_browser, true);
     assert.equal(loggedIn.doctor.checks.email_send, true);
     assert.equal(loggedIn.doctor.checks.verification, false);
@@ -92,6 +111,15 @@ test("setup and doctor distinguish managed OpenClaw, remote cloud CDP, and logge
       "managed_openclaw", "remote_cloud_cdp", "existing_logged_in_cdp",
     ]);
     assert.equal(loggedIn.doctor.state, "needs_attention");
+
+    const loggedInVerification = await inspectBackend({
+      mode: "existing_logged_in_cdp", explicit: true, webmailOnly: true, browserVerification: true,
+    });
+    assert.equal(loggedInVerification.setup.selected_autonomous_modes.verification, "browser_webmail");
+    assert.equal(loggedInVerification.setup.capability_detection.browser_verification_binding.configured, true);
+    assert.match(loggedInVerification.setup.capability_detection.browser_verification_binding.required_profile_digest, /^[a-f0-9]{64}$/);
+    assert.equal(loggedInVerification.doctor.checks.browser_webmail_verification, true);
+    assert.equal(loggedInVerification.doctor.checks.verification, true);
 
     const explicitWithoutMode = await inspectBackend({ mode: "unspecified", explicit: true, omitExplicitMode: true });
     assert.equal(explicitWithoutMode.setup.selected_autonomous_modes.browser, "backend_mode_required");

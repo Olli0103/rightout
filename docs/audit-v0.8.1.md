@@ -1,10 +1,12 @@
 # Closing audit: RightOut v0.8.1 source candidate
 
-Audit date: 2026-07-13. Status: F-1 through F-5 are closed in source and
+Audit date: 2026-07-14. Status: F-1 through F-5 are closed in source and
 regression evidence. F-6's preventive source gate and audited public v0.8.0
-correction are also closed. Version 0.8.1 remains unpublished pending the
-protected-main process and a separately authorized GitHub-verifiable signed
-tag; that remaining publication action is not presented as completed evidence.
+correction are also closed. The pinned technical capability inventory is green
+at 56/56, with operational permission and real-provider effectiveness kept as
+separate gates. Version 0.8.1 remains unpublished pending the protected-main
+process and a separately authorized GitHub-verifiable signed tag; that
+remaining publication action is not presented as completed evidence.
 
 ## Finding closure
 
@@ -19,9 +21,14 @@ tag; that remaining publication action is not presented as completed evidence.
 
 ## Current source evidence
 
-- Plugin suite: 295 tests pass, including campaign/runtime, all-lane execution,
-  protected-state, missing-country, and non-US semantics regressions.
-- Coverage thresholds pass at 90.32% lines, 76.69% branches, and 91.30%
+- Plugin suite: 297 tests pass, including campaign/runtime, all-lane execution,
+  browser-webmail verification, structured sender-authentication, static
+  challenge binding, protected-state, missing-country, and non-US semantics
+  regressions.
+- The technical parity gate classifies all 56 pinned capabilities exactly once:
+  51 are directly implemented and five use an equivalent-or-stricter technical
+  path. It separately keeps default operational autonomy false.
+- Coverage thresholds pass at 90.61% lines, 77.19% branches, and 91.12%
   functions.
 - Python core/workflow tests: 44/44 pass. Network-enabled installer mutation,
   rollback, containment, and lock tests: 6/6 pass.
@@ -29,14 +36,14 @@ tag; that remaining publication action is not presented as completed evidence.
   provider write.
 - Production dependency tree is valid; current npm audit reports zero
   vulnerabilities.
-- Official npm dist-tags remain OpenClaw stable `2026.6.11` and beta
-  `2026.7.1-beta.6`; the candidate passes the plugin/build check under both and
-  isolated runtime installation under the beta.
+- The candidate passes the plugin/build check and isolated packaged runtime
+  installation under OpenClaw stable `2026.6.11` and beta
+  `2026.7.1-beta.6`; both runtime inspections report no plugin issue.
 - The machine coverage gate reports 65 combined entries, 56 code-enforced scan
   lanes, 30 people-search lanes, 26 controller/B2B lanes, and three preserved
   human-only controller portals.
 - A fresh Hermes main check observed commit
-  `f6d1fd511ca8173f634fd42a582e43c3d6181762`; the Unbroker subtree remains
+  `46e87b14fd6c943ef0d6671fb0d74c5dde5d4c6b`; the Unbroker subtree remains
   exactly the pinned tree `f8145c8318a398f0d12dbbd27bb88175ce19519b`.
 - Current managed-service primary claims were rechecked and separated from
   runtime evidence. The benchmark records relevant peer-reviewed 2025 market
@@ -47,14 +54,21 @@ tag; that remaining publication action is not presented as completed evidence.
 - A repository-wide US-default search found the same anti-pattern in nested
   removal addresses. Scan and removal now share one ISO set, and nested values
   inherit only the explicit top-level country.
+- The closing adversarial review rejected a browser-mail body that merely
+  imitates `To` and `Signed-by`; authentication now requires one structured
+  Gmail message-details container and is revalidated against the current DOM
+  before an allowlisted confirmation click. Static text input is likewise bound
+  to the exact single bounded challenge value in the current snapshot, so a
+  guessed value cannot reach browser I/O.
 
 ## Explicit non-claims
 
 - Public-index discovery does not establish private broker inventory coverage,
   identity, absence, or practical discovery effectiveness. Those remain
   `needs_evidence`.
-- Complete 22/22 normalized Unbroker contract coverage is not exact
-  provider-playbook choreography or default autonomous form execution.
+- Complete 22/22 normalized contract and 56/56 technical-capability coverage is
+  not a claim of copied provider-playbook data, current provider permission, or
+  default autonomous form execution.
 - Tests use synthetic identities and mocks and do not prove real-provider
   removal effectiveness.
 - The source workflow can enforce future release provenance; it cannot

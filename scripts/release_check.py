@@ -146,16 +146,19 @@ def main() -> None:
     evidenced_capabilities = parity_evidence.get("capabilities", [])
     if sorted(item.get("id") for item in evidenced_capabilities) != required_capabilities:
         fail(errors, "full Unbroker capability evidence does not exactly match the pinned baseline")
-    accepted_capability_statuses = {"implemented", "conditional", "gap", "human_only"}
+    accepted_capability_statuses = {"implemented", "equivalent_or_stronger"}
     invalid_capabilities = [
         item.get("id") for item in evidenced_capabilities
         if item.get("status") not in accepted_capability_statuses
     ]
     if invalid_capabilities:
         fail(errors, f"Unbroker capability classification is invalid: {', '.join(invalid_capabilities)}")
-    documented_gaps = sorted(item.get("id") for item in evidenced_capabilities if item.get("status") == "gap")
-    if documented_gaps != ["full_autonomy_default", "soft_managed_challenge_browser_clearance"]:
-        fail(errors, "machine evidence must preserve the known Unbroker capability gaps")
+    documented_gaps = sorted(
+        item.get("id") for item in evidenced_capabilities
+        if item.get("status") not in accepted_capability_statuses
+    )
+    if documented_gaps:
+        fail(errors, "machine evidence contains an unresolved technical capability gap")
     expected_broker_ids = sorted(parity_baseline.get("broker_ids", []))
     actual_broker_ids = sorted(item.get("id") for item in parity_catalog.get("brokers", []))
     if actual_broker_ids != expected_broker_ids or len(actual_broker_ids) != 22:
@@ -213,12 +216,15 @@ def main() -> None:
         or parity_evidence.get("unbroker_normalized_contract_surface_complete") is not True
         or parity_evidence.get("unbroker_recipe_surface_complete") is not False
         or parity_evidence.get("unbroker_exact_playbook_choreography_complete") is not False
-        or parity_evidence.get("unbroker_capability_parity_complete") is not False
+        or parity_evidence.get("unbroker_capability_parity_complete") is not True
+        or parity_evidence.get("technical_parity_gate_passed") is not True
+        or parity_evidence.get("policy", {}).get("complete_technical_capability_parity_claimed") is not True
+        or parity_evidence.get("policy", {}).get("default_operational_autonomy_claimed") is not False
         or parity_evidence.get("unbroker_default_autonomy_complete") is not False
         or parity_evidence.get("autonomous_form_execution_ready") is not False
         or "not a claim of default autonomous form execution" not in parity_evidence.get("release_ready_meaning", "")
     ):
-        fail(errors, "machine-readable normalized-contract release verdict is invalid")
+        fail(errors, "machine-readable technical-parity and operational-boundary verdict is invalid")
     if (
         upstream_refresh.get("schema_version") != 1
         or upstream_refresh.get("pinned_commit") != parity_baseline.get("reference", {}).get("commit")

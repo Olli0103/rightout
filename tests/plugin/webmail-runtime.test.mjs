@@ -6,7 +6,10 @@ import test from "node:test";
 
 import { createEncryptedFileKeyedStore } from "../../lib/file-keyed-store.mjs";
 import { createListingTokenVault } from "../../lib/listing-tokens.mjs";
+import { removalProfileDigest } from "../../lib/removal.mjs";
+import { browserVerificationProfileDigest } from "../../lib/verification.mjs";
 import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs";
+import { publisherAutomationPermissions } from "./provider-terms-fixture.mjs";
 
 const profileId = "profile_a1b2c3d4e5f60718";
 const stateKey = "dummy-webmail-runtime-key-with-more-than-32-characters";
@@ -55,7 +58,7 @@ async function createWebmailRuntime() {
   return { tools, config, campaignId: campaign.details.campaign_id };
 }
 
-test("one campaign sends through redacted webmail while browser-mail verification fails to a human gate", async () => {
+test("one campaign sends and opens an authenticated broker confirmation through redacted browser webmail", async () => {
   const mailUrl = "https://mail.google.com/mail/u/0/#compose";
   const composeRefs = {
     to1: { role: "textbox", name: "To legal@spokeo.com" },
@@ -73,6 +76,32 @@ test("one campaign sends through redacted webmail while browser-mail verificatio
     page(mailUrl, "Compose for Avery Example", composeRefs), json({ ok: true }),
     page(mailUrl, "Message sent for Avery Example", composeRefs),
     page(mailUrl, "Message sent for Avery Example", composeRefs), json({ ok: true }),
+    json({ ok: true, targetId: "tab-mail", url: "https://mail.google.com/mail/u/0/#search/broker" }),
+    page("https://mail.google.com/mail/u/0/#search/broker", "Inbox private content", {
+      message1: { role: "row", name: "Spokeo verify removal from privacy@spokeo.invalid" },
+      unrelated: { role: "row", name: "Bank account statement" },
+    }),
+    page("https://mail.google.com/mail/u/0/#search/broker", "Inbox private content", {
+      message1: { role: "row", name: "Spokeo verify removal from privacy@spokeo.invalid" },
+    }), json({ ok: true }),
+    page("https://mail.google.com/mail/u/0/#inbox/message", "Message body private content", {
+      details1: { role: "button", name: "Show details" },
+    }),
+    page("https://mail.google.com/mail/u/0/#inbox/message", "Message body private content", {
+      details1: { role: "button", name: "Show details" },
+    }), json({ ok: true }),
+    page("https://mail.google.com/mail/u/0/#inbox/message", "To: avery@example.invalid Signed-by: privacy.spokeo.com", {
+      details1: { role: "button", name: "Show details" },
+      auth1: { role: "dialog", name: "Message details To: avery@example.invalid Signed-by: privacy.spokeo.com" },
+      confirm1: { role: "link", name: "Confirm removal", href: "https://www.spokeo.com/privacy/confirm?id=private-token" },
+    }),
+    page("https://mail.google.com/mail/u/0/#inbox/message", "To: avery@example.invalid Signed-by: privacy.spokeo.com", {
+      auth1: { role: "dialog", name: "Message details To: avery@example.invalid Signed-by: privacy.spokeo.com" },
+      confirm1: { role: "link", name: "Confirm removal", href: "https://www.spokeo.com/privacy/confirm?id=private-token" },
+    }), json({ ok: true }),
+    page("https://www.spokeo.com/privacy/confirm?id=private-token", "Request confirmed", {}),
+    page("https://www.spokeo.com/privacy/confirm?id=private-token", "Request confirmed", {}),
+    json({ ok: true }),
   ];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
@@ -100,6 +129,22 @@ test("one campaign sends through redacted webmail while browser-mail verificatio
         browserControlBaseUrl: "http://127.0.0.1:3000/browser",
         browserControlToken: "dummy-browser-control-token",
         profiles: { [profileId]: { payload: JSON.stringify(profile) } },
+        verificationAttestations: {
+          rightoutVerificationPolicyAccepted: true,
+          rightoutVerificationPolicyVersion: "2026-07-12",
+          subjectConsentReviewed: true,
+          inboxReadAuthorized: true,
+          verificationLinkOpenAuthorized: true,
+          authorizedProfileIds: [profileId],
+          authorizedProfileDigests: { [profileId]: removalProfileDigest(JSON.stringify(profile)) },
+          authorizedBrokerIds: ["spokeo"],
+          browserProfileDigest: browserVerificationProfileDigest({
+            browserControlBaseUrl: "http://127.0.0.1:3000/browser",
+            browserProfile: "logged-in-gmail",
+            browserBackendMode: "existing_logged_in_cdp",
+          }),
+        },
+        publisherAutomationPermissions: publisherAutomationPermissions(["spokeo"]),
       },
       resolvePath(value) { return value; },
       logger: { info() {}, warn() {}, error() {}, debug() {} },
@@ -116,8 +161,8 @@ test("one campaign sends through redacted webmail while browser-mail verificatio
 
     const campaignInput = {
       profileId, brokerIds: ["spokeo"],
-      effects: ["poll_verification", "submit_email"],
-      durationHours: 24, maxEffects: 2,
+      effects: ["open_verification", "poll_verification", "submit_email"],
+      durationHours: 24, maxEffects: 3,
     };
     const approval = await beforeToolCall({ toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "campaign" });
     approval.requireApproval.onResolution("allow-once");
@@ -171,14 +216,34 @@ test("one campaign sends through redacted webmail while browser-mail verificatio
     const verification = await tools.get("rightout_begin_webmail_verification").execute("begin-verify", {
       profileId, brokerId: "spokeo", campaignId: campaign.details.campaign_id,
     });
-    assert.equal(verification.details.state, "human_gate");
-    assert.equal(verification.details.reason, "browser_mail_has_no_structured_authenticated_header_contract");
-    assert.equal(verification.details.provider_reads, 0);
+    assert.equal(verification.details.state, "webmail_verification_session_ready");
+    assert.equal(verification.details.provider_reads, 1);
     assert.equal(verification.details.provider_writes, 0);
 
+    const message = await tools.get("rightout_webmail_session_step").execute("open-message", {
+      sessionId: verification.details.session_id,
+      action: { kind: "click", ref: "message1", purpose: "open_message" },
+    });
+    assert.equal(message.details.message_authenticated, false);
+    const authenticated = await tools.get("rightout_webmail_session_step").execute("inspect-authentication", {
+      sessionId: verification.details.session_id,
+      action: { kind: "click", ref: "details1", purpose: "inspect_authentication" },
+    });
+    assert.equal(authenticated.details.message_authenticated, true);
+    assert.equal(JSON.stringify(authenticated.details).includes("private-token"), false);
+    assert.equal(JSON.stringify(authenticated.details).includes("avery@example.invalid"), false);
+    const confirmed = await tools.get("rightout_webmail_session_step").execute("open-confirmation", {
+      sessionId: verification.details.session_id,
+      action: { kind: "click", ref: "confirm1", purpose: "open_confirmation" },
+    });
+    assert.equal(confirmed.details.state, "awaiting_processing", `${JSON.stringify(confirmed.details)} remaining=${responses.length}`);
+    assert.equal(confirmed.details.authenticated_browser_message_bound, true);
+    assert.equal(confirmed.details.raw_mailbox_content_in_report, false);
+    assert.equal(JSON.stringify(confirmed.details).includes("private-token"), false);
+
     const status = await tools.get("rightout_campaign_status").execute("status", { campaignId: campaign.details.campaign_id });
-    assert.equal(status.details.status, "active");
-    assert.equal(status.details.used_effects, 1);
+    assert.equal(status.details.status, "completed");
+    assert.equal(status.details.used_effects, 3);
     assert.equal(responses.length, 0);
   } finally {
     globalThis.fetch = originalFetch;

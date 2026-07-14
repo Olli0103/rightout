@@ -346,11 +346,11 @@
     },
     "rightout_begin_webmail_verification": {
       "optional": true,
-      "replaySafe": true,
+      "replaySafe": false,
       "configSignals": [
         {
           "rootPath": "plugins.entries.rightout.config",
-          "required": ["profiles", "stateEncryptionKey"]
+          "required": ["profiles", "stateEncryptionKey", "browserProfile", "browserControlBaseUrl", "browserBackendMode", "verificationAttestations"]
         }
       ]
     },
@@ -507,7 +507,7 @@
     },
     "verificationAttestations": {
       "label": "Inbox-verification attestations",
-      "help": "Separate exact scope for subject consent, read-only inbox access, confirmation-link opening, and verification policy.",
+      "help": "Separate exact scope for subject consent, read-only inbox access, confirmation-link opening, and verification policy. Bind IMAP with imapTransportDigest or one existing_logged_in_cdp profile with the browserProfileDigest reported by rightout_setup.",
       "advanced": true
     },
     "formAttestations": {
@@ -918,8 +918,11 @@
           "verificationLinkOpenAuthorized",
           "authorizedProfileIds",
           "authorizedProfileDigests",
-          "authorizedBrokerIds",
-          "imapTransportDigest"
+          "authorizedBrokerIds"
+        ],
+        "anyOf": [
+          { "required": ["imapTransportDigest"] },
+          { "required": ["browserProfileDigest"] }
         ],
         "properties": {
           "rightoutVerificationPolicyAccepted": { "const": true },
@@ -949,6 +952,10 @@
             "items": { "type": "string", "pattern": "^[a-z0-9_]{2,24}$" }
           },
           "imapTransportDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "browserProfileDigest": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
           }

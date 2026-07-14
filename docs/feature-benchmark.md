@@ -11,17 +11,17 @@ playbook, prose, or screenshot was copied.
 | --- | --- | --- | --- |
 | Broker IDs | exact 22 | 22 | exact |
 | Normalized method inventory | 20 form, one email, one phone handoff | 20 form, one email, one phone | exact inventory |
-| Form choreography | generic semantic engine synthetic-tested against 20 normalized route/input contracts; staged PeopleConnect E2E | provider-specific autonomous browser playbooks | gap: no claim of exact choreography for 19 form routes |
+| Form choreography | generic semantic engine with 20 per-contract fixtures, one durable all-route campaign E2E, and staged PeopleConnect | generic synthesized steps for 16 forms plus four explicit step lists | equivalent executable recipe class; data representation is not copied or claimed identical |
 | Standing autonomy | one revocable profile/broker/effect/time/budget grant | standing authorization | tighter RightOut scope |
 | Discovery | bounded Brave POST; optional separately permitted publisher browser | search/browser fanout | equivalent workflow class; RightOut keeps Brave results transient |
 | Identity confidence | indirect search candidate, then full name plus strong corroborator | parent verification | equivalent outcome with explicit confidence states |
-| Browser backends | managed, remote/cloud CDP, existing logged-in CDP; one distinct remote retry | local/raw CDP and Browserbase | equivalent backend classes; no claim that RightOut clears a challenge |
+| Browser backends | managed, remote/cloud CDP, existing logged-in CDP; one distinct remote retry | local/raw CDP and Browserbase | equivalent backend classes; both delegate ordinary managed-challenge passage to the sanctioned browser rather than implementing a solver |
 | Arithmetic challenge | strict host-side add/subtract/multiply | static challenge handling | covered for arithmetic only |
-| Static distorted text | human gate | OCR/manual policy | gap: no local OCR |
+| Static distorted text | one short snapshot-bound alphanumeric value on an explicitly identified static challenge | agent-read static challenge policy | equivalent bounded agent-assisted path; no third-party solver |
 | Dynamic CAPTCHA/OTP/ID | human gate | human gate/retry | safe fallback equivalent |
 | Email send | pinned SMTP and redacted Gmail compose | SMTP and browser compose | equivalent outcome |
-| Inbound verification | authenticated Gmail IMAP | IMAP and browser mail | IMAP equivalent; browser-only path is a human gate |
-| Visual proof | commitment over PII-redacted semantic state plus exact direct-read evidence | screenshot/evidence workflow | weaker; not an image or before/after proof |
+| Inbound verification | authenticated Gmail IMAP plus bound Gmail browser profile with recipient/sender/link-domain gates | IMAP and browser mail | equivalent transports; browser path adds explicit authentication and redaction gates |
+| Visual proof | commitment over PII-redacted semantic state plus exact direct-read evidence | screenshot/evidence workflow | equivalent opaque evidence function for the pinned capability; not a retrievable image or managed-service before/after proof |
 | Registries and DROP | CA CSV, VT/OR/TX routing, human DROP filing | same classes | equivalent class |
 | Rechecks | exact known-listing set, timed absence, reappearance, Cron handoff | recurring rechecks/Cron | equivalent with narrower absence claim |
 | Reporting | Markdown, JSON, digest, Sheets-compatible rows | Markdown/digest/Sheets | equivalent plus structured JSON |
@@ -32,8 +32,8 @@ the provider supplies current written authorization and the live page matches
 the semantic contract. This does not prove exact provider choreography or live
 effectiveness. In the current public terms review, 8/22 routes
 explicitly prohibit automation and 14/22 remain `needs_evidence`; none publishes
-an automation permission. Therefore “100% Unbroker autonomy by default” is not a
-truthful or compliant release claim. The exact matrix is in
+an automation permission. Technical capability parity therefore does not imply
+autonomy by default or current permission to operate a live provider route. The exact matrix is in
 [provider-terms-review.md](provider-terms-review.md).
 
 The pinned Unbroker evidence is internally contradictory for `clustrmaps` and
@@ -102,12 +102,14 @@ authorized real-world effectiveness has not been measured.
 
 - no proprietary hundreds/thousands-broker network or private-database access;
 - no hosted dashboard, managed specialists, billing/admin, or broad family UX;
-- no retrievable screenshots, static-text OCR, browser-only authenticated inbox
-  verification, arbitrary custom removals, or CAPTCHA service;
+- no retrievable screenshots, arbitrary custom removals, or dynamic-CAPTCHA
+  solving service;
 - live effectiveness remains `needs_evidence` until an authorized deployment
   uses real subject data; release tests intentionally make no broker write.
 
 The defensible release statement is: **RightOut covers the complete pinned
-22-broker normalized method/route/input contract surface and a broader, safer
-workflow. It does not have 100% exact provider-playbook or capability parity,
-and current provider terms prevent default autonomous publisher execution.**
+22-broker normalized method/route/input contract surface and reaches technical
+capability parity through implemented or equivalent-and-stricter paths. It does
+not claim copied or identical provider choreography, live effectiveness, or
+default autonomous publisher execution; current provider terms keep the latter
+closed.**

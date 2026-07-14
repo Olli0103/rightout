@@ -5,7 +5,9 @@ import { CONSENT_RECORDED_AT, CONSENT_VALID_UNTIL } from "./consent-fixture.mjs"
 import { imapTransportDigest } from "../../lib/imap.mjs";
 import { removalProfileDigest } from "../../lib/removal.mjs";
 import {
+  browserVerificationProfileDigest,
   resolveVerificationCatalogEntry,
+  validateBrowserVerificationPreflight,
   validateVerificationOpenInput,
   validateVerificationPollInput,
   validateVerificationPreflight,
@@ -65,6 +67,32 @@ test("preflight binds the exact profile and IMAP transport snapshots", () => {
   assert.throws(() => validateVerificationPreflight({
     input, catalog, profilePayload, imapTransport: { ...imap, password: "changed" }, attestations,
   }), /rightout_verification_snapshot_changed/);
+});
+
+test("browser verification preflight binds one exact logged-in browser profile", () => {
+  const browserControl = {
+    browserControlBaseUrl: "http://127.0.0.1:3000/browser",
+    browserProfile: "logged-in-gmail",
+    browserBackendMode: "existing_logged_in_cdp",
+  };
+  const browserAttestations = {
+    ...attestations,
+    browserProfileDigest: browserVerificationProfileDigest(browserControl),
+  };
+  const result = validateBrowserVerificationPreflight({
+    input, catalog, profilePayload, browserControl, attestations: browserAttestations,
+  });
+  assert.equal(result.profile.contactEmail, profile.contactEmail);
+  assert.throws(() => validateBrowserVerificationPreflight({
+    input,
+    catalog,
+    profilePayload,
+    browserControl: { ...browserControl, browserProfile: "another-profile" },
+    attestations: browserAttestations,
+  }), /rightout_verification_snapshot_changed/);
+  assert.throws(() => browserVerificationProfileDigest({
+    ...browserControl, browserControlBaseUrl: "https://remote.example/browser",
+  }), /rightout_browser_webmail_profile_required/);
 });
 
 test("unsupported catalog records cannot enable inbox polling", () => {

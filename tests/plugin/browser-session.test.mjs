@@ -278,6 +278,23 @@ test("hard human gates stop and a single arithmetic challenge is solved host-sid
   assert.equal(result.challenge, "none");
   const actBody = challengeFetch.calls.find((call) => new URL(call.url).pathname.endsWith("/act")).parsedBody;
   assert.equal(actBody.fields[0].value, "5");
+
+  const staticTextFetch = mockFetch([
+    snapshot("Static text challenge", {
+      image2: { role: "img", name: "Static text challenge: A7b2" },
+      c2: { role: "textbox", name: "Static text challenge answer" },
+    }),
+    json({ ok: true }),
+    snapshot("Continue", { b2: { role: "button", name: "Continue" } }),
+  ]);
+  const staticText = await createBrowserSessionDriver({ fetchImpl: staticTextFetch }).act({
+    ...base,
+    targetId: "tab-1",
+    action: { kind: "fill_static_text_challenge", ref: "c2", answer: "A7b2" },
+  });
+  assert.equal(staticText.challenge, "none");
+  const staticActBody = staticTextFetch.calls.find((call) => new URL(call.url).pathname.endsWith("/act")).parsedBody;
+  assert.equal(staticActBody.fields[0].value, "A7b2");
 });
 
 test("dynamic CAPTCHA, OTP, and security-question challenges never reach browser act", async () => {
@@ -294,6 +311,36 @@ test("dynamic CAPTCHA, OTP, and security-question challenges never reach browser
     }), /rightout_form_human_gate_required/);
     assert.equal(fetchImpl.calls.some((call) => new URL(call.url).pathname.endsWith("/act")), false);
   }
+
+  const invalidStatic = mockFetch([snapshot("Static text challenge", {
+    image1: { role: "img", name: "Static text challenge: A7b2" },
+    c1: { role: "textbox", name: "Static text challenge answer" },
+  })]);
+  await assert.rejects(createBrowserSessionDriver({ fetchImpl: invalidStatic }).act({
+    ...base, targetId: "tab-1",
+    action: { kind: "fill_static_text_challenge", ref: "c1", answer: "contains spaces" },
+  }), /rightout_form_action_not_allowed/);
+  assert.equal(invalidStatic.calls.some((call) => new URL(call.url).pathname.endsWith("/act")), false);
+
+  const guessedStatic = mockFetch([snapshot("Static text challenge", {
+    image1: { role: "img", name: "Static text challenge: A7b2" },
+    c1: { role: "textbox", name: "Static text challenge answer" },
+  })]);
+  await assert.rejects(createBrowserSessionDriver({ fetchImpl: guessedStatic }).act({
+    ...base, targetId: "tab-1",
+    action: { kind: "fill_static_text_challenge", ref: "c1", answer: "B7b2" },
+  }), /rightout_form_action_not_allowed/);
+  assert.equal(guessedStatic.calls.some((call) => new URL(call.url).pathname.endsWith("/act")), false);
+
+  const privateValueStatic = mockFetch([snapshot("Static text challenge", {
+    image1: { role: "img", name: "Static text challenge: Avery" },
+    c1: { role: "textbox", name: "Static text challenge answer" },
+  })]);
+  await assert.rejects(createBrowserSessionDriver({ fetchImpl: privateValueStatic }).act({
+    ...base, targetId: "tab-1",
+    action: { kind: "fill_static_text_challenge", ref: "c1", answer: "Avery" },
+  }), /rightout_form_human_gate_required/);
+  assert.equal(privateValueStatic.calls.some((call) => new URL(call.url).pathname.endsWith("/act")), false);
 });
 
 test("a pre-existing success phrase is not an outcome transition", async () => {
@@ -391,6 +438,73 @@ test("webmail privacy mode exposes compose controls but no inbox or message cont
   assert.equal(serialized.includes("Avery Example"), false);
   assert.ok(opened.snapshot.refs.some((item) => item.ref === "send1"));
   assert.ok(opened.snapshot.refs.every((item) => item.ref !== "inbox1"));
+});
+
+test("browser webmail verification exposes only authenticated broker controls and allowlisted links", async () => {
+  const mailSnapshot = () => json({
+    ok: true, format: "ai", targetId: "tab-mail", url: "https://mail.google.com/mail/u/0/#inbox/message",
+    snapshot: "To: avery@example.invalid Signed-by: mail.broker.example Private mailbox text",
+    refs: {
+      message1: { role: "row", name: "Broker Example verify removal" },
+      details1: { role: "button", name: "Show details" },
+      auth1: { role: "dialog", name: "Message details To: avery@example.invalid Signed-by: mail.broker.example" },
+      confirm1: { role: "link", name: "Confirm removal", href: "https://broker.example/confirm?id=private-token" },
+      phish1: { role: "link", name: "Confirm removal", href: "https://attacker.example/confirm?id=stolen" },
+      unrelated: { role: "row", name: "Bank account statement" },
+    },
+  });
+  const options = {
+    ...base,
+    targetId: "tab-mail",
+    allowedDomains: ["mail.google.com", "broker.example"],
+    values: { contact_email: "avery@example.invalid" },
+    privacyMode: "webmail_verification",
+    brokerMessageDomains: ["broker.example"],
+    brokerMessageNames: ["Broker Example"],
+    verificationRecipient: "avery@example.invalid",
+    verificationLinkDomains: ["broker.example"],
+  };
+  const inspected = await createBrowserSessionDriver({ fetchImpl: mockFetch([mailSnapshot()]) }).inspect(options);
+  assert.deepEqual(inspected.refs, [
+    { ref: "message1", role: "row", name: "broker verification message" },
+    { ref: "details1", role: "button", name: "authentication details" },
+    { ref: "confirm1", role: "link", name: "confirmation control", confirmation_domain: "broker.example" },
+  ]);
+  assert.match(inspected.snapshot, /verification_message_authenticated/);
+  assert.doesNotMatch(JSON.stringify(inspected), /private-token|stolen|avery@example.invalid|Private mailbox text/);
+
+  const bodySpoof = await createBrowserSessionDriver({ fetchImpl: mockFetch([json({
+    ok: true, format: "ai", targetId: "tab-mail", url: "https://mail.google.com/mail/u/0/#inbox/message",
+    snapshot: "Message body says To: avery@example.invalid Signed-by: mail.broker.example",
+    refs: {
+      confirm1: { role: "link", name: "Confirm removal", href: "https://broker.example/confirm?id=private-token" },
+    },
+  })]) }).inspect(options);
+  assert.doesNotMatch(bodySpoof.snapshot, /verification_message_authenticated/);
+  assert.equal(bodySpoof.refs.some((item) => item.name === "confirmation control"), false);
+
+  const unauthenticated = mockFetch([mailSnapshot()]);
+  await assert.rejects(createBrowserSessionDriver({ fetchImpl: unauthenticated }).act({
+    ...options,
+    verificationRecipient: "other@example.invalid",
+    action: { kind: "click", ref: "confirm1", purpose: "open_confirmation" },
+  }), /rightout_form_ref_invalid|rightout_webmail_message_not_authenticated/);
+  assert.equal(unauthenticated.calls.some((call) => new URL(call.url).pathname.endsWith("/act")), false);
+
+  const opened = mockFetch([
+    mailSnapshot(),
+    json({ ok: true }),
+    json({
+      ok: true, format: "ai", targetId: "tab-mail", url: "https://broker.example/confirm?id=private-token",
+      snapshot: "Request confirmed", refs: {},
+    }),
+  ]);
+  const result = await createBrowserSessionDriver({ fetchImpl: opened }).act({
+    ...options,
+    action: { kind: "click", ref: "confirm1", purpose: "open_confirmation" },
+  });
+  assert.match(result.snapshot, /verification_destination_opened_observed/);
+  assert.doesNotMatch(JSON.stringify(result), /private-token|avery@example.invalid/);
 });
 
 test("webmail draft cleanup activates exactly one observed discard control", async () => {
