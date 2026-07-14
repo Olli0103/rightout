@@ -46,7 +46,9 @@ import {
 } from "./lib/direct-rescan.mjs";
 import {
   RIGHTOUT_VERIFICATION_POLICY_VERSION,
+  browserVerificationProfileDigest,
   resolveVerificationCatalogEntry,
+  validateBrowserVerificationPreflight,
   validateVerificationAttestations,
   validateVerificationOpenInput,
   validateVerificationPollInput,
@@ -149,7 +151,8 @@ type VerificationAttestations = {
   authorizedProfileIds: string[];
   authorizedProfileDigests: Record<string, string>;
   authorizedBrokerIds: string[];
-  imapTransportDigest: string;
+  imapTransportDigest?: string;
+  browserProfileDigest?: string;
 };
 
 type FormAttestations = {
@@ -604,6 +607,11 @@ const FormSessionAction = Type.Union([
     ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
   }, { additionalProperties: false }),
   Type.Object({
+    kind: Type.Literal("fill_static_text_challenge"),
+    ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
+    answer: Type.String({ pattern: "^[A-Za-z0-9]{1,12}$" }),
+  }, { additionalProperties: false }),
+  Type.Object({
     kind: Type.Literal("click"),
     ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
     purpose: Type.Union([
@@ -662,7 +670,10 @@ const WebmailSessionStepParameters = Type.Object(
       Type.Object({
         kind: Type.Literal("click"),
         ref: Type.String({ pattern: "^[A-Za-z0-9._:-]{1,160}$" }),
-        purpose: Type.Literal("send"),
+        purpose: Type.Union([
+          Type.Literal("send"), Type.Literal("open_message"),
+          Type.Literal("inspect_authentication"), Type.Literal("open_confirmation"),
+        ]),
       }, { additionalProperties: false }),
       Type.Object({ kind: Type.Literal("record_redacted_state_receipt") }, { additionalProperties: false }),
       Type.Object({ kind: Type.Literal("close") }, { additionalProperties: false }),
@@ -816,8 +827,15 @@ function assertSessionActionShape(action: unknown, mode: "form" | "discovery" | 
     ) fail();
     return;
   }
+  if (mode === "form" && value.kind === "fill_static_text_challenge") {
+    if (
+      Object.keys(value).length !== 3 || typeof value.ref !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(value.ref)
+      || typeof value.answer !== "string" || !/^[A-Za-z0-9]{1,12}$/.test(value.answer)
+    ) fail();
+    return;
+  }
   if (value.kind === "click") {
-    const purposes = mode === "webmail" ? ["send"]
+    const purposes = mode === "webmail" ? ["send", "open_message", "inspect_authentication", "open_confirmation"]
       : mode === "discovery" ? ["continue", "agree", "select_record"]
       : ["continue", "agree", "select_record", "submit", "suppress", "confirm"];
     if (
@@ -1423,6 +1441,17 @@ export default definePluginEntry({
       });
     }
 
+    function browserVerificationTransportReady(config: RightOutConfig | undefined, browser: Record<string, any>): boolean {
+      if (!browser.webmail_ready || typeof config?.verificationAttestations?.browserProfileDigest !== "string") return false;
+      try {
+        return config.verificationAttestations.browserProfileDigest === browserVerificationProfileDigest({
+          browserControlBaseUrl: config.browserControlBaseUrl,
+          browserProfile: config.browserProfile,
+          browserBackendMode: config.browserBackendMode,
+        });
+      } catch { return false; }
+    }
+
     async function ensureImmutableProfileSnapshot(profileId: string): Promise<string> {
       const digest = configuredProfileDigest(profileId);
       const record = { profileId, digest, createdAt: new Date().toISOString() };
@@ -1943,7 +1972,18 @@ export default definePluginEntry({
         });
       }
       const verificationAttestations = rightout?.verificationAttestations;
-      if (rightout?.imapTransport !== undefined && (
+      const verificationImapBindingValid = typeof verificationAttestations?.imapTransportDigest === "string"
+        && /^[a-f0-9]{64}$/.test(verificationAttestations.imapTransportDigest);
+      let verificationBrowserBindingValid = false;
+      try {
+        verificationBrowserBindingValid = typeof verificationAttestations?.browserProfileDigest === "string"
+          && verificationAttestations.browserProfileDigest === browserVerificationProfileDigest({
+            browserControlBaseUrl: rightout?.browserControlBaseUrl,
+            browserProfile: rightout?.browserProfile,
+            browserBackendMode: rightout?.browserBackendMode,
+          });
+      } catch { /* an invalid or absent logged-in browser binding is not ready */ }
+      if (verificationAttestations !== undefined && (
         verificationAttestations?.rightoutVerificationPolicyAccepted !== true
         || verificationAttestations?.rightoutVerificationPolicyVersion !== RIGHTOUT_VERIFICATION_POLICY_VERSION
         || verificationAttestations?.subjectConsentReviewed !== true
@@ -1956,8 +1996,7 @@ export default definePluginEntry({
         || verificationAttestations.authorizedProfileIds.some((profileId: string) => !/^[a-f0-9]{64}$/.test(verificationAttestations.authorizedProfileDigests?.[profileId]))
         || !Array.isArray(verificationAttestations?.authorizedBrokerIds)
         || verificationAttestations.authorizedBrokerIds.length < 1
-        || typeof verificationAttestations?.imapTransportDigest !== "string"
-        || !/^[a-f0-9]{64}$/.test(verificationAttestations.imapTransportDigest)
+        || (!verificationImapBindingValid && !verificationBrowserBindingValid)
       )) {
         findings.push({
           checkId: "rightout.verification_operator_attestations",
@@ -2442,7 +2481,7 @@ export default definePluginEntry({
           const scoped = splitCampaignParams(event.params);
           const input = validateVerificationPollInput(scoped.params) as PublicVerificationPollInput;
           const verificationCatalog = await combinedVerificationCatalog();
-          const broker = resolveVerificationCatalogEntry(verificationCatalog, input);
+          const broker = resolveVerificationCatalogEntry(verificationCatalog, { profileId: input.profileId, brokerId: input.brokerId });
           await assertParityRouteFresh(input.brokerId);
           const attestations = verificationAttestationSnapshot(config, input);
           if (scoped.campaignId) {
@@ -3074,7 +3113,7 @@ export default definePluginEntry({
           });
           const sessionId = `webmailsession_${randomBytes(12).toString("hex")}`;
           storeBrowserSession(sessionId, {
-            sessionId, sessionType: "webmail", targetId: opened.targetId,
+            sessionId, sessionType: "webmail", webmailMode: "send", targetId: opened.targetId,
             profileId: input.profileId, brokerId: input.brokerId, campaignId: input.campaignId,
             broker, values, disclosureFields: built.disclosureFields, browserControl,
             filledFields: [], effectConsumed: true, expiresAt: Date.now() + 30 * 60_000,
@@ -3101,6 +3140,196 @@ export default definePluginEntry({
           await pruneTransientState();
           const session = activeWebmailSession(input.sessionId);
           const coreCatalog = await catalogPromise;
+          if (session.webmailMode === "verification") {
+            if (input.action.kind === "fill" || (input.action.kind === "click" && input.action.purpose === "send")) {
+              throw new Error("rightout_webmail_session_input_invalid");
+            }
+            const verificationCatalog = await combinedVerificationCatalog();
+            const driverOptions = {
+              ...session.browserControl,
+              targetId: session.targetId,
+              allowedDomains: ["mail.google.com", ...session.broker.linkDomains],
+              allowedFields: [],
+              values: session.values,
+              privacyMode: "webmail_verification",
+              brokerMessageDomains: session.broker.senderDomains,
+              brokerMessageNames: [session.broker.name],
+              verificationRecipient: session.values.contact_email,
+              verificationLinkDomains: session.broker.linkDomains,
+              signal,
+            };
+            if (input.action.kind === "close") {
+              deleteBrowserSession(input.sessionId);
+              const cleanup = await cleanupAndCloseBrowserSession(session);
+              const report = {
+                session_id: input.sessionId, broker_id: session.brokerId, state: "webmail_verification_session_closed",
+                provider_writes: 0, tab_cleanup: cleanup.tab_cleanup, raw_mailbox_content_in_report: false,
+              };
+              return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            }
+            await revalidateConsumedSessionEffect(session, "poll_verification").catch(async (error) => {
+              await invalidateBrowserSession(input.sessionId, session);
+              throw error;
+            });
+            if (input.action.kind === "inspect") {
+              const snapshot = await browserSessionDriver.inspect(driverOptions);
+              session.messageAuthenticated = snapshot.snapshot.includes("verification_message_authenticated");
+              const report = {
+                session_id: input.sessionId, broker_id: session.brokerId, state: "webmail_verification_session_active",
+                snapshot, message_authenticated: session.messageAuthenticated === true,
+                raw_mailbox_content_in_report: false, raw_link_in_report: false,
+              };
+              return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            }
+            if (input.action.kind === "record_redacted_state_receipt") {
+              const receipt = await browserSessionDriver.redactedStateReceipt(driverOptions);
+              const report = { session_id: input.sessionId, broker_id: session.brokerId, state: "redacted_state_receipt_recorded", ...receipt };
+              return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            }
+            const openingConfirmation = input.action.kind === "click" && input.action.purpose === "open_confirmation";
+            if (!openingConfirmation) {
+              if (!input.action || input.action.kind !== "click" || !["open_message", "inspect_authentication"].includes(input.action.purpose)) {
+                throw new Error("rightout_webmail_session_input_invalid");
+              }
+              const snapshot = await browserSessionDriver.act({ ...driverOptions, action: input.action });
+              session.messageAuthenticated = snapshot.snapshot.includes("verification_message_authenticated");
+              const report = {
+                session_id: input.sessionId, broker_id: session.brokerId, state: "webmail_verification_session_active",
+                snapshot, message_authenticated: session.messageAuthenticated === true,
+                raw_mailbox_content_in_report: false, raw_link_in_report: false, provider_writes: 0,
+              };
+              return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            }
+            if (session.messageAuthenticated !== true) throw new Error("rightout_webmail_message_not_authenticated");
+            assertPublisherAutomationPermission(
+              api.pluginConfig as RightOutConfig | undefined,
+              session.parityBroker,
+              await providerTermsPromise,
+              "open_verification",
+              { browserBackend: "existing_logged_in_cdp" },
+            );
+            await authorizeCampaignEffects(
+              session.campaignId,
+              session.profileId,
+              [{ brokerId: session.brokerId, effect: "open_verification" }],
+              verificationCatalog,
+              false,
+            );
+            const openDedupeKey = verificationOpenDedupeKey(
+              session.profileId,
+              session.brokerId,
+              session.caseContext.submission_proof_reference,
+            );
+            const openIntentCreated = await verificationOpenDedupe.registerIfAbsent(openDedupeKey, {
+              createdAt: new Date().toISOString(),
+              profileId: session.profileId,
+              brokerId: session.brokerId,
+              submissionReference: session.caseContext.submission_proof_reference,
+              phase: "browser_webmail_provider_request_intent",
+            });
+            if (!openIntentCreated) throw new Error("rightout_verification_open_unresolved");
+            try {
+              await authorizeCampaignEffects(
+                session.campaignId,
+                session.profileId,
+                [{ brokerId: session.brokerId, effect: "open_verification" }],
+                verificationCatalog,
+                true,
+              );
+            } catch (error) {
+              await verificationOpenDedupe.delete(openDedupeKey);
+              throw error;
+            }
+            let snapshot;
+            let failedStage = "browser_confirmation_action";
+            try {
+              snapshot = await browserSessionDriver.act({ ...driverOptions, action: input.action });
+              if (!snapshot.snapshot.includes("verification_destination_opened_observed")) {
+                throw new Error("rightout_verification_open_failed");
+              }
+              failedStage = "durable_case_transition";
+              if (session.brokerId === "intelius") {
+                const config = api.pluginConfig as RightOutConfig | undefined;
+                const profile = parseRemovalProfile(config!.profiles![session.profileId].payload) as Record<string, any>;
+                const values = formProfileValues(profile);
+                const disclosureFields = ["full_name", "date_of_birth"];
+                const fieldDisclosureMap = formFieldDisclosureMap(disclosureFields, values);
+                const expiresAt = Date.now() + 30 * 60_000;
+                const formSnapshot = await browserSessionDriver.inspect({
+                  ...session.browserControl,
+                  targetId: session.targetId,
+                  allowedDomains: session.broker.linkDomains,
+                  allowedFields: Object.keys(fieldDisclosureMap),
+                  values,
+                  privacyMode: "peopleconnect_guided",
+                  signal,
+                });
+                const formSessionId = `formsession_${randomBytes(12).toString("hex")}`;
+                await portalFlowStore.register(portalFlowKey(session.profileId, session.brokerId), {
+                  profileId: session.profileId, brokerId: session.brokerId, campaignId: session.campaignId,
+                  targetId: session.targetId, browserProfile: session.browserControl.browserProfile ?? null,
+                  bridgeUrl: session.browserControl.bridgeUrl, browserBackend: "existing_logged_in_cdp",
+                  stage: "peopleconnect_guided_identity", expiresAt,
+                });
+                storeBrowserSession(formSessionId, {
+                  sessionId: formSessionId, sessionType: "form", stage: "peopleconnect_guided_identity", targetId: session.targetId,
+                  profileId: session.profileId, brokerId: session.brokerId, campaignId: session.campaignId,
+                  broker: session.parityBroker, values, fieldDisclosureMap, browserControl: session.browserControl,
+                  browserBackend: "existing_logged_in_cdp", filledFields: [], recordSelected: false,
+                  effectConsumed: true, submissionIntentReserved: false, expiresAt,
+                });
+                deleteBrowserSession(input.sessionId);
+                await verificationOpenDedupe.delete(openDedupeKey);
+                const report = {
+                  report_version: 1, session_id: formSessionId, subject_ref: session.profileId, broker_id: session.brokerId,
+                  state: "guided_suppression_ready", same_browser_profile_retained: true,
+                  authenticated_browser_message_bound: true, disclosures_allowed: disclosureFields,
+                  form_fields_available: Object.keys(fieldDisclosureMap), snapshot: formSnapshot,
+                  raw_mailbox_content_in_report: false, raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1,
+                };
+                return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+              }
+              await caseLedger.recordLifecycle(session.profileId, session.brokerId, "awaiting_processing", {
+                evidenceKind: "broker_verification_link",
+                processingDays: session.broker.processingDays,
+                proofReference: `verify_${createHash("sha256").update(input.sessionId).digest("hex").slice(0, 24)}`,
+              });
+              failedStage = "durable_retry_guard_finalize";
+              await verificationOpenDedupe.delete(openDedupeKey);
+              failedStage = "redacted_receipt";
+              const receipt = await browserSessionDriver.redactedStateReceipt(driverOptions);
+              await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+              deleteBrowserSession(input.sessionId);
+              const report = {
+                report_version: 1, subject_ref: session.profileId, broker_id: session.brokerId,
+                state: "awaiting_processing", campaign_id: session.campaignId,
+                authenticated_browser_message_bound: true, same_browser_profile_retained: true,
+                proof_references: [receipt.receipt_reference], redacted_state_receipt: receipt,
+                raw_mailbox_content_in_report: false, raw_link_in_report: false, raw_pii_in_report: false, provider_writes: 1,
+              };
+              return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            } catch (error) {
+              const errorCode = error instanceof Error && /^rightout_[a-z0-9_]+$/.test(error.message)
+                ? error.message : "rightout_verification_open_failed";
+              await caseLedger.recordLifecycle(session.profileId, session.brokerId, "human_task_queued", {
+                evidenceKind: "human_task", reason: "browser_webmail_verification_open_uncertain",
+              }).catch(() => undefined);
+              await browserSessionDriver.closeSession(driverOptions).catch(() => undefined);
+              deleteBrowserSession(input.sessionId);
+              const report = {
+                report_version: 1, subject_ref: session.profileId, broker_id: session.brokerId,
+                state: "human_task_queued", reason: "browser_webmail_verification_open_uncertain",
+                error_code: errorCode,
+                failed_stage: failedStage,
+                retry_blocked: true, campaign_id: session.campaignId,
+                raw_mailbox_content_in_report: false, raw_link_in_report: false, raw_pii_in_report: false,
+                provider_writes_possible: true,
+              };
+              return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+            }
+          }
+          if (session.webmailMode !== "send") throw new Error("rightout_webmail_session_expired");
+          if (input.action.kind === "click" && input.action.purpose !== "send") throw new Error("rightout_webmail_session_input_invalid");
           const driverOptions = {
             ...session.browserControl, targetId: session.targetId, allowedDomains: ["mail.google.com"],
             allowedFields: Object.keys(session.values), values: session.values, privacyMode: "webmail", signal,
@@ -3210,33 +3439,97 @@ export default definePluginEntry({
     );
 
     api.registerTool(
-      {
+      (toolContext) => ({
         name: "rightout_begin_webmail_verification",
-        label: "RightOut browser-mail verification handoff",
-        description: "Return a zero-I/O human gate when authenticated IMAP is unavailable. RightOut does not search browser mail because the browser surface lacks a structured receiver-authentication contract.",
+        label: "RightOut begin browser-mail verification",
+        description: "Open a broker-scoped Gmail search in the configured logged-in browser. Only a recipient-bound message with an allowed signed-by/mailed-by domain can expose one allowlisted confirmation control; raw mail and link values never leave the browser control plane.",
         parameters: WebmailVerificationBeginParameters,
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, signal) {
           const input = validateWebmailVerificationBeginInput(params);
           const config = api.pluginConfig as RightOutConfig | undefined;
           if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") throw new Error("rightout_not_configured");
-          await ensureImmutableProfileSnapshot(input.profileId);
+          const verificationCatalog = await combinedVerificationCatalog();
+          const broker = resolveVerificationCatalogEntry(verificationCatalog, { profileId: input.profileId, brokerId: input.brokerId });
+          const parityCatalog = await parityCatalogPromise;
+          const parityBroker = resolveParityBroker(parityCatalog, input.brokerId);
+          await assertParityRouteFresh(input.brokerId);
+          const browserControl = resolveBrowserControl(toolContext as Record<string, any>, config);
+          const browserBackend = resolveBrowserBackend(toolContext as Record<string, any>, config);
+          if (!browserBackend.webmail_ready || typeof browserControl.bridgeUrl !== "string" || !browserControl.browserProfile) {
+            throw new Error("rightout_browser_webmail_profile_required");
+          }
+          const attestations = validateVerificationAttestations(input, config.verificationAttestations, { transport: "browser_webmail" }) as VerificationAttestations;
+          const preflight = validateBrowserVerificationPreflight({
+            input,
+            catalog: verificationCatalog,
+            profilePayload: config.profiles[input.profileId].payload,
+            browserControl: {
+              browserControlBaseUrl: config.browserControlBaseUrl,
+              browserProfile: config.browserProfile,
+              browserBackendMode: config.browserBackendMode,
+            },
+            attestations,
+          });
+          const caseContext = await caseLedger.verificationContext(input.profileId, input.brokerId, ["submitted", "verification_pending"]);
+          const unresolvedOpen = await verificationOpenDedupe.lookup(verificationOpenDedupeKey(
+            input.profileId,
+            input.brokerId,
+            caseContext.submission_proof_reference,
+          ));
+          if (unresolvedOpen) throw new Error("rightout_verification_open_unresolved");
           await authorizeCampaignEffects(
             input.campaignId,
             input.profileId,
             [{ brokerId: input.brokerId, effect: "poll_verification" }],
-            await catalogPromise,
+            verificationCatalog,
             false,
           );
-          const humanOnlyReport = {
-            report_version: 1, subject_ref: input.profileId, broker_id: input.brokerId,
-            state: "human_gate", reason: "browser_mail_has_no_structured_authenticated_header_contract",
-            next_action: "configure_receiver_authenticated_imap_or_open_the_message_manually",
-            provider_reads: 0, provider_writes: 0, raw_mailbox_content_in_report: false, raw_pii_in_report: false,
+          await authorizeCampaignEffects(
+            input.campaignId,
+            input.profileId,
+            [{ brokerId: input.brokerId, effect: "poll_verification" }],
+            verificationCatalog,
+            true,
+          );
+          const query = `newer_than:14d {${broker.senderDomains.map((domain) => `from:${domain}`).join(" ")}} {verify confirm removal optout privacy}`;
+          const webmailUrl = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query)}`;
+          const values = { contact_email: preflight.profile.contactEmail };
+          const opened = await browserSessionDriver.openSession({
+            ...browserControl,
+            formUrl: webmailUrl,
+            allowedDomains: ["mail.google.com", ...broker.linkDomains],
+            allowedFields: [],
+            values,
+            privacyMode: "webmail_verification",
+            brokerMessageDomains: broker.senderDomains,
+            brokerMessageNames: [broker.name],
+            verificationRecipient: preflight.profile.contactEmail,
+            verificationLinkDomains: broker.linkDomains,
+            label: "rightout-webmail-verification",
+            signal,
+          });
+          const sessionId = `webmailsession_${randomBytes(12).toString("hex")}`;
+          storeBrowserSession(sessionId, {
+            sessionId, sessionType: "webmail", webmailMode: "verification", targetId: opened.targetId,
+            profileId: input.profileId, brokerId: input.brokerId, campaignId: input.campaignId,
+            broker, parityBroker, values, browserControl, caseContext,
+            messageAuthenticated: false, effectConsumed: true, expiresAt: Date.now() + 30 * 60_000,
+          });
+          const report = {
+            report_version: 1, session_id: sessionId, subject_ref: input.profileId, broker_id: input.brokerId,
+            state: "webmail_verification_session_ready", provider: "gmail_openclaw_browser_profile",
+            snapshot: opened.snapshot,
+            sender_domains_allowed: broker.senderDomains,
+            link_domains_allowed: broker.linkDomains,
+            authentication_required: ["recipient_match", "signed_by_or_mailed_by_allowed_domain"],
+            next_actions: ["open_one_broker_message", "inspect_authentication", "open_one_confirmation_control_or_close"],
+            provider_reads: 1, provider_writes: 0,
+            raw_mailbox_content_in_report: false, raw_link_in_report: false, raw_pii_in_report: false,
           };
-          return { content: [{ type: "text", text: JSON.stringify(humanOnlyReport) }], details: humanOnlyReport };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
-      },
-      { optional: true },
+      }),
+      { name: "rightout_begin_webmail_verification", optional: true },
     );
 
     api.registerTool(
@@ -4484,7 +4777,7 @@ export default definePluginEntry({
           if (input.action.kind !== "close") {
             await revalidatePublisherBrowserSession(input.sessionId, session, "submit_form");
           }
-          if (input.action.kind === "fill_challenge" && session.stage !== "generic") {
+          if (["fill_challenge", "fill_static_text_challenge"].includes(input.action.kind) && session.stage !== "generic") {
             throw new Error("rightout_form_session_input_invalid");
           }
           if (input.action.kind === "click") {
@@ -4850,7 +5143,8 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const browser = resolveBrowserBackend(toolContext as Record<string, any>, config);
           const emailMode = config?.smtpTransport ? "smtp" : browser.webmail_ready ? "webmail" : "unavailable";
-          const verificationMode = config?.imapTransport ? "imap" : "unavailable";
+          const verificationMode = config?.imapTransport ? "imap"
+            : browserVerificationTransportReady(config, browser) ? "browser_webmail" : "unavailable";
           const globalScanOnly = campaign.effects.length === 1 && campaign.effects[0] === "discover";
           let planned = globalScanOnly
             ? planGlobalScanCampaignNext({ campaign, caseStatus, scanCatalog: await combinedScanCatalog() })
@@ -5178,14 +5472,23 @@ export default definePluginEntry({
           const browser = resolveBrowserBackend(toolContext as Record<string, any>, config);
           const browserControlTransport = resolveBrowserControlTransport(toolContext as Record<string, any>, config);
           const emailMode = config?.smtpTransport ? "smtp" : browser.webmail_ready ? "browser_webmail" : "unavailable";
-          const verificationMode = config?.imapTransport ? "imap" : "unavailable";
+          let requiredBrowserVerificationProfileDigest: string | null = null;
+          try {
+            requiredBrowserVerificationProfileDigest = browserVerificationProfileDigest({
+              browserControlBaseUrl: config?.browserControlBaseUrl,
+              browserProfile: config?.browserProfile,
+              browserBackendMode: config?.browserBackendMode,
+            });
+          } catch { /* no exact logged-in browser profile is configured */ }
+          const verificationMode = config?.imapTransport ? "imap"
+            : browserVerificationTransportReady(config, browser) ? "browser_webmail" : "unavailable";
           const missing = [
             ...(stateEncryptionReady(config) ? [] : ["stateEncryptionKey_secretref"]),
             ...(profileIds.length ? [] : ["profiles_secretref"]),
             ...(typeof config?.braveApiKey === "string" ? [] : ["braveApiKey_secretref"]),
             ...(browser.configured ? [] : ["browser_backend"]),
             ...(emailMode !== "unavailable" ? [] : ["smtp_or_logged_in_webmail"]),
-            ...(verificationMode !== "unavailable" ? [] : ["receiver_authenticated_imap_verification"]),
+            ...(verificationMode !== "unavailable" ? [] : ["receiver_authenticated_imap_or_bound_browser_webmail_verification"]),
           ];
           let initialized = 0;
           if (stateEncryptionReady(config)) {
@@ -5210,6 +5513,10 @@ export default definePluginEntry({
               supported_browser_backends: browser.supported,
               remote_cloud_fallback: browser.remote_cloud_fallback_ready ? "configured" : "optional_not_configured",
               browser_control_transport: browserControlTransport,
+              browser_verification_binding: {
+                configured: verificationMode === "browser_webmail",
+                required_profile_digest: requiredBrowserVerificationProfileDigest,
+              },
             },
             selected_autonomous_modes: { browser: browser.selected, email_send: emailMode, verification: verificationMode },
             readiness_scope: "configuration_only_run_rightout_doctor_for_live_browser_probe",
@@ -5244,7 +5551,8 @@ export default definePluginEntry({
             ? await probeBrowserBackend(resolveBrowserControl(toolContext as Record<string, any>, config, "remote_cloud_cdp"))
             : { reachable: false, operational: false, deep_snapshot: false };
           const emailSend = Boolean(config?.smtpTransport) || browser.webmail_ready;
-          const verificationReady = Boolean(config?.imapTransport);
+          const browserWebmailVerification = browserVerificationTransportReady(config, browser);
+          const verificationReady = Boolean(config?.imapTransport) || browserWebmailVerification;
           const checks = {
             encrypted_state: stateEncryptionReady(config),
             configured_profiles: Object.values(config?.profiles ?? {}).filter((entry) => typeof entry?.payload === "string").length,
@@ -5253,6 +5561,7 @@ export default definePluginEntry({
             brave_live_auth_unverified: true,
             smtp_send: Boolean(config?.smtpTransport),
             imap_verification: Boolean(config?.imapTransport),
+            browser_webmail_verification: browserWebmailVerification,
             email_send: emailSend,
             verification: verificationReady,
             browser_backend_configured: browser.configured,
@@ -5307,7 +5616,7 @@ export default definePluginEntry({
               publisher_lane_authorization_ready: authorization.any_publisher_lane_authorized,
               external_provider_auth_quota_and_effectiveness_verified: false,
             },
-            operator_configuration_optional_by_lane: ["smtp_send", "imap_verification", "official_registry_snapshot", "official_parity_source_snapshot"],
+            operator_configuration_optional_by_lane: ["smtp_send", "imap_verification", "browser_webmail_verification", "official_registry_snapshot", "official_parity_source_snapshot"],
             provider_reads: 0, provider_writes: 0, raw_pii_in_report: false, secrets_in_report: false,
           };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };

@@ -19,9 +19,11 @@ synthetic validator, never a live fallback.
   SecretRefs. Missing configuration or provenance is `needs_evidence`.
 - Never route around RightOut with another browser, shell, mail, web-search, or
   provider tool. RightOut owns the disclosure boundary and durable intent.
-- Never solve dynamic CAPTCHA or distorted static text, upload ID, place a phone
-  call, send fax/postal mail, pay, create an account, or invent authority. Only
-  a strict arithmetic challenge may use the bounded host-computed action.
+- Never solve dynamic CAPTCHA, slider, OTP, or security questions, upload ID,
+  place a phone call, send fax/postal mail, pay, create an account, or invent
+  authority. A strict arithmetic challenge may use the bounded host-computed
+  action; an explicitly identified static text challenge may accept one short
+  alphanumeric value returned by the bounded RightOut challenge snapshot.
 - Search-index absence, mailbox silence, ambiguous pages, redirects, block
   pages, SMTP acceptance, and one direct absence are not completed removal.
 
@@ -136,6 +138,10 @@ at `human_gate`. Do not manufacture an authorization hash.
    snapshot or report.
 7. Any hard challenge becomes a human gate. Do not switch tools or browsers
    except for the campaign-planned distinct remote-cloud retry above.
+   Use `fill_challenge` only for the returned arithmetic-answer ref. Use
+   `fill_static_text_challenge` only for a returned static-text-answer ref and
+   a 1-12 character alphanumeric value; never use it for dynamic CAPTCHA,
+   sliders, OTP, or security questions.
 
 ## Publisher discovery sessions
 
@@ -165,10 +171,16 @@ at `human_gate`. Do not manufacture an authorization hash.
   and message content remain redacted. `send` is the only final purpose.
 - Receiver-authenticated IMAP: use `rightout_poll_verification`, then
   `rightout_open_verification` with the opaque handle.
-- Browser-mail verification: `rightout_begin_webmail_verification` returns a
-  zero-I/O human gate. It never searches Gmail or consumes a campaign effect.
-  Use receiver-authenticated Gmail IMAP for autonomous verification, otherwise
-  tell the operator to verify manually.
+- Browser-mail verification: when the campaign includes both
+  `poll_verification` and `open_verification`, use
+  `rightout_begin_webmail_verification` in the exact configured logged-in Gmail
+  profile. Continue through `rightout_webmail_session_step` using only
+  `open_message`, `inspect_authentication`, and `open_confirmation` refs from
+  the latest redacted snapshot. The plugin requires intended-recipient match,
+  an allowlisted `signed-by`/`mailed-by` domain, and one HTTPS confirmation
+  control on an allowlisted broker domain. Raw mail and link values never leave
+  the browser control plane. If any gate is missing or ambiguous, close the
+  session and report the human task; never reconstruct a link.
 - Verification links must pass HTTPS, credential, port, and official-domain
   phishing checks. Never open a reconstructed or arbitrary URL.
 

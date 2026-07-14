@@ -1,7 +1,7 @@
 # RightOut v0.8.1
 
 RightOut 0.8.1 is an audit-remediation release for autonomous Brave discovery,
-case-state safety, coverage claims, country handling, and release provenance.
+case-state safety, technical feature coverage, country handling, and release provenance.
 
 - A scan report created under a finite campaign grant is now accepted by the
   durable case ledger. A real runtime regression starts a discover-only
@@ -31,6 +31,20 @@ case-state safety, coverage claims, country handling, and release provenance.
 - The live Hermes gate now compares the security-relevant Unbroker subtree
   directly with the pinned tree. Unrelated upstream commits no longer create a
   false release failure; any change inside the subtree still stops for review.
+- Browser-webmail verification now uses one exact logged-in Gmail profile. It
+  requires the intended recipient, an allowlisted `signed-by`/`mailed-by`
+  domain, and one HTTPS confirmation control on an allowlisted broker domain;
+  raw mail, PII, and link tokens never enter public tool output.
+- Explicit static arithmetic remains host-computed, and an explicitly
+  identified static text challenge can accept only its one short snapshot-bound value.
+  Dynamic CAPTCHA, OTP, sliders, security questions, ID, account, payment,
+  phone, fax, and mail gates remain human-only.
+- The machine evidence now separates technical capability from operational
+  availability. Every pinned capability is implemented or reached through an
+  equivalent-and-stricter path, while provider permission and default live
+  autonomy remain fail-closed.
+- The public README removes the reference-product comparison and presents only
+  independently verifiable RightOut coverage and limitations.
 
 The historical v0.8.0 tag remains unsigned and is not rewritten. Version 0.8.1
 can be published only from a newly signed, GitHub-verified annotated tag after

@@ -522,11 +522,11 @@ test("plugin manifest declares the full autonomous campaign surface with correct
   assert.equal(manifest.toolMetadata.rightout_submit_removal.replaySafe, false);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.optional, true);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.replaySafe, false);
-  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission", "rightout_rotate_state_key", "rightout_start_campaign", "rightout_revoke_campaign", "rightout_refresh_registries", "rightout_refresh_parity_sources", "rightout_record_drop_filed", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step", "rightout_begin_discovery_session", "rightout_discovery_session_step", "rightout_begin_form_session", "rightout_form_session_step"]) {
+  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_reconcile_submission", "rightout_rotate_state_key", "rightout_start_campaign", "rightout_revoke_campaign", "rightout_refresh_registries", "rightout_refresh_parity_sources", "rightout_record_drop_filed", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step", "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step", "rightout_begin_form_session", "rightout_form_session_step"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, false);
   }
-  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks", "rightout_campaign_status", "rightout_campaign_next", "rightout_registry_status", "rightout_registry_search", "rightout_unbroker_parity_health", "rightout_begin_webmail_verification"]) {
+  for (const name of ["rightout_next_actions", "rightout_case_status", "rightout_export_report", "rightout_catalog_health", "rightout_setup", "rightout_doctor", "rightout_due_rechecks", "rightout_campaign_status", "rightout_campaign_next", "rightout_registry_status", "rightout_registry_search", "rightout_unbroker_parity_health"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, true);
   }

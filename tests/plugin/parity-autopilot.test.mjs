@@ -147,16 +147,19 @@ test("autopilot selects privacy-redacted webmail when SMTP is not configured", (
   assert.equal(next.command.parameters.brokerId, "peekyou");
 });
 
-test("autopilot rejects browser-mail verification and requires authenticated IMAP or a human handoff", () => {
-  assert.throws(() => planParityCampaignNext({
-    campaign: { ...campaign, broker_ids: ["familytreenow"] },
+test("autopilot routes due browser-mail verification through the bound logged-in profile", () => {
+  const next = planParityCampaignNext({
+    campaign: { ...campaign, broker_ids: ["spokeo"], effects: [...campaign.effects, "open_verification"] },
     caseStatus: { cases: [{
-      broker_id: "familytreenow", state: "verification_pending", next_recheck_at: "2026-01-01T00:00:00.000Z",
+      broker_id: "spokeo", state: "verification_pending", next_recheck_at: "2026-01-01T00:00:00.000Z",
     }] },
-    parityCatalog: { brokers: [{ id: "familytreenow", method: "web_form", source_status: "observed_403_antibot", verification: "email" }] },
-    verificationMode: "webmail",
+    parityCatalog: { brokers: [{ id: "spokeo", method: "web_form", source_status: "observed_403_antibot", verification: "email" }] },
+    verificationMode: "browser_webmail",
     now: Date.parse("2026-07-13T00:00:00.000Z"),
-  }), /rightout_autopilot_transport_invalid/);
+  });
+  assert.equal(next.command.tool, "rightout_begin_webmail_verification");
+  assert.equal(next.command.parameters.brokerId, "spokeo");
+  assert.equal(next.command.parameters.campaignId, campaign.campaign_id);
 });
 
 test("a blocked route retries through the configured remote cloud browser before becoming human work", () => {

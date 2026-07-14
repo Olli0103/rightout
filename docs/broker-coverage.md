@@ -8,14 +8,14 @@ real-world removals.
 | Capability | Coverage | Release state |
 | --- | ---: | --- |
 | Reference broker IDs | 22 of 22 | exact |
-| Web-form contracts | 20 of 20 | normalized method/route/input contracts feed a generic synthetic-tested engine; only PeopleConnect has a provider-specific staged multi-step E2E; default deny without current written provider authorization |
+| Web-form contracts | 20 of 20 | normalized method/route/input contracts feed a generic engine with per-contract fixtures and a durable all-route campaign E2E; only PeopleConnect needs and has a separately staged same-browser flow; default deny without current written provider authorization |
 | Email methods | 1 of 1 | evidenced |
 | Phone methods | 1 of 1 | human like reference; official email rescue also available |
 | One-batch Brave discovery | 21 of 22 | tested, indirect index evidence only; Spokeo is a separate human-only gate because its published terms prohibit automated queries |
 | Publisher-browser fallback after inconclusive index search | 0 routes enabled by public evidence alone | requires current written provider authorization; 8 routes explicitly prohibit automation and 14 remain `needs_evidence` |
 | Generic form contract fixtures | 20 of 20 | synthetic one-page fixtures cover split-name/email-confirm/listing-ID aliases; they do not prove exact live provider choreography or effectiveness |
 | Authenticated IMAP verification | catalog-supported Gmail routes | implemented; authorized canary still required |
-| Browser-only inbound verification | 0 autonomous routes | zero-I/O human gate; no structured receiver-authentication contract |
+| Browser-only inbound verification | catalog-supported Gmail routes | exact logged-in profile binding, recipient plus allowed `signed-by`/`mailed-by` domain, one HTTPS allowlisted confirmation control, no raw mail/link output |
 | Exact known-listing recheck | every source-ready route except published automation prohibition | terms/authority attestation required |
 
 `clustrmaps` and `peekyou` are external runtime degradations, not missing

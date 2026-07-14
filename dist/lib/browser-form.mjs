@@ -100,6 +100,7 @@ function normalizeRefs(snapshot) {
         refs.push({
             ref,
             role: String(value.role ?? "").toLowerCase(),
+            rawName: String(value.name ?? ""),
             name: String(value.name ?? "").toLowerCase(),
             href: typeof value.href === "string" ? value.href : undefined,
             checked: value.checked === true,
@@ -198,7 +199,7 @@ function challengeClass(text) {
     if (/\b(?:arithmetic (?:challenge|captcha)|static arithmetic challenge)\b/u.test(clean))
         return "static_challenge_visible";
     if (/\bstatic text challenge\b/u.test(clean))
-        return "hard_human_gate";
+        return "static_text_challenge_visible";
     return "none";
 }
 function parsedArithmeticChallenge(text) {
@@ -214,6 +215,47 @@ function parsedArithmeticChallenge(text) {
         return null;
     return { left, operator, right, answer };
 }
+function parsedStaticTextChallenge(refs) {
+    const matches = refs.flatMap((item) => {
+        if (item.role !== "img")
+            return [];
+        const match = /^\s*static text challenge(?: text| value)?\s*[:=-]\s*([A-Za-z0-9]{1,12})\s*$/iu.exec(item.rawName);
+        return match ? [match[1]] : [];
+    });
+    return matches.length === 1 ? matches[0] : null;
+}
+const VERIFICATION_HINT = /\b(?:opt.?out|remov(?:al|e)?|verif(?:y|ication)?|confirm(?:ation)?|suppress(?:ion)?|privacy|delete)\b/u;
+function domainMatches(hostname, domains) {
+    return Array.isArray(domains) && domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+function verificationLinkDomain(href, domains) {
+    let url;
+    try {
+        url = new URL(href);
+    }
+    catch {
+        return null;
+    }
+    if (url.protocol !== "https:" || url.username || url.password || !domainMatches(url.hostname, domains))
+        return null;
+    return url.hostname;
+}
+function authenticatedWebmailMessage(refs, senderDomains, recipient) {
+    if (typeof recipient !== "string" || !recipient || !Array.isArray(refs))
+        return false;
+    return refs.some((item) => {
+        if (!["dialog", "group", "table"].includes(item.role))
+            return false;
+        const clean = String(item.name ?? "").toLowerCase();
+        if (!/\b(?:message details|authentication details|security details)\b/u.test(clean)
+            || !clean.includes(recipient.toLowerCase()))
+            return false;
+        return Array.isArray(senderDomains) && senderDomains.some((domain) => {
+            const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            return new RegExp(`\\b(?:signed-by|mailed-by)\\s*[:=]?\\s*(?:[a-z0-9.-]+\\.)?${escaped}\\b`, "u").test(clean);
+        });
+    });
+}
 function observedOutcomeMarkers(snapshot) {
     const text = String(snapshot?.snapshot ?? "");
     return [
@@ -223,7 +265,7 @@ function observedOutcomeMarkers(snapshot) {
         "message_sent_observed",
     ].filter((marker) => text.includes(marker));
 }
-function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], values, privacyMode = "generic_form", brokerMessageDomains = [], verificationRecipient, verificationMessageAuthenticated = false, }) {
+function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], values, privacyMode = "generic_form", brokerMessageDomains = [], brokerMessageNames = [], verificationRecipient, verificationLinkDomains = [], }) {
     if (!snapshot || snapshot.ok !== true || snapshot.format !== "ai" || typeof snapshot.url !== "string") {
         throw new Error("rightout_browser_snapshot_invalid");
     }
@@ -240,7 +282,12 @@ function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], v
     const rawText = redact(privateRawText, pairs).slice(0, 100_000);
     let challenge = challengeClass(rawText);
     const arithmetic = challenge === "static_challenge_visible" ? parsedArithmeticChallenge(privateRawText) : null;
+    const parsedStaticText = challenge === "static_text_challenge_visible" ? parsedStaticTextChallenge(normalized) : null;
+    const staticText = parsedStaticText && !pairs.some(([secret]) => secret.toLowerCase().includes(parsedStaticText.toLowerCase()))
+        ? parsedStaticText : null;
     if (challenge === "static_challenge_visible" && arithmetic === null)
+        challenge = "hard_human_gate";
+    if (challenge === "static_text_challenge_visible" && staticText === null)
         challenge = "hard_human_gate";
     let text = rawText;
     if (privacyMode === "generic_form") {
@@ -275,6 +322,9 @@ function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], v
             if (["textbox", "combobox"].includes(item.role)) {
                 if (challenge === "static_challenge_visible" && item.role === "textbox" && /\b(?:arithmetic answer|challenge answer)\b/u.test(redactedName)) {
                     return [{ ref: item.ref, role: item.role, name: "arithmetic answer" }];
+                }
+                if (challenge === "static_text_challenge_visible" && item.role === "textbox" && /\b(?:static text|captcha|challenge) answer\b/u.test(redactedName)) {
+                    return [{ ref: item.ref, role: item.role, name: "static text challenge answer" }];
                 }
                 const matches = fieldSpecs.filter(([field, pattern]) => allowedFields.includes(field) && pattern.test(redactedName));
                 if (matches.length === 1)
@@ -335,6 +385,42 @@ function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], v
             "<webmail_content_redacted>",
             ...(challenge === "none" ? [] : [`challenge:${challenge}`]),
             ...(/\bmessage sent\b/iu.test(rawText) ? ["message_sent_observed"] : []),
+        ].join("\n");
+    }
+    else if (privacyMode === "webmail_verification") {
+        const pageDomain = new URL(pageUrl).hostname;
+        const onWebmail = pageDomain === "mail.google.com";
+        const senderTokens = [...new Set([
+                ...brokerMessageDomains.map((value) => String(value).toLowerCase()),
+                ...brokerMessageNames.map((value) => String(value).toLowerCase()),
+            ].filter(Boolean))];
+        const authenticated = onWebmail
+            && authenticatedWebmailMessage(normalized, brokerMessageDomains, verificationRecipient);
+        refs = onWebmail ? normalized.flatMap((item) => {
+            const name = item.name;
+            const messageCandidate = ["link", "button", "row", "gridcell"].includes(item.role)
+                && senderTokens.some((token) => name.includes(token)) && VERIFICATION_HINT.test(name);
+            const authenticationControl = ["link", "button"].includes(item.role)
+                && /\b(?:show details|message details|authentication details|view security details)\b/u.test(name);
+            const confirmationDomain = authenticated && ["link", "button"].includes(item.role)
+                ? verificationLinkDomain(item.href, verificationLinkDomains) : null;
+            const confirmationControl = Boolean(confirmationDomain)
+                && (VERIFICATION_HINT.test(name) || /\b(?:click here|continue|complete request)\b/u.test(name));
+            if (messageCandidate)
+                return [{ ref: item.ref, role: item.role, name: "broker verification message" }];
+            if (authenticationControl)
+                return [{ ref: item.ref, role: item.role, name: "authentication details" }];
+            if (confirmationControl)
+                return [{ ref: item.ref, role: item.role, name: "confirmation control", confirmation_domain: confirmationDomain }];
+            return [];
+        }) : [];
+        text = [
+            onWebmail ? "<webmail_verification_content_redacted>" : "<verification_destination_content_redacted>",
+            ...(challenge === "none" ? [] : [`challenge:${challenge}`]),
+            ...(authenticated ? ["verification_message_authenticated"] : []),
+            ...(!onWebmail && domainMatches(pageDomain, verificationLinkDomains) ? ["verification_destination_opened_observed"] : []),
+            `broker_message_controls:${refs.filter((item) => item.name === "broker verification message").length}`,
+            `confirmation_controls:${refs.filter((item) => item.name === "confirmation control").length}`,
         ].join("\n");
     }
     else if (privacyMode === "publisher_discovery") {
@@ -435,6 +521,9 @@ function publicSessionSnapshot(snapshot, { allowedDomains, allowedFields = [], v
         ...(arithmetic && challenge === "static_challenge_visible"
             ? { arithmetic_challenge: { left: arithmetic.left, operator: arithmetic.operator, right: arithmetic.right } }
             : {}),
+        ...(staticText && challenge === "static_text_challenge_visible"
+            ? { static_text_challenge: { value: staticText } }
+            : {}),
         raw_pii_in_snapshot: false,
     };
 }
@@ -490,7 +579,7 @@ function assertPurpose(snapshot, item, purpose) {
         suppress: /\b(?:suppress|suppression|do not display|hide my record|suppression action)\b/u,
         confirm: /\b(?:confirm|verify|yes|confirmation action)\b/u,
         send: /\b(?:send|send message|send action)\b/u,
-        open_message: /\bbroker message\b/u,
+        open_message: /\bbroker verification message\b/u,
         open_confirmation: /\bconfirmation control\b/u,
         inspect_authentication: /\bauthentication details\b/u,
         discard: /\b(?:discard|delete draft|discard draft)\b/u,
@@ -500,8 +589,8 @@ function assertPurpose(snapshot, item, purpose) {
     }
     if (!patterns[purpose]?.test(item.name))
         throw new Error("rightout_form_action_not_allowed");
-    if (["continue", "agree", "submit", "suppress", "confirm", "send", "open_confirmation"].includes(purpose)) {
-        const candidates = snapshot.refs.filter((candidate) => ["button", "link", "checkbox", "radio"].includes(candidate.role) && patterns[purpose].test(candidate.name));
+    if (["continue", "agree", "submit", "suppress", "confirm", "send", "open_message", "inspect_authentication", "open_confirmation"].includes(purpose)) {
+        const candidates = snapshot.refs.filter((candidate) => ["button", "link", "checkbox", "radio", "row", "gridcell"].includes(candidate.role) && patterns[purpose].test(candidate.name));
         if (candidates.length !== 1 || candidates[0].ref !== item.ref)
             throw new Error("rightout_form_action_ambiguous");
     }
@@ -556,7 +645,8 @@ export function createBrowserSessionDriver({ fetchImpl = globalThis.fetch, now =
         if (!SAFE_TARGET.test(options.targetId))
             throw new Error("rightout_form_target_invalid");
         const base = safeBridgeUrl(options.bridgeUrl);
-        const before = await inspect(options);
+        const privateBefore = await rawSnapshot(options);
+        const before = publicSessionSnapshot(privateBefore, options);
         if (before.challenge === "hard_human_gate")
             throw new Error("rightout_form_human_gate_required");
         if (before.challenge === "access_blocked")
@@ -607,9 +697,32 @@ export function createBrowserSessionDriver({ fetchImpl = globalThis.fetch, now =
                 externalEffectStarted = true;
                 await bridgeRequest(fetchImpl, base, "/act", { method: "POST", body: { kind: "fill", fields: [{ ref: action.ref, type: "text", value: String(answer) }], targetId: options.targetId }, ...bridgeOptions });
             }
+            else if (action.kind === "fill_static_text_challenge") {
+                const item = exactRef(before, action.ref, ["textbox"]);
+                if (before.challenge !== "static_text_challenge_visible" || item.name !== "static text challenge answer"
+                    || typeof action.answer !== "string" || !/^[A-Za-z0-9]{1,12}$/.test(action.answer)
+                    || action.answer !== before.static_text_challenge?.value)
+                    throw new Error("rightout_form_action_not_allowed");
+                externalEffectStarted = true;
+                await bridgeRequest(fetchImpl, base, "/act", {
+                    method: "POST",
+                    body: { kind: "fill", fields: [{ ref: action.ref, type: "text", value: action.answer }], targetId: options.targetId },
+                    ...bridgeOptions,
+                });
+            }
             else if (action.kind === "click") {
-                const item = exactRef(before, action.ref, ["button", "link", "checkbox", "radio"]);
+                const item = exactRef(before, action.ref, ["button", "link", "checkbox", "radio", "row", "gridcell"]);
                 assertPurpose(before, item, action.purpose);
+                if (action.purpose === "open_confirmation") {
+                    if (options.privacyMode !== "webmail_verification"
+                        || !before.snapshot.includes("verification_message_authenticated")) {
+                        throw new Error("rightout_webmail_message_not_authenticated");
+                    }
+                    const privateItem = normalizeRefs(privateBefore).find((candidate) => candidate.ref === action.ref);
+                    if (!privateItem || !verificationLinkDomain(privateItem.href, options.verificationLinkDomains)) {
+                        throw new Error("rightout_webmail_confirmation_link_rejected");
+                    }
+                }
                 if (options.privacyMode === "peopleconnect_guided" && action.purpose === "select_record" && item.corroborated !== true) {
                     throw new Error("rightout_peopleconnect_record_not_corroborated");
                 }

@@ -25,12 +25,14 @@ RightOut never collapses these into one “100%” number:
    contract. Current public evidence permits zero reference form routes, while
    8 explicitly prohibit automation and 14 remain `needs_evidence`.
 
-Only the first claim is complete in 0.8.1. Capability classifications include
-explicit `conditional`, `gap`, and `human_only` states; exact provider-specific
-form choreography is independently staged only for PeopleConnect. The third
-claim is deliberately not called complete. A product cannot infer a publisher
-license from subject consent, public reachability, a privacy right, or
-Unbroker's implementation.
+The normalized contract and technical capability claims are complete in 0.8.1.
+`implemented` means the same feature is executable; `equivalent_or_stronger`
+means RightOut reaches the same technical outcome with a stricter safety or
+provenance boundary. Exact provider-specific choreography beyond the reference
+generic recipe surface is independently staged only for PeopleConnect. The
+third claim is deliberately not called complete. A product cannot infer a
+publisher license from subject consent, public reachability, a privacy right,
+or Unbroker's implementation.
 
 ## Required behavior
 
@@ -42,14 +44,16 @@ Unbroker's implementation.
 - changed profile, catalog, browser, transport, permission, expiry, revocation,
   or budget fails before provider I/O;
 - DOB needs a separate exact critical `allow-once` at the form step;
-- CAPTCHA, distorted static text, OTP, ID, phone, fax, mail, payment, and
-  account gates are human;
+- static arithmetic is solved locally and an explicitly identified static text
+  challenge accepts only its one short snapshot-bound value; dynamic CAPTCHA, OTP, slider,
+  security-question, ID, phone, fax, mail, payment, and account gates are human;
 - Brave uses the official POST API and keeps query/result bodies and result URLs
   transient;
 - SMTP/browser send is only `submitted`; broker receipt/deletion is not inferred;
-- browser-only inbound mail is human because the normal UI lacks a structured
-  receiver-authentication contract; autonomous verification uses pinned Gmail
-  IMAP and official-domain link scoring;
+- browser-only inbound mail uses one exact logged-in Gmail profile binding,
+  recipient match, allowed `signed-by`/`mailed-by` domain, and one HTTPS
+  allowlisted confirmation control; raw mail and link values are not returned;
+  pinned Gmail IMAP remains the structured alternative;
 - two time-separated direct absences over the complete known encrypted listing
   set are required for people-search `confirmed_removed`;
 - every ambiguous write records durable intent and blocks retry until separately
@@ -71,7 +75,7 @@ Unbroker's implementation.
 | form removal | generic semantic sessions with durable intent and redacted semantic-state receipts; PeopleConnect has a staged path |
 | email send | pinned SMTP or redacted outbound Gmail compose |
 | poll / verify link | receiver-authenticated Gmail IMAP plus opaque official-domain link open |
-| browser inbox fallback | explicit zero-I/O human handoff, not a false authenticated result |
+| browser inbox fallback | bound Gmail session with recipient + sender-authentication evidence and an allowlisted confirmation control |
 | registry / DROP | CA registry plus VT/OR/TX routing and human-filed DROP record |
 | show / due / tasks | case status, due queue, consolidated human digest |
 | status / Sheets report | Markdown, structured JSON, and Sheets-compatible rows |
@@ -95,8 +99,9 @@ ran or deletion occurred.
 - immutable upstream subtree refresh immediately before publication.
 
 The release may claim complete pinned normalized broker/method/route/input
-coverage. It may not claim complete provider-specific playbook choreography,
-complete capability parity, 100% default autonomous execution, browser-only
-authenticated verification, distorted-text OCR, retrievable screenshots,
-universal deletion, or managed-service inventory parity unless those facts
-later become evidenced and tested.
+coverage and complete technical capability parity against this exact reference
+subtree. It may not claim complete provider-specific choreography beyond the
+reference generic recipe surface, default operational autonomy, current
+provider permission, retrievable screenshots, universal deletion, measured
+real-world effectiveness, or managed-service inventory parity unless those
+facts later become evidenced and tested.
