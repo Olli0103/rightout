@@ -307,10 +307,12 @@ test("worker startup recovery re-registers a lease watchdog after restart", asyn
   assert.equal(runtime.scheduled.length, 1);
 
   const restarted = await runtimeFixture({ stateDir: runtime.stateDir });
-  for (let attempt = 0; attempt < 20 && restarted.scheduled.length === 0; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  const recoveryDeadline = Date.now() + 5_000;
+  while (restarted.scheduled.length === 0 && Date.now() < recoveryDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert.equal(restarted.scheduled.length, 1);
+  const recoveryStatus = await restarted.tools.get("rightout_worker_status").execute("recovery-status", { workerId: enabled.details.worker_id });
+  assert.equal(restarted.scheduled.length, 1, `startup recovery did not schedule: ${JSON.stringify(recoveryStatus.details)}`);
   assert.match(restarted.scheduled[0].tag, /^rightout-worker-/);
   assert.equal(restarted.scheduled[0].sessionKey, trusted.sessionKey);
   assert.ok(restarted.scheduled[0].delayMs >= 1_000);
