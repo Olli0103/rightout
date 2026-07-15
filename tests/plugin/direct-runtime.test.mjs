@@ -11,7 +11,7 @@ import { scanProfileDigest } from "../../lib/live-scan.mjs";
 import { createEncryptedFileKeyedStore } from "../../lib/file-keyed-store.mjs";
 import { publisherAutomationPermissions } from "./provider-terms-fixture.mjs";
 
-test("runtime direct rescan is exact-handle scoped and requires its own allow-once", async () => {
+test("runtime direct rescan is exact-handle scoped and requires its own allow-once", async (t) => {
   const profileId = "profile_a1b2c3d4e5f60718";
   const brokerId = "truepeoplesearch";
   const profilePayload = JSON.stringify({
@@ -20,6 +20,9 @@ test("runtime direct rescan is exact-handle scoped and requires its own allow-on
   });
   const key = "dummy-encryption-key-with-more-than-32-characters";
   const stateDir = await mkdtemp(join(tmpdir(), "rightout-direct-runtime-"));
+  t.after(async () => {
+    await rm(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
+  });
   const hooks = new Map();
   const tools = new Map();
   const config = {
@@ -79,5 +82,4 @@ test("runtime direct rescan is exact-handle scoped and requires its own allow-on
     toolCallId: "direct-wrong-scope",
   });
   assert.equal(wrong.block, true);
-  await rm(stateDir, { recursive: true, force: true });
 });
