@@ -16,6 +16,23 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[1]
 SKIP_PARTS = {".git", ".tmp", "node_modules", "__pycache__"}
 TEXT_SUFFIXES = {".md", ".py", ".ts", ".mjs", ".js", ".json", ".yml", ".yaml", ".sh", ".txt"}
+MARKET_IDS = {
+    "eu_eea", "uk", "us_california", "us_other", "canada", "brazil",
+    "australia", "japan", "singapore", "india", "other",
+}
+MARKET_DOCUMENTATION_HEADINGS = {
+    "eu_eea": "### EU and EEA",
+    "uk": "### United Kingdom",
+    "us_california": "### United States — California",
+    "us_other": "### Other US states",
+    "canada": "### Canada",
+    "brazil": "### Brazil",
+    "australia": "### Australia",
+    "japan": "### Japan",
+    "singapore": "### Singapore",
+    "india": "### India",
+    "other": "### All other markets",
+}
 
 
 def fail(errors: list[str], message: str) -> None:
@@ -34,6 +51,87 @@ def release_files() -> list[Path]:
         if path.suffix.lower() in TEXT_SUFFIXES or path.name in {"VERSION", "Makefile"}:
             files.append(path)
     return sorted(files)
+
+
+def validate_market_policy_report(report: dict, analysis: str, package_files: set[str]) -> list[str]:
+    errors: list[str] = []
+    markets = report.get("markets")
+    if report.get("report_version") != 1 or not isinstance(markets, list):
+        return ["market-policy runtime report is invalid"]
+    by_id = {
+        item.get("market_id"): item
+        for item in markets
+        if isinstance(item, dict) and isinstance(item.get("market_id"), str)
+    }
+    if set(by_id) != MARKET_IDS or len(markets) != len(MARKET_IDS):
+        errors.append("market-policy runtime coverage does not exactly match the documented 11-market contract")
+    core_ids = {
+        market_id
+        for market_id, item in by_id.items()
+        if item.get("coverage_class") == "core"
+    }
+    if core_ids != {"eu_eea", "uk", "us_california"}:
+        errors.append("market-policy core market set is invalid")
+    stale_core = sorted(
+        market_id
+        for market_id in core_ids
+        if by_id[market_id].get("source_status") != "current"
+    )
+    if stale_core:
+        errors.append(f"core market-policy sources require review before release: {', '.join(stale_core)}")
+    uk = by_id.get("uk", {})
+    if (
+        uk.get("evidence_status") != "evidenced"
+        or uk.get("rightout_support", {}).get("controller_request") != "catalog_limited_1_uk_email_route"
+        or uk.get("safe_default") != "dedicated_uk_contract_or_human_gate"
+        or "only_cognism_uk_email_route_is_currently_evidenced" not in uk.get("open_requirements", [])
+    ):
+        errors.append("UK market policy must bind the separate catalog-limited route and preserve the wider evidence gap")
+    california = by_id.get("us_california", {})
+    if (
+        california.get("rightout_support", {}).get("universal_broker_request") != "human_verified_drop_filing_record_only"
+        or california.get("rightout_support", {}).get("gpc_preference") != "human_verified_signal_record_only"
+        or "gpc_provider_compliance_requires_site_specific_evidence" not in california.get("open_requirements", [])
+    ):
+        errors.append("California market policy must keep DROP human-only and GPC site compliance evidence-bound")
+    us_other = by_id.get("us_other", {})
+    if us_other.get("rightout_support", {}).get("gpc_preference") != "human_verified_signal_legal_effect_needs_market_evidence":
+        errors.append("non-California US GPC effect must remain market-specific needs_evidence")
+    for market_id, item in by_id.items():
+        if (
+            item.get("source_status") not in {"current", "review_due", "stale"}
+            or item.get("operational_authority") != "diagnostic_only_not_authorization"
+            or not isinstance(item.get("rightout_support"), dict)
+            or item.get("rightout_support", {}).get("gpc_preference") not in {
+                "human_verified_signal_record_only",
+                "human_verified_signal_legal_effect_needs_market_evidence",
+                "unsupported_or_not_evidenced",
+            }
+            or not isinstance(item.get("safe_default"), str)
+            or not isinstance(item.get("open_requirements"), list)
+            or not isinstance(item.get("next_review_at"), str)
+        ):
+            errors.append(f"market-policy record is incomplete: {market_id}")
+    required_rules = {
+        "technical_discovery_support_is_not_legal_or_provider_authorization",
+        "publisher_automation_requires_current_written_provider_authorization_in_every_market",
+        "provider_specific_route_eligibility_does_not_create_a_universal_privacy_right",
+        "unsupported_or_uncertain_rights_execution_stops_at_a_human_gate",
+        "no_market_claims_universal_or_permanent_deletion",
+        "preference_signal_is_not_deletion_request_or_deletion_proof",
+    }
+    if set(report.get("cross_market_rules", [])) != required_rules:
+        errors.append("cross-market safety rules are incomplete")
+    for market_id, heading in MARKET_DOCUMENTATION_HEADINGS.items():
+        if heading not in analysis:
+            errors.append(f"market analysis does not document runtime market: {market_id}")
+    for required_file in {
+        "docs/market-analysis-2026-07.md",
+        "docs/roadmap-v0.10.0.md",
+    }:
+        if required_file not in package_files:
+            errors.append(f"market-safety release document is not packaged: {required_file}")
+    return errors
 
 
 def main() -> None:
@@ -122,6 +220,32 @@ def main() -> None:
     ]:
         if invariant not in benchmark:
             fail(errors, f"competitive evidence invariant missing: {invariant}")
+    market_analysis = (ROOT / "docs/market-analysis-2026-07.md").read_text(encoding="utf-8")
+    market_policy_check = subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "--eval",
+            'import { marketPolicyHealth } from "./lib/market-readiness.mjs"; process.stdout.write(JSON.stringify(marketPolicyHealth()));',
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    try:
+        market_policy_report = json.loads(market_policy_check.stdout)
+    except json.JSONDecodeError:
+        market_policy_report = {}
+    if market_policy_check.returncode != 0:
+        fail(errors, f"market-policy runtime check failed: {market_policy_check.stderr.strip()}")
+    else:
+        errors.extend(validate_market_policy_report(
+            market_policy_report,
+            market_analysis,
+            set(package.get("files", [])),
+        ))
 
     brokers = catalog.get("brokers", [])
     parity_counts = {
@@ -166,8 +290,19 @@ def main() -> None:
         fail(errors, "machine evidence contains an unresolved technical capability gap")
     expected_broker_ids = sorted(parity_baseline.get("broker_ids", []))
     actual_broker_ids = sorted(item.get("id") for item in parity_catalog.get("brokers", []))
-    if actual_broker_ids != expected_broker_ids or len(actual_broker_ids) != 22:
+    if parity_catalog.get("schema_version") != 2 or actual_broker_ids != expected_broker_ids or len(actual_broker_ids) != 22:
         fail(errors, "exact Unbroker broker surface mismatch")
+    invalid_market_contracts = sorted(
+        item.get("id")
+        for item in parity_catalog.get("brokers", [])
+        if (
+            item.get("execution_jurisdictions") != ["US", "US-CA"]
+            or item.get("execution_market_ids") != ["us_california", "us_other"]
+            or item.get("provider_request_contract") != "us_provider_delete_opt_out_v1"
+        )
+    )
+    if invalid_market_contracts:
+        fail(errors, f"parity routes lack the exact market-execution contract: {', '.join(invalid_market_contracts)}")
     provider_terms_brokers = provider_terms.get("brokers", [])
     if (
         provider_terms.get("schema_version") != 1
@@ -278,6 +413,8 @@ def main() -> None:
         "controller-replies.test.mjs", "controller-reply-runtime.test.mjs",
         "evidence-vault.test.mjs", "evidence-runtime.test.mjs", "custom-targets.test.mjs",
         "effectiveness.test.mjs", "team-access.test.mjs", "team-runtime.test.mjs", "dashboard.test.mjs",
+        "market-readiness.test.mjs", "uk-rights.test.mjs",
+        "preference-controls.test.mjs",
     ]:
         if not (ROOT / "tests/plugin" / test_file).is_file():
             fail(errors, f"parity evidence test missing: {test_file}")
@@ -342,8 +479,8 @@ def main() -> None:
             fail(errors, f"production dependency SBOM mismatch: {dependency}")
     for path in [
         ROOT / "dist/index.js", ROOT / "dist/lib/live-scan.mjs", ROOT / "dist/lib/scan-catalog.mjs", ROOT / "dist/lib/countries.mjs", ROOT / "dist/lib/direct-rescan.mjs",
-        ROOT / "dist/lib/file-keyed-store.mjs", ROOT / "dist/lib/catalog-health.mjs",
-        ROOT / "dist/lib/listing-tokens.mjs", ROOT / "dist/lib/removal.mjs", ROOT / "dist/lib/form-removal.mjs",
+        ROOT / "dist/lib/file-keyed-store.mjs", ROOT / "dist/lib/catalog-health.mjs", ROOT / "dist/lib/market-readiness.mjs",
+        ROOT / "dist/lib/listing-tokens.mjs", ROOT / "dist/lib/removal.mjs", ROOT / "dist/lib/uk-rights.mjs", ROOT / "dist/lib/form-removal.mjs",
         ROOT / "dist/lib/browser-form.mjs", ROOT / "dist/lib/imap.mjs", ROOT / "dist/lib/verification.mjs",
         ROOT / "dist/lib/cases.mjs", ROOT / "dist/lib/smtp.mjs", ROOT / "dist/lib/campaigns.mjs",
         ROOT / "dist/lib/parity-catalog.mjs", ROOT / "dist/lib/parity-email.mjs", ROOT / "dist/lib/parity-autopilot.mjs",
@@ -351,6 +488,7 @@ def main() -> None:
         ROOT / "dist/lib/autonomy-worker.mjs", ROOT / "dist/lib/recipes.mjs", ROOT / "dist/lib/controller-replies.mjs",
         ROOT / "dist/lib/evidence-vault.mjs", ROOT / "dist/lib/custom-targets.mjs", ROOT / "dist/lib/effectiveness.mjs",
         ROOT / "dist/lib/team-access.mjs", ROOT / "dist/lib/dashboard.mjs",
+        ROOT / "dist/lib/drop.mjs", ROOT / "dist/lib/preference-controls.mjs",
     ]:
         if not path.is_file():
             fail(errors, f"compiled release file missing: {path.relative_to(ROOT)}")
@@ -456,8 +594,8 @@ def main() -> None:
             else:
                 for relative in [
                     Path("index.js"), Path("lib/live-scan.mjs"), Path("lib/scan-catalog.mjs"), Path("lib/countries.mjs"), Path("lib/direct-rescan.mjs"), Path("lib/file-keyed-store.mjs"),
-                    Path("lib/catalog-health.mjs"),
-                    Path("lib/listing-tokens.mjs"), Path("lib/removal.mjs"), Path("lib/form-removal.mjs"),
+                    Path("lib/catalog-health.mjs"), Path("lib/market-readiness.mjs"),
+                    Path("lib/listing-tokens.mjs"), Path("lib/removal.mjs"), Path("lib/uk-rights.mjs"), Path("lib/form-removal.mjs"),
                     Path("lib/browser-form.mjs"), Path("lib/imap.mjs"), Path("lib/verification.mjs"),
                     Path("lib/cases.mjs"), Path("lib/smtp.mjs"), Path("lib/campaigns.mjs"),
                     Path("lib/parity-catalog.mjs"), Path("lib/parity-email.mjs"), Path("lib/parity-autopilot.mjs"), Path("lib/provider-terms.mjs"),
@@ -465,6 +603,7 @@ def main() -> None:
                     Path("lib/autonomy-worker.mjs"), Path("lib/recipes.mjs"), Path("lib/controller-replies.mjs"),
                     Path("lib/evidence-vault.mjs"), Path("lib/custom-targets.mjs"), Path("lib/effectiveness.mjs"),
                     Path("lib/team-access.mjs"), Path("lib/dashboard.mjs"),
+                    Path("lib/drop.mjs"), Path("lib/preference-controls.mjs"),
                 ]:
                     generated = Path(tmp) / relative
                     committed = ROOT / "dist" / relative
@@ -481,6 +620,29 @@ def main() -> None:
     dashboard_tool = manifest.get("toolMetadata", {}).get("rightout_export_dashboard", {})
     effectiveness_tool = manifest.get("toolMetadata", {}).get("rightout_effectiveness", {})
     team_overview_tool = manifest.get("toolMetadata", {}).get("rightout_team_overview", {})
+    drop_status_tool = manifest.get("toolMetadata", {}).get("rightout_record_drop_status", {})
+    gpc_observation_tool = manifest.get("toolMetadata", {}).get("rightout_record_gpc_observed", {})
+    canary_schema = (
+        manifest.get("configSchema", {}).get("properties", {})
+        .get("effectivenessCanaries", {}).get("additionalProperties", {}).get("items", {})
+    )
+    canary_required = {
+        "schemaVersion", "profileId", "brokerId", "kind", "startedAt", "observedAt",
+        "proofReference", "authorizationReferenceSha256", "deploymentEvidenceSha256",
+    }
+    canary_kinds = {
+        "identity_reviewed", "submission_delivered", "controller_confirmed",
+        "direct_absence", "reappearance", "human_handoff",
+    }
+    if (
+        set(canary_schema.get("required", [])) != canary_required
+        or canary_schema.get("properties", {}).get("schemaVersion", {}).get("const") != 2
+        or set(canary_schema.get("properties", {}).get("kind", {}).get("enum", [])) != canary_kinds
+        or canary_schema.get("properties", {}).get("authorizationReferenceSha256", {}).get("pattern") != "^[a-f0-9]{64}$"
+        or canary_schema.get("properties", {}).get("deploymentEvidenceSha256", {}).get("pattern") != "^[a-f0-9]{64}$"
+        or not canary_schema.get("allOf")
+    ):
+        fail(errors, "authorized-canary v2 config contract is incomplete")
     expected_tools = [
         "rightout_live_scan", "rightout_direct_rescan", "rightout_submit_removal",
         "rightout_submit_form_removal", "rightout_poll_verification", "rightout_poll_controller_reply", "rightout_open_verification",
@@ -492,7 +654,8 @@ def main() -> None:
         "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next",
         "rightout_worker_enable", "rightout_worker_status", "rightout_worker_tick", "rightout_worker_complete",
         "rightout_worker_resume", "rightout_worker_revoke", "rightout_revoke_campaign",
-        "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
+        "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed",
+        "rightout_record_drop_status", "rightout_record_gpc_observed", "rightout_registry_search",
         "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session",
         "rightout_webmail_session_step", "rightout_begin_webmail_verification",
         "rightout_begin_discovery_session", "rightout_discovery_session_step",
@@ -518,6 +681,14 @@ def main() -> None:
         fail(errors, "dashboard export must be optional and non-replay-safe")
     if effectiveness_tool.get("replaySafe") is not True or team_overview_tool.get("replaySafe") is not True:
         fail(errors, "effectiveness and team overview must be replay-safe")
+    for label, value in {
+        "DROP status": drop_status_tool,
+        "GPC observation": gpc_observation_tool,
+    }.items():
+        if value.get("optional") is not True or value.get("replaySafe") is not False:
+            fail(errors, f"{label} tool must be optional and non-replay-safe")
+        if set((value.get("configSignals") or [{}])[0].get("required", [])) != {"profiles", "stateEncryptionKey"}:
+            fail(errors, f"{label} config signals are incomplete")
     if set((purge_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey"}:
         fail(errors, "subject purge config signals are incomplete")
     if set((rotation_tool.get("configSignals") or [{}])[0].get("required", [])) != {"stateEncryptionKey", "previousStateEncryptionKeys"}:
@@ -583,13 +754,23 @@ def main() -> None:
         fail(errors, "removal attestation schema is not revision-complete")
     removal_properties = removal_schema.get("properties", {})
     if (
-        removal_properties.get("rightoutRemovalPolicyVersion", {}).get("const") != "2026-07-12-eu1"
+        removal_properties.get("rightoutRemovalPolicyVersion", {}).get("const") != "2026-07-16-global2"
         or removal_properties.get("rightoutRemovalPolicyAccepted", {}).get("const") is not True
         or removal_properties.get("subjectConsentReviewed", {}).get("const") is not True
         or removal_properties.get("smtpAccountAuthorized", {}).get("const") is not True
         or removal_properties.get("minimumDisclosureAccepted", {}).get("const") is not True
+        or removal_properties.get("authorizedRequestKinds", {}).get("maxItems") != 3
+        or removal_properties.get("authorizedRequestKinds", {}).get("items", {}).get("enum") != [
+            "delete_and_opt_out", "gdpr_erasure_objection", "uk_erasure_objection",
+        ]
     ):
         fail(errors, "removal policy/consent/SMTP attestation constants are incomplete")
+    controller_reply_schema = manifest.get("configSchema", {}).get("properties", {}).get("controllerReplyAttestations", {})
+    if (
+        controller_reply_schema.get("properties", {}).get("rightoutControllerReplyPolicyVersion", {}).get("const")
+        != "2026-07-16-global2"
+    ):
+        fail(errors, "controller-reply policy is not bound to the current EU/UK/US contract revision")
     live_brokers = [item for item in catalog.get("brokers", []) if item.get("scan", {}).get("supported") is True]
     if len(live_brokers) != 21:
         fail(errors, "live catalog must contain the reviewed 21-broker Brave-index scope")
@@ -597,13 +778,14 @@ def main() -> None:
         fail(errors, "every live broker must use search-index-only discovery")
     removal_brokers = [item for item in catalog.get("brokers", []) if item.get("removal", {}).get("supported") is True]
     if (
-        len(removal_brokers) != 28
-        or len({item.get("id") for item in removal_brokers}) != 28
+        len(removal_brokers) != 29
+        or len({item.get("id") for item in removal_brokers}) != 29
         or sum(item.get("process_class") == "eu_controller_email_erasure" for item in removal_brokers) != 18
+        or sum(item.get("process_class") == "uk_controller_email_erasure" for item in removal_brokers) != 1
         or sum(item.get("process_class") == "us_data_broker_email_deletion" for item in removal_brokers) != 8
         or any(item.get("human_only") is not False for item in removal_brokers)
     ):
-        fail(errors, "removal catalog must contain the reviewed 28-target US and EU scope")
+        fail(errors, "removal catalog must contain the reviewed 29-target US, EU, and UK scope")
     removal_lane = next((item.get("removal", {}) for item in removal_brokers if item.get("id") == "beenverified"), {})
     if (
         removal_lane.get("recipient") != "privacy@beenverified.com"
@@ -629,9 +811,34 @@ def main() -> None:
         or any(lane.get("confirmation_policy") != "submitted_until_controller_response" for lane in [fullenrich_lane, emetriq_lane])
     ):
         fail(errors, "EU removal lanes must keep official destinations, minimum disclosure, and controller-response semantics")
+    cognism_uk = next((item for item in removal_brokers if item.get("id") == "cognism_uk"), {})
+    uk_lane = cognism_uk.get("removal", {})
+    if (
+        cognism_uk.get("process_class") != "uk_controller_email_erasure"
+        or cognism_uk.get("jurisdictions") != ["UK"]
+        or cognism_uk.get("eu_process") is not None
+        or uk_lane.get("recipient") != "privacy@cognism.com"
+        or uk_lane.get("request_kinds") != ["uk_erasure_objection"]
+        or uk_lane.get("template_id") != "uk_erasure_objection_v1"
+        or uk_lane.get("rights_contract_id") != "uk_controller_erasure_objection_v1"
+        or uk_lane.get("eligible_jurisdictions") != ["UK"]
+        or uk_lane.get("identity_verification") != "controller_may_request_proportionate_follow_up_human_review"
+        or uk_lane.get("deadline_policy") != "one_calendar_month_conservative_recheck_v1"
+        or uk_lane.get("processing_days") != 28
+    ):
+        fail(errors, "UK removal lane must remain separate from the EU gate and bind request, identity, and deadline contracts")
     spokeo = next((item for item in catalog.get("brokers", []) if item.get("id") == "spokeo"), {})
     if spokeo.get("scan", {}).get("supported") is not False or spokeo.get("scan", {}).get("automated_access_policy") != "prohibited_by_published_terms":
         fail(errors, "Spokeo automation prohibition is not fail-closed")
+    california_drop = next((item for item in catalog.get("brokers", []) if item.get("id") == "california_drop"), {})
+    if (
+        california_drop.get("human_only") is not True
+        or california_drop.get("jurisdictions") != ["US-CA"]
+        or california_drop.get("last_verified") != "2026-07-16"
+        or "portal status" not in california_drop.get("notes", "").lower()
+        or "not direct record-level deletion proof" not in california_drop.get("notes", "").lower()
+    ):
+        fail(errors, "California DROP catalog fact must remain current, human-only, and explicitly non-proof")
 
     scan_files = [path for path in release_files() if path.resolve() != Path(__file__).resolve()]
     combined = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in scan_files)
@@ -692,6 +899,47 @@ def main() -> None:
         if required not in index:
             fail(errors, f"approval/security invariant missing: {required}")
     for required in [
+        "rightout_record_drop_status",
+        "rightout_record_gpc_observed",
+        "portal_status_is_direct_deletion_proof: false",
+        "site_compliance_verified: false",
+        "preference_controls",
+    ]:
+        if required not in index:
+            fail(errors, f"DROP/GPC runtime invariant missing: {required}")
+    drop_contract = (ROOT / "lib/drop.mjs").read_text(encoding="utf-8")
+    preference_contract = (ROOT / "lib/preference-controls.mjs").read_text(encoding="utf-8")
+    cases_source = (ROOT / "lib/cases.mjs").read_text(encoding="utf-8")
+    report_export = (ROOT / "lib/report-export.mjs").read_text(encoding="utf-8")
+    for required in [
+        "california_drop_human_status_v2",
+        "portal_status_is_not_direct_record_level_deletion_proof",
+        "ordinary_processing_days: 90",
+        "broker_access_cycle_days: 45",
+        "status_authority: \"human_observed_portal_claim_only\"",
+    ]:
+        if required not in drop_contract:
+            fail(errors, f"DROP contract invariant missing: {required}")
+    for required in [
+        "opt_out_sale_or_sharing_preference",
+        "not_a_deletion_request_or_deletion_proof",
+        "needs_evidence_per_site",
+        "browser_configuration_performed_by_rightout: false",
+        "provider_writes: 0",
+    ]:
+        if required not in preference_contract:
+            fail(errors, f"GPC contract invariant missing: {required}")
+    for required in [
+        "recordDropStatus",
+        "drop_ordinary_processing_deadline_elapsed",
+        "brokerCase.mechanism_deletion_confirmed = false",
+        "brokerCase.removal_confirmation_scope = null",
+    ]:
+        if required not in cases_source:
+            fail(errors, f"DROP state-machine invariant missing: {required}")
+    if "Preference signals are not deletion requests or deletion proof." not in report_export:
+        fail(errors, "report export must preserve the GPC non-deletion boundary")
+    for required in [
         "globalThis.fetch", 'url.protocol !== "http:"', 'redirect: "error"',
         "AbortController", "128_000", 'url.searchParams.set("deep", "true")',
     ]:
@@ -732,8 +980,9 @@ def main() -> None:
             fail(errors, f"community file-state invariant missing: {required}")
     removal = (ROOT / "lib/removal.mjs").read_text(encoding="utf-8")
     for required in [
-        'const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-12-eu1"',
-        'new Set(["delete_and_opt_out", "gdpr_erasure_objection"])',
+        'const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-16-global2"',
+        'new Set(["delete_and_opt_out", "gdpr_erasure_objection", "uk_erasure_objection"])',
+        'UK_RIGHTS_CONTRACT.template_id',
         'state: "submitted"',
         'removal_confirmed: false',
         'forms_submitted: 0',
@@ -838,8 +1087,8 @@ def main() -> None:
             packed = set(archive_files)
             for required in [
                 "dist/index.js", "dist/lib/live-scan.mjs", "dist/lib/direct-rescan.mjs", "dist/lib/file-keyed-store.mjs",
-                "dist/lib/catalog-health.mjs",
-                "dist/lib/listing-tokens.mjs", "dist/lib/removal.mjs", "dist/lib/form-removal.mjs",
+                "dist/lib/catalog-health.mjs", "dist/lib/market-readiness.mjs",
+                "dist/lib/listing-tokens.mjs", "dist/lib/removal.mjs", "dist/lib/uk-rights.mjs", "dist/lib/form-removal.mjs",
                 "dist/lib/browser-form.mjs", "dist/lib/imap.mjs", "dist/lib/verification.mjs",
                 "dist/lib/cases.mjs", "dist/lib/smtp.mjs", "dist/lib/campaigns.mjs",
                 "dist/lib/parity-catalog.mjs", "dist/lib/parity-email.mjs", "dist/lib/parity-autopilot.mjs", "dist/lib/provider-terms.mjs",
@@ -847,10 +1096,12 @@ def main() -> None:
                 "dist/lib/autonomy-worker.mjs", "dist/lib/recipes.mjs", "dist/lib/controller-replies.mjs",
                 "dist/lib/evidence-vault.mjs", "dist/lib/custom-targets.mjs", "dist/lib/effectiveness.mjs",
                 "dist/lib/team-access.mjs", "dist/lib/dashboard.mjs", "scripts/custom-target-intake.mjs",
+                "dist/lib/drop.mjs", "dist/lib/preference-controls.mjs",
                 "openclaw.plugin.json", "skills/data-broker-removal/SKILL.md", "LICENSE",
                 "THIRD_PARTY_NOTICES.md", "SBOM.spdx.json", "npm-shrinkwrap.json",
                 "CONTRIBUTING.md", "docs/README.md", "docs/authorized-canary.md",
                 "docs/broker-coverage.md", "docs/catalog-provenance.json",
+                "docs/market-analysis-2026-07.md", "docs/roadmap-v0.10.0.md",
                 "docs/deployment-compliance.md", "docs/unbroker-parity-baseline.json", "docs/unbroker-parity-evidence.json",
                 "docs/unbroker-upstream-refresh.json", "docs/scan-coverage.json", "scripts/verify-unbroker-upstream.mjs",
                 "scripts/unbroker-upstream-contract.mjs", "scripts/verify-scan-coverage.mjs", "dist/lib/scan-catalog.mjs",

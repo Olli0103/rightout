@@ -45,7 +45,7 @@ says exactly what is known — and what is not.
 | Area | Current capability |
 | --- | --- |
 | Live discovery | Country-aware Brave Web Search POST scans across 56 code-enforced public-index lanes: 30 people-search plus 26 EU/US controller and B2B domains |
-| Removal | 28 independently locked email/removal targets, including 18 EU/EEA controller lanes |
+| Removal | 29 independently locked email/removal targets: 18 EU/EEA controller lanes, one separately contracted UK controller lane, eight California data-broker lanes, one US people-search email, and one US browser form |
 | Campaigns | Revocable grants for one opaque profile, exact brokers/effects, 1–720 hours, and 1–2,000 broker-effect units |
 | Durable autonomy | Encrypted workers, live single leases, exact-command result receipts, lease watchdogs, state-bound cross-process schedule coordination/recovery, exponential backoff, current-session scheduling, explicit Cron handoff, resume approval, and revocation |
 | Recipe trust | Release-attested 22-route built-in pack, strictly Ed25519 external packs, expiry, exact-domain binding, and semantic/sensitive drift quarantine |
@@ -57,8 +57,10 @@ says exactly what is known — and what is not.
 | Custom targets | Out-of-band encrypted intake with opaque handles; unknown routes remain quarantined until a signed recipe and current exact permission exist |
 | Family / team | Session-bound owner, manager, and viewer roles with exact profile scopes; full-operator direct invoke must be disabled in team mode |
 | Reporting | PII-safe Markdown, structured JSON, consolidated digests, Google Sheets-compatible rows, evidence-based effectiveness metrics, and static local HTML/JSON dashboards |
+| Market safety | Machine-readable readiness for EU/EEA, UK, California, other US states, Canada, Brazil, Australia, Japan, Singapore, India, and unknown markets; technical discovery is kept separate from rights execution and provider authorization |
+| DROP and GPC | Human-verified DROP filing/status checkpoints with phase and deadline tracking, plus local human-verified GPC preference state; neither can become deletion proof |
 
-RightOut declares 50 OpenClaw tools across readiness, discovery, campaigns,
+RightOut declares 52 OpenClaw tools across readiness, discovery, campaigns,
 durable workers, removal, verification, evidence, reporting, and governance.
 The plugin manifest is the canonical exact tool list.
 
@@ -129,7 +131,7 @@ worker, team, evidence, and dashboard configuration.
 
 ## Coverage you can verify
 
-RightOut `0.9.0` ships a clean-room, machine-validated broker contract catalog.
+RightOut `0.10.0` ships a clean-room, machine-validated broker contract catalog.
 The counts below describe executable software surfaces, not measured deletion
 success and not permission to automate a provider.
 
@@ -154,8 +156,10 @@ Autonomous form execution remains closed by default. Each live provider route
 requires current written authorization bound to the reviewed terms contract.
 Subject or operator consent cannot replace provider permission.
 
-The broader catalog adds 56 code-enforced scan lanes and 28 locked executable
-email/removal targets. It does **not** add private broker inventory, identity
+The broader schema-v7 catalog has 57 reviewed records, 56 code-enforced scan
+lanes, and 29 locked executable email/removal targets. The UK route is a
+separate `cognism_uk` request/identity/deadline contract and cannot reuse the
+EU/EEA gate. It does **not** add private broker inventory, identity
 proof, or measured real-world removal effectiveness. Those remain
 `needs_evidence` until an authorized deployment produces evidence.
 
@@ -206,6 +210,14 @@ scopes inside one deployment; they are not a hosted multi-tenant boundary, and
 team mode critically requires every RightOut tool to be denied on the
 full-operator `/tools/invoke` surface.
 
+California DROP login, eligibility, identity verification, filing, and portal
+inspection remain human work. RightOut records only the attested filing or
+literal observed portal status, tracks official operational windows, and keeps
+`deletion_confirmed: false` even when the portal displays `deleted`. GPC is
+stored only after a person verifies a supported browser setting or extension;
+RightOut does not configure the browser or verify site compliance, and GPC is
+never labeled a deletion request or proof.
+
 Read the full [privacy posture](docs/privacy-posture.md),
 [approval boundary](docs/approval-boundary.md), and
 [OpenClaw conformance statement](docs/openclaw-conformance.md).
@@ -246,6 +258,10 @@ The first real-person action is an authorized deployment canary, not a release
 test. Start with one profile and one Brave discovery lane under the
 [canary protocol](docs/authorized-canary.md). Never place a real profile or
 credential in chat, tool parameters, test fixtures, or repository files.
+Canary evidence uses a versioned PII-free contract with opaque proof,
+authorization, and deployment digests. RightOut reports full operational
+evidence only when both identity-review denominators and a scoped outcome are
+present; otherwise the result stays partial or `needs_evidence`.
 
 ## Development
 

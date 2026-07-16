@@ -39,14 +39,16 @@ Review date: 2026-07-13.
 - `https://www.quantcast.com/privacy-choices` and `/privacy/data-subject-rights/`: current EU rights and controller-portal routing.
 - `https://www.lotame.com/privacy/services-privacy-notice/` and `https://legal.epsilon.com/dsr/`: current controller/process scope, identifier retention, verification, and rights-form routing.
 - `https://id5.io/trust/privacy-policy` and `https://id5-sync.com/privacy/`: current EEA/UK rights and official DSAR/privacy-portal routing.
-- Official EU controller policies for FullEnrich, emetriq, Dealfront, Snov.io, Kaspr, StackAdapt, Bombora, Seedtag, Audiencerate, Lead411, Surfe, GumGum, Smaato, Teads, MiQ, 6sense, Cognism, and Lusha: current rights-channel, recipient-domain, and minimum-identification facts recorded individually in catalog schema v6.
-- Official US privacy policies for Amplemarket, SalesIntel, LeadIQ, Wiza, SignalHire, Hunter, Seamless.AI, and ContactOut: current California deletion/opt-out channel and controller-contact facts recorded individually in catalog schema v6.
+- Official EU controller policies for FullEnrich, emetriq, Dealfront, Snov.io, Kaspr, StackAdapt, Bombora, Seedtag, Audiencerate, Lead411, Surfe, GumGum, Smaato, Teads, MiQ, 6sense, Cognism, and Lusha: current rights-channel, recipient-domain, and minimum-identification facts recorded individually in catalog schema v7.
+- Cognism's version 12 January 2026 privacy policy plus current ICO erasure, objection, identity, deadline, and DUAA guidance: one separately contracted UK email lane in schema v7; it does not reuse EU eligibility, wording, or timing.
+- Official US privacy policies for Amplemarket, SalesIntel, LeadIQ, Wiza, SignalHire, Hunter, Seamless.AI, and ContactOut: current California deletion/opt-out channel and controller-contact facts recorded individually in catalog schema v7.
 
 No real subject query or broker request was run during research/testing.
 
 ## Legal/government references
 
-- `https://privacy.ca.gov/drop/`: California DROP facts and eligibility warning.
+- `https://privacy.ca.gov/drop/` plus its official help/how-it-works/broker-processing pages: California eligibility, human identity flow, 2026-08-01 processing boundary, 90-day processing window, 45-day access cycle, and status-check routing. Portal status is not direct deletion proof.
+- `https://oag.ca.gov/privacy/ccpa` and `https://globalprivacycontrol.org/`: GPC as an opt-out-of-sale/sharing preference signal, not deletion or provider-compliance proof.
 - `https://support.google.com/websearch/answer/12719076`: Google Results About You reference.
 - `https://eur-lex.europa.eu/eli/reg/2016/679/oj`: GDPR/DSGVO Article 17 primary text.
 - `https://www.edpb.europa.eu/sme/be-compliant/respect-individuals-rights_en`: electronic request, one-month response, extension, identity-doubt, erasure, recipient, and objection guidance.

@@ -32,6 +32,10 @@ deployment `needs_evidence`.
   where a business or government platform requires it.
 - Treat California DROP as a separate residency-verified human workflow.
 - Do not treat a controller email as DROP coverage or a universal deletion.
+- Treat DROP portal status as a platform claim, not direct record-level
+  deletion proof; keep non-registered and FCRA gaps explicit.
+- Treat GPC as an opt-out-of-sale/sharing preference. Record per-site receipt,
+  legal effect, and compliance as `needs_evidence` unless separately proven.
 
 ## Providers, retention, and isolation
 

@@ -270,6 +270,75 @@ test("an unrelated stale parity route blocks form runtime before browser I/O or 
   }
 });
 
+test("a due market route blocks a parity form before SecretRef access or browser I/O", async () => {
+  const originalNow = Date.now;
+  const originalFetch = globalThis.fetch;
+  let at = Date.parse("2026-07-31T23:59:30.000Z");
+  let browserCalls = 0;
+  let secretReads = 0;
+  Date.now = () => at;
+  globalThis.fetch = async () => {
+    browserCalls += 1;
+    throw new Error("browser bridge must not be reached");
+  };
+  try {
+    const stateDir = mkdtempSync(join(tmpdir(), "rightout-form-market-route-boundary-"));
+    const tools = new Map();
+    let beforeToolCall;
+    const plugin = (await import("../../index.ts")).default;
+    plugin.register({
+      runtime: { state: { resolveStateDir() { return stateDir; } } },
+      on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
+      registerTool(tool) {
+        const resolved = typeof tool === "function"
+          ? tool({ browser: { sandboxBridgeUrl: "http://127.0.0.1:3000/browser" } })
+          : tool;
+        tools.set(resolved.name, resolved);
+      },
+      registerSecurityAuditCollector() {},
+      pluginConfig: {
+        get stateEncryptionKey() { secretReads += 1; return stateKey; },
+        get profiles() { secretReads += 1; return { [profileId]: { payload: profilePayload } }; },
+        formAttestations: formAttestations(profileId, profilePayload, ["familytreenow"]),
+        publisherAutomationPermissions: publisherAutomationPermissions(["familytreenow"]),
+      },
+      resolvePath(value) { return value; },
+      logger: { info() {}, warn() {}, error() {}, debug() {} },
+    });
+
+    const campaignInput = {
+      profileId,
+      brokerIds: ["familytreenow"],
+      effects: ["submit_form"],
+      durationHours: 1,
+      maxEffects: 1,
+    };
+    const approval = await beforeToolCall({
+      toolName: "rightout_start_campaign", params: campaignInput, toolCallId: "market-route-campaign",
+    });
+    approval.requireApproval.onResolution("allow-once");
+    const campaign = await tools.get("rightout_start_campaign").execute("market-route-campaign", campaignInput);
+    secretReads = 0;
+
+    at = Date.parse("2026-08-01T00:00:10.000Z");
+    await assert.rejects(
+      () => tools.get("rightout_begin_form_session").execute("market-route-form", {
+        profileId, brokerId: "familytreenow", campaignId: campaign.details.campaign_id,
+      }),
+      /rightout_market_policy_source_not_current/,
+    );
+    assert.equal(secretReads, 0);
+    assert.equal(browserCalls, 0);
+    const status = await tools.get("rightout_campaign_status").execute("market-route-status", {
+      campaignId: campaign.details.campaign_id,
+    });
+    assert.equal(status.details.used_effects, 0);
+  } finally {
+    Date.now = originalNow;
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("externally unavailable archived form routes cannot bypass their autonomous rescue lane", async () => {
   const originalFetch = globalThis.fetch;
   let browserCalls = 0;

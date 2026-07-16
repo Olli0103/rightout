@@ -6,6 +6,8 @@ const EXPECTED_IDS = Object.freeze([
 ]);
 const SAFE_ID = /^[a-z0-9_]{2,80}$/;
 const SAFE_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+const SAFE_JURISDICTION = /^(?:EU|EEA|UK|[A-Z]{2}(?:-[A-Z0-9]{2,3})?)$/;
+const SAFE_MARKET_ID = /^[a-z][a-z0-9_]{1,40}$/;
 const SAFE_FIELDS = new Set([
     "full_name", "contact_email", "listing_url", "date_of_birth", "street", "city", "region", "postal", "phone",
 ]);
@@ -44,6 +46,7 @@ function cleanRoute(value) {
     exactKeys(value, new Set([
         "id", "name", "method", "action_url", "official_domains", "disclosure_fields", "verification",
         "challenge_policy", "source_url", "source_status", "last_checked", "cluster_parent",
+        "execution_jurisdictions", "execution_market_ids", "provider_request_contract",
         "reference_contract", "current_contract",
         "source_evidence_url", "source_evidence_captured_at",
         "rescue_email", "rescue_source_url", "rescue_disclosure_fields", "rescue_last_checked", "rescue_source_status",
@@ -66,6 +69,12 @@ function cleanRoute(value) {
     const referenceInputs = uniqueStrings(reference.inputs, /^[a-z_]{2,32}$/, { max: 12 });
     const domains = uniqueStrings(value.official_domains, SAFE_DOMAIN, { max: 8 });
     const fields = uniqueStrings(value.disclosure_fields, /^[a-z_]{2,32}$/, { max: 12 });
+    const executionJurisdictions = uniqueStrings(value.execution_jurisdictions, SAFE_JURISDICTION, { max: 12 });
+    const executionMarketIds = uniqueStrings(value.execution_market_ids, SAFE_MARKET_ID, { max: 11 });
+    if (JSON.stringify(executionJurisdictions) !== JSON.stringify(["US", "US-CA"])
+        || JSON.stringify(executionMarketIds) !== JSON.stringify(["us_california", "us_other"])
+        || value.provider_request_contract !== "us_provider_delete_opt_out_v1")
+        throw new Error("rightout_parity_catalog_invalid");
     if (fields.some((field) => !SAFE_FIELDS.has(field)))
         throw new Error("rightout_parity_catalog_invalid");
     let actionUrl;
@@ -190,11 +199,13 @@ function cleanRoute(value) {
         ...value,
         official_domains: domains,
         disclosure_fields: fields,
+        execution_jurisdictions: executionJurisdictions,
+        execution_market_ids: executionMarketIds,
     };
 }
 export function validateParityCatalog(value) {
     exactKeys(value, new Set(["schema_version", "reviewed_at", "reference_commit", "policy", "brokers", "health"]), "rightout_parity_catalog_invalid");
-    if (value.schema_version !== 1 || !validCatalogDate(value.reviewed_at) || !/^[a-f0-9]{40}$/.test(value.reference_commit)) {
+    if (value.schema_version !== 2 || !validCatalogDate(value.reviewed_at) || !/^[a-f0-9]{40}$/.test(value.reference_commit)) {
         throw new Error("rightout_parity_catalog_invalid");
     }
     exactKeys(value.policy, new Set([
@@ -244,7 +255,7 @@ export function parityCatalogHealth(catalog, { now = Date.now(), maxAgeDays = 18
     }).map((broker) => broker.id);
     const releaseReady = clean.health.release_ready && staleRoutes.length === 0;
     return {
-        schema_version: 1,
+        schema_version: 2,
         reference_commit: clean.reference_commit,
         reviewed_at: clean.reviewed_at,
         broker_count: clean.health.broker_count,
@@ -255,6 +266,9 @@ export function parityCatalogHealth(catalog, { now = Date.now(), maxAgeDays = 18
             return {
                 broker_id: broker.id,
                 method: broker.method,
+                execution_jurisdictions: [...broker.execution_jurisdictions],
+                execution_market_ids: [...broker.execution_market_ids],
+                provider_request_contract: broker.provider_request_contract,
                 source_state: broker.source_status,
                 normalized_contract_evidence_complete: broker.source_status !== "needs_evidence",
                 route_technically_addressable_from_catalog: providerIoExecutable,

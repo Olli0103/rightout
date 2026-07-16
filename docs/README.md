@@ -18,6 +18,8 @@ repository and GitHub release history.
 - [OpenClaw conformance](openclaw-conformance.md)
 - [Provider and publisher terms review](provider-terms-review.md)
 - [Feature benchmark](feature-benchmark.md)
+- [Market analysis and global safety roadmap](market-analysis-2026-07.md)
+- [v0.10.0 market-safety implementation plan](roadmap-v0.10.0.md)
 - [Unbroker parity contract](unbroker-parity-contract.md)
 - [Pinned Unbroker baseline](unbroker-parity-baseline.json)
 - [Machine-readable parity evidence and release verdict](unbroker-parity-evidence.json)

@@ -262,3 +262,64 @@ test("campaign pre-approval binds only opaque scope and never reads resolved pro
   assert.equal(result.block, undefined);
   assert.equal(secretReads, 0);
 });
+
+test("market-policy phase drift invalidates campaign approval before SecretRef use or provider I/O", async () => {
+  const originalNow = Date.now;
+  const originalFetch = globalThis.fetch;
+  let at = Date.parse("2026-07-31T23:59:30.000Z");
+  let providerCalls = 0;
+  let secretReads = 0;
+  Date.now = () => at;
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    throw new Error("provider I/O must not occur");
+  };
+  try {
+    const stateDir = mkdtempSync(join(tmpdir(), "rightout-campaign-market-policy-drift-"));
+    const tools = new Map();
+    let beforeToolCall;
+    const resolvedSecrets = {
+      get stateEncryptionKey() { secretReads += 1; return stateKey; },
+      get profiles() { secretReads += 1; return { [profileId]: { payload } }; },
+    };
+    const plugin = (await import("../../index.ts")).default;
+    plugin.register({
+      runtime: { state: { resolveStateDir() { return stateDir; } } },
+      on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
+      registerTool(tool) {
+        const resolved = typeof tool === "function" ? tool({ browser: {} }) : tool;
+        tools.set(resolved.name, resolved);
+      },
+      registerSecurityAuditCollector() {},
+      pluginConfig: resolvedSecrets,
+      resolvePath(value) { return value; },
+      logger: { info() {}, warn() {}, error() {}, debug() {} },
+    });
+    const input = {
+      profileId,
+      brokerIds: ["intelius"],
+      effects: ["discover"],
+      durationHours: 1,
+      maxEffects: 1,
+    };
+    const approval = await beforeToolCall({
+      toolName: "rightout_start_campaign",
+      params: input,
+      toolCallId: "campaign-market-policy-drift",
+    });
+    assert.ok(approval.requireApproval);
+    assert.equal(secretReads, 0);
+    approval.requireApproval.onResolution("allow-once");
+
+    at = Date.parse("2026-08-01T00:00:10.000Z");
+    await assert.rejects(
+      tools.get("rightout_start_campaign").execute("campaign-market-policy-drift", input),
+      /rightout_approval_binding_failed/,
+    );
+    assert.equal(secretReads, 0);
+    assert.equal(providerCalls, 0);
+  } finally {
+    Date.now = originalNow;
+    globalThis.fetch = originalFetch;
+  }
+});

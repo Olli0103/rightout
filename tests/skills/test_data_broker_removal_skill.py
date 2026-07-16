@@ -225,6 +225,8 @@ class ReportingAndStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="rightout-coverage-") as tmp:
             report = run([sys.executable, str(RUNNER), "scan-only-dummy", "--workdir", str(Path(tmp).resolve())])["report"]
         self.assertEqual(report["coverage"]["catalog_case_count"], len(load_catalog()["brokers"]))
+        self.assertEqual(report["coverage"]["eligible_catalog_case_count"], len(report["scan_report"]["not_checked"]))
+        self.assertLess(report["coverage"]["eligible_catalog_case_count"], report["coverage"]["catalog_case_count"])
         self.assertEqual(report["coverage"]["fixture_case_count"], 3)
         self.assertTrue(all(not item["fixture_only"] for item in report["scan_report"]["not_checked"]))
 
@@ -288,9 +290,9 @@ class ReportingAndStateTests(unittest.TestCase):
 
 
 class CatalogValidationTests(unittest.TestCase):
-    def test_catalog_is_schema_v6_and_valid(self) -> None:
+    def test_catalog_is_schema_v7_and_valid(self) -> None:
         catalog = load_catalog()
-        self.assertEqual(catalog["schema_version"], 6)
+        self.assertEqual(catalog["schema_version"], 7)
         self.assertEqual(rightout.validate_catalog_data(catalog), [])
 
     def test_email_removal_lane_is_catalog_locked_and_minimum_disclosure(self) -> None:
@@ -328,6 +330,22 @@ class CatalogValidationTests(unittest.TestCase):
         unsafe = load_catalog()
         next(item for item in unsafe["brokers"] if item["id"] == "amplemarket_us")["removal"]["processing_days"] = 30
         self.assertTrue(any("US data-broker lane" in error for error in rightout.validate_catalog_data(unsafe)))
+
+    def test_uk_email_lane_has_a_separate_request_identity_and_deadline_contract(self) -> None:
+        catalog = load_catalog()
+        broker = next(item for item in catalog["brokers"] if item["id"] == "cognism_uk")
+        self.assertEqual(broker["process_class"], "uk_controller_email_erasure")
+        self.assertEqual(broker["jurisdictions"], ["UK"])
+        self.assertNotIn("eu_process", broker)
+        self.assertEqual(broker["removal"]["request_kinds"], ["uk_erasure_objection"])
+        self.assertEqual(broker["removal"]["template_id"], "uk_erasure_objection_v1")
+        self.assertEqual(broker["removal"]["rights_contract_id"], "uk_controller_erasure_objection_v1")
+        self.assertEqual(broker["removal"]["identity_verification"], "controller_may_request_proportionate_follow_up_human_review")
+        self.assertEqual(broker["removal"]["deadline_policy"], "one_calendar_month_conservative_recheck_v1")
+        unsafe = load_catalog()
+        lane = next(item for item in unsafe["brokers"] if item["id"] == "cognism_uk")
+        lane["removal"]["template_id"] = "gdpr_erasure_objection_v1"
+        self.assertTrue(any("UK data-broker lane" in error for error in rightout.validate_catalog_data(unsafe)))
 
     def test_executable_controller_email_requires_policy_matched_channel_evidence(self) -> None:
         eu_unsafe = load_catalog()

@@ -10,7 +10,10 @@ The eight data-broker emails use only full name, a subject-controlled contact em
 
 ## California DROP
 
-[California DROP](https://privacy.ca.gov/drop/) is a separate government platform. RightOut keeps it human-only because eligibility, identity/profile verification, and government-account context must not be guessed or automated. An email request to one controller does not prove DROP coverage, and DROP does not authorize RightOut to upload identity documents.
+[California DROP](https://privacy.ca.gov/drop/) is a separate government platform. RightOut keeps login, eligibility, identity/profile verification, filing, and status inspection human-only. After human attestation it records the filing phase, ordinary 90-day deadline, 45-day checkpoints, and literal portal status. Even `deleted` remains `deletion_confirmed: false`; an email request to one controller does not prove DROP coverage, and DROP does not authorize RightOut to upload identity documents.
+
+GPC may be recorded only as a human-verified browser preference. RightOut does
+not enable it, contact a site, or claim receipt/compliance. It is not deletion.
 
 ## Follow-up
 

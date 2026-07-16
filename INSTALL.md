@@ -175,7 +175,7 @@ node scripts/compute-removal-bindings.mjs \
 
 The helper prints only scan/removal profile digests plus SMTP/IMAP transport digests. Scan digests support profiles with an explicit ISO country, including EU profiles that use a member-country code such as `DE`. RightOut sends a directly supported Brave country/language target where available (for example `DE/de`) and otherwise uses explicit worldwide targeting; it never silently falls back to US. Treat all digests as sensitive pseudonymous configuration metadata, delete temporary exports, and recompute after any profile/transport change.
 
-Back up the state encryption key through the secret provider. RightOut 0.9.0
+Back up the state encryption key through the secret provider. RightOut 0.10.0
 keeps the v1 encrypted-store schema and forced upgrades preserve it. Encrypted
 subject cases expire after `stateRetentionDays` without an update; the range is
 30-730 days and the default is 365. Verification/listing/dedupe records retain
@@ -209,7 +209,7 @@ Direct recheck scope, only after independently reviewing publisher terms and est
 Email removal scope (example authorizing BeenVerified plus selected EU controller lanes):
 
 ```json
-{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-12-eu1","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
+{"rightoutRemovalPolicyAccepted":true,"rightoutRemovalPolicyVersion":"2026-07-16-global2","subjectConsentReviewed":true,"smtpAccountAuthorized":true,"minimumDisclosureAccepted":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu","cognism_uk","beenverified","emetriq_eu"],"authorizedRequestKinds":["delete_and_opt_out","gdpr_erasure_objection","uk_erasure_objection"],"smtpTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
 ```
 
 Browser-form scope (currently Intelius/PeopleConnect initiation):
@@ -261,7 +261,7 @@ submission, with one receiver-added aligned Gmail DKIM result, an official
 sender domain, and the exact outgoing Message-ID thread:
 
 ```json
-{"rightoutControllerReplyPolicyAccepted":true,"rightoutControllerReplyPolicyVersion":"2026-07-14-eu1","subjectConsentReviewed":true,"inboxReadAuthorized":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu"],"imapTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
+{"rightoutControllerReplyPolicyAccepted":true,"rightoutControllerReplyPolicyVersion":"2026-07-16-global2","subjectConsentReviewed":true,"inboxReadAuthorized":true,"authorizedProfileIds":["profile_a1b2c3d4e5f60718"],"authorizedProfileDigests":{"profile_a1b2c3d4e5f60718":"0000000000000000000000000000000000000000000000000000000000000000"},"authorizedBrokerIds":["fullenrich_eu","cognism_uk"],"imapTransportDigest":"0000000000000000000000000000000000000000000000000000000000000000"}
 ```
 
 Write each attestation JSON object to its matching config path:
@@ -335,6 +335,15 @@ openclaw cron add '17 9 * * 1' \
 This fallback monitor performs no provider call. A later interactive turn may
 execute a live action only through its own native approval or a still-active
 matching campaign.
+
+California DROP and GPC remain separate assisted observations, never campaign
+effects. After human filing use `rightout_record_drop_filed`; after human portal
+inspection use `rightout_record_drop_status`. Even a displayed `deleted` status
+does not confirm record-level deletion. After a person checks a supported
+browser-native GPC setting or extension, `rightout_record_gpc_observed` records
+only the local preference; RightOut does not configure the browser or verify a
+site's receipt/compliance.
+
 Use `openclaw cron run <job-id> --wait --wait-timeout 10m` and
 `openclaw cron runs --id <job-id> --limit 50` to validate sanitized output before
 enabling delivery. Cron never renews a campaign automatically.
@@ -359,7 +368,7 @@ stdin with only `profileId`, `actionUrl`, `sourceUrl`, `officialDomain`, and
 Raw URL/domain/source facts remain encrypted. A target stays quarantined unless
 an allowlisted Ed25519 key, valid signed recipe pack, and current permission bind
 the exact handle, recipe, official-domain digest, lifetime, and effect. Even
-then v0.9.0 deliberately has no custom-target provider execution tool.
+then v0.10.0 deliberately has no custom-target provider execution tool.
 
 ```bash
 chmod 600 /secure/custom-target.json

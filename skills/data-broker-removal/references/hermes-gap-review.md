@@ -21,8 +21,8 @@ No Hermes/Unbroker code, broker records, BADBOOL-derived data, templates, prose,
 - Gmail-only, receiver-authenticated verification polling and a separately approved opaque confirmation-link open;
 - durable cases, deterministic planning/status/due rechecks, ownership clusters, direct known-listing rechecks, and reappearance tracking;
 - private profile, consent, provider credentials, and encrypted local state through OpenClaw SecretRefs;
-- catalog schema v6 for official source, facts-only use policy, destination, jurisdiction, request kind, disclosure fields, confirmation policy, and distinct EU/US process semantics;
-- outbound and form outputs stop at honest intermediate states; `confirmed_removed` requires later direct absence and remains scoped to the known listing set. EU/US controller-email responses stay human-reviewed and preference controls are never erasure evidence.
+- catalog schema v7 for official source, facts-only use policy, destination, jurisdiction, request kind, disclosure fields, confirmation policy, and distinct EU/UK/US process semantics;
+- outbound and form outputs stop at honest intermediate states; `confirmed_removed` requires later direct absence and remains scoped to the known listing set. EU/UK/US controller-email responses stay human-reviewed and preference controls are never erasure evidence.
 
 ## Deliberate differences
 

@@ -116,7 +116,7 @@ def main() -> None:
         errors.append("doctor did not prove the controller-outcome boundary")
     if doctor.get("submission_reconciliation_tool") != "rightout_reconcile_submission":
         errors.append("doctor did not prove the submission-reconciliation boundary")
-    if not validation.get("ok") or validation.get("catalog_schema_version") != 6:
+    if not validation.get("ok") or validation.get("catalog_schema_version") != 7:
         errors.append("catalog validation failed")
     if e2e_report.get("report_version") != 4:
         errors.append("report v4 is missing")

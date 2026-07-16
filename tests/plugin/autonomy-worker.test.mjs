@@ -60,7 +60,12 @@ const effectBaseline = { campaignUsedEffects: 0, campaignLastEffectReference: nu
 const digest = "a".repeat(64);
 const sessionDigest = workerSessionBindingDigest({ sessionKey: "session:test:01234567", agentId: "main" });
 const session = { sessionKey: "session:test:01234567", agentId: "main" };
-const policyDigest = workerPolicyDigest({ catalogDigest: digest, recipeDigest: "b".repeat(64), runtimeScopeDigest: "c".repeat(64) });
+const policyDigest = workerPolicyDigest({
+  catalogDigest: digest,
+  recipeDigest: "b".repeat(64),
+  runtimeScopeDigest: "c".repeat(64),
+  marketPolicyDigest: "d".repeat(64),
+});
 
 function fixture({ nowRef = { value: Date.parse("2026-07-14T15:00:00Z") } } = {}) {
   const store = memoryStore();

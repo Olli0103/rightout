@@ -84,10 +84,15 @@ function publicRecord(record) {
         last_effect_at: record.lastEffectAt ?? null,
         last_effect_reference: record.lastEffectReference ?? null,
         revoked_at: record.revokedAt ?? null,
+        market_policy_digest: record.marketPolicyDigest,
+        market_policy_binding: "exact_current_contract",
     };
 }
 function validateStored(record, nowMs) {
-    if (!record || typeof record !== "object" || record.schemaVersion !== 1
+    if (record?.schemaVersion === 1 && record?.marketPolicyDigest === undefined) {
+        throw new Error("rightout_campaign_market_policy_binding_required");
+    }
+    if (!record || typeof record !== "object" || record.schemaVersion !== 2
         || !SAFE_CAMPAIGN_ID.test(record.campaignId)
         || !SAFE_PROFILE_ID.test(record.profileId)
         || !Array.isArray(record.brokerIds) || record.brokerIds.some((id) => !SAFE_BROKER_ID.test(id))
@@ -97,7 +102,8 @@ function validateStored(record, nowMs) {
         || record.maxEffects < 1 || record.usedEffects < 0 || record.usedEffects > record.maxEffects
         || !Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.expiresAt))
         || typeof record.profileDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.profileDigest)
-        || typeof record.runtimeScopeDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.runtimeScopeDigest))
+        || typeof record.runtimeScopeDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.runtimeScopeDigest)
+        || typeof record.marketPolicyDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.marketPolicyDigest))
         throw new Error("rightout_campaign_state_invalid");
     if (record.status === "active" && Date.parse(record.expiresAt) <= nowMs)
         throw new Error("rightout_campaign_expired");
@@ -192,12 +198,13 @@ export function campaignApprovalDescription(input, routingScope = {
         throw new Error("rightout_campaign_scope_invalid");
     return text;
 }
-export function campaignScopeBinding(input, catalogDigest, routingDigest) {
+export function campaignScopeBinding(input, catalogDigest, routingDigest, marketPolicyDigest) {
     const clean = validateCampaignStartInput(input);
     if (typeof catalogDigest !== "string" || !/^[a-f0-9]{64}$/.test(catalogDigest)
-        || typeof routingDigest !== "string" || !/^[a-f0-9]{64}$/.test(routingDigest))
+        || typeof routingDigest !== "string" || !/^[a-f0-9]{64}$/.test(routingDigest)
+        || typeof marketPolicyDigest !== "string" || !/^[a-f0-9]{64}$/.test(marketPolicyDigest))
         throw new Error("rightout_campaign_scope_invalid");
-    return JSON.stringify(["rightout_campaign_approval_v4", clean, catalogDigest, routingDigest]);
+    return JSON.stringify(["rightout_campaign_approval_v5", clean, catalogDigest, routingDigest, marketPolicyDigest]);
 }
 export function campaignRevokeScopeBinding(input) {
     const clean = validateCampaignRef(input);
@@ -207,7 +214,7 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
     if (!store || typeof store.registerIfAbsent !== "function" || typeof store.lookup !== "function" || typeof store.update !== "function") {
         throw new Error("rightout_campaign_store_invalid");
     }
-    async function start(input, { catalogDigest, profileDigest, runtimeScopeDigest }) {
+    async function start(input, { catalogDigest, profileDigest, runtimeScopeDigest, marketPolicyDigest }) {
         const clean = validateCampaignStartInput(input);
         if (typeof catalogDigest !== "string" || !/^[a-f0-9]{64}$/.test(catalogDigest))
             throw new Error("rightout_campaign_scope_invalid");
@@ -215,13 +222,15 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
             throw new Error("rightout_campaign_scope_invalid");
         if (typeof runtimeScopeDigest !== "string" || !/^[a-f0-9]{64}$/.test(runtimeScopeDigest))
             throw new Error("rightout_campaign_scope_invalid");
+        if (typeof marketPolicyDigest !== "string" || !/^[a-f0-9]{64}$/.test(marketPolicyDigest))
+            throw new Error("rightout_campaign_scope_invalid");
         const campaignId = randomId();
         if (!SAFE_CAMPAIGN_ID.test(campaignId))
             throw new Error("rightout_campaign_state_invalid");
         const at = now();
         const expiresAtMs = at + clean.durationHours * 60 * 60_000;
         const record = {
-            schemaVersion: 1,
+            schemaVersion: 2,
             campaignId,
             profileId: clean.profileId,
             brokerIds: clean.brokerIds,
@@ -234,6 +243,7 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
             catalogDigest,
             profileDigest,
             runtimeScopeDigest,
+            marketPolicyDigest,
         };
         const created = await store.registerIfAbsent(campaignId, record, { ttlMs: clean.durationHours * 60 * 60_000 });
         if (!created)
@@ -248,7 +258,16 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
             throw new Error("rightout_campaign_not_found");
         return publicRecord(validateStored(record, now()));
     }
-    async function assertScope(campaignId, { profileId, profileDigest, runtimeScopeDigest }) {
+    async function assertMarketPolicy(campaignId, { marketPolicyDigest }) {
+        if (!SAFE_CAMPAIGN_ID.test(campaignId) || typeof marketPolicyDigest !== "string" || !/^[a-f0-9]{64}$/.test(marketPolicyDigest)) {
+            throw new Error("rightout_campaign_ref_invalid");
+        }
+        const record = validateStored(await store.lookup(campaignId), now());
+        if (record.marketPolicyDigest !== marketPolicyDigest)
+            throw new Error("rightout_campaign_market_policy_changed");
+        return publicRecord(record);
+    }
+    async function assertScope(campaignId, { profileId, profileDigest, runtimeScopeDigest, marketPolicyDigest }) {
         if (!SAFE_CAMPAIGN_ID.test(campaignId) || !SAFE_PROFILE_ID.test(profileId))
             throw new Error("rightout_campaign_ref_invalid");
         const record = validateStored(await store.lookup(campaignId), now());
@@ -258,9 +277,11 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
             throw new Error("rightout_profile_snapshot_changed");
         if (record.runtimeScopeDigest !== runtimeScopeDigest)
             throw new Error("rightout_campaign_runtime_scope_changed");
+        if (record.marketPolicyDigest !== marketPolicyDigest)
+            throw new Error("rightout_campaign_market_policy_changed");
         return publicRecord(record);
     }
-    async function consume(campaignId, { profileId, effects, catalogDigest, profileDigest, runtimeScopeDigest }) {
+    async function consume(campaignId, { profileId, effects, catalogDigest, profileDigest, runtimeScopeDigest, marketPolicyDigest }) {
         if (!SAFE_CAMPAIGN_ID.test(campaignId) || !SAFE_PROFILE_ID.test(profileId))
             throw new Error("rightout_campaign_effect_invalid");
         if (typeof catalogDigest !== "string" || !/^[a-f0-9]{64}$/.test(catalogDigest))
@@ -268,6 +289,8 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
         if (typeof profileDigest !== "string" || !/^[a-f0-9]{64}$/.test(profileDigest))
             throw new Error("rightout_campaign_effect_invalid");
         if (typeof runtimeScopeDigest !== "string" || !/^[a-f0-9]{64}$/.test(runtimeScopeDigest))
+            throw new Error("rightout_campaign_effect_invalid");
+        if (typeof marketPolicyDigest !== "string" || !/^[a-f0-9]{64}$/.test(marketPolicyDigest))
             throw new Error("rightout_campaign_effect_invalid");
         const requested = validateRequestedEffects(effects);
         let result;
@@ -283,6 +306,8 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
                 throw new Error("rightout_profile_snapshot_changed");
             if (record.runtimeScopeDigest !== runtimeScopeDigest)
                 throw new Error("rightout_campaign_runtime_scope_changed");
+            if (record.marketPolicyDigest !== marketPolicyDigest)
+                throw new Error("rightout_campaign_market_policy_changed");
             const allowedBrokers = new Set(record.brokerIds);
             const allowedEffects = new Set(record.effects);
             if (requested.some((item) => !allowedBrokers.has(item.brokerId) || !allowedEffects.has(item.effect))) {
@@ -322,6 +347,6 @@ export function createCampaignLedger(store, { now = () => Date.now(), randomId =
         });
         return result;
     }
-    return { start, status, assertScope, consume, revoke };
+    return { start, status, assertMarketPolicy, assertScope, consume, revoke };
 }
 export const __test = { publicRecord, validateStored, validateRequestedEffects };

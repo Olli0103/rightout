@@ -17,6 +17,7 @@ const catalogDigest = "a".repeat(64);
 const profileDigest = "b".repeat(64);
 const runtimeScopeDigest = "c".repeat(64);
 const approvalRoutingDigest = "d".repeat(64);
+const marketPolicyDigest = "e".repeat(64);
 const managedRouting = {
   browserBackendMode: "managed_openclaw",
   browserControlTransport: "openclaw_sandbox_browser_bridge",
@@ -46,8 +47,12 @@ test("campaign scope is canonical, bounded, and PII-free", () => {
   assert.equal(description.length <= 256, true);
   assert.doesNotMatch(description, /Avery|example@/);
   assert.equal(
-    campaignScopeBinding(input, catalogDigest, approvalRoutingDigest),
-    campaignScopeBinding({ ...input }, catalogDigest, approvalRoutingDigest),
+    campaignScopeBinding(input, catalogDigest, approvalRoutingDigest, marketPolicyDigest),
+    campaignScopeBinding({ ...input }, catalogDigest, approvalRoutingDigest, marketPolicyDigest),
+  );
+  assert.notEqual(
+    campaignScopeBinding(input, catalogDigest, approvalRoutingDigest, marketPolicyDigest),
+    campaignScopeBinding(input, catalogDigest, approvalRoutingDigest, "f".repeat(64)),
   );
   for (const bad of [
     { ...input, durationHours: 0 },
@@ -75,8 +80,8 @@ test("campaign approval uses one schema-valid immutable alias for the exact Unbr
   assert.match(widenedDescription, /B23@[a-f0-9]{12}/);
   assert.notEqual(widenedDescription, description);
   assert.notEqual(
-    campaignScopeBinding(widened, catalogDigest, approvalRoutingDigest),
-    campaignScopeBinding({ ...input, brokerIds }, catalogDigest, approvalRoutingDigest),
+    campaignScopeBinding(widened, catalogDigest, approvalRoutingDigest, marketPolicyDigest),
+    campaignScopeBinding({ ...input, brokerIds }, catalogDigest, approvalRoutingDigest, marketPolicyDigest),
   );
   const maximum = campaignApprovalDescription({
     profileId: `profile_${"f".repeat(32)}`,
@@ -134,18 +139,29 @@ test("one standing campaign grant authorizes only its exact durable scope", asyn
       now: () => at,
       randomId: () => `campaign_${"1".repeat(32)}`,
     });
-    const started = await ledger.start(input, { catalogDigest, profileDigest, runtimeScopeDigest });
+    const started = await ledger.start(input, { catalogDigest, profileDigest, runtimeScopeDigest, marketPolicyDigest });
     assert.equal(started.status, "active");
     assert.equal(started.budget_unit, "broker_effect_authorization_unit");
     assert.match(started.budget_unit_definition, /multiple protocol interactions/);
     assert.equal(started.used_effects, 0);
     assert.equal(started.remaining_effects, 12);
+    assert.equal(started.market_policy_digest, marketPolicyDigest);
+    assert.equal(started.market_policy_binding, "exact_current_contract");
+    assert.equal(
+      (await ledger.assertMarketPolicy(started.campaign_id, { marketPolicyDigest })).market_policy_digest,
+      marketPolicyDigest,
+    );
+    await assert.rejects(
+      ledger.assertMarketPolicy(started.campaign_id, { marketPolicyDigest: "f".repeat(64) }),
+      /rightout_campaign_market_policy_changed/,
+    );
 
     const consumed = await ledger.consume(started.campaign_id, {
       profileId,
       catalogDigest,
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [
         { brokerId: "beenverified", effect: "discover" },
         { brokerId: "intelius", effect: "submit_form" },
@@ -161,6 +177,7 @@ test("one standing campaign grant authorizes only its exact durable scope", asyn
       catalogDigest,
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [{ brokerId: "spokeo", effect: "submit_form" }],
     }), /rightout_campaign_scope_mismatch/);
     await assert.rejects(ledger.consume(started.campaign_id, {
@@ -168,6 +185,7 @@ test("one standing campaign grant authorizes only its exact durable scope", asyn
       catalogDigest,
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [{ brokerId: "intelius", effect: "submit_form" }],
     }), /rightout_campaign_scope_mismatch/);
     await assert.rejects(ledger.consume(started.campaign_id, {
@@ -175,8 +193,17 @@ test("one standing campaign grant authorizes only its exact durable scope", asyn
       catalogDigest: "b".repeat(64),
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [{ brokerId: "intelius", effect: "submit_form" }],
     }), /rightout_campaign_scope_mismatch/);
+    await assert.rejects(ledger.consume(started.campaign_id, {
+      profileId,
+      catalogDigest,
+      profileDigest,
+      runtimeScopeDigest,
+      marketPolicyDigest: "f".repeat(64),
+      effects: [{ brokerId: "intelius", effect: "submit_form" }],
+    }), /rightout_campaign_market_policy_changed/);
 
     const encrypted = await readFile(join(stateDir, "rightout-plugin-state-v1", "rightout-campaigns-v1.json.enc"));
     assert.equal(encrypted.includes(Buffer.from(profileId)), false);
@@ -189,6 +216,7 @@ test("one standing campaign grant authorizes only its exact durable scope", asyn
       catalogDigest,
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [{ brokerId: "intelius", effect: "submit_form" }],
     }), /rightout_campaign_not_active/);
   } finally {
@@ -212,13 +240,14 @@ test("campaign effect budget and expiry fail closed", async () => {
     });
     const started = await ledger.start(
       { ...input, durationHours: 1, maxEffects: 1 },
-      { catalogDigest, profileDigest, runtimeScopeDigest },
+      { catalogDigest, profileDigest, runtimeScopeDigest, marketPolicyDigest },
     );
     const completed = await ledger.consume(started.campaign_id, {
       profileId,
       catalogDigest,
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [{ brokerId: "beenverified", effect: "discover" }],
     });
     assert.equal(completed.status, "completed");
@@ -227,6 +256,7 @@ test("campaign effect budget and expiry fail closed", async () => {
       catalogDigest,
       profileDigest,
       runtimeScopeDigest,
+      marketPolicyDigest,
       effects: [{ brokerId: "beenverified", effect: "discover" }],
     }), /rightout_campaign_not_active/);
 
@@ -242,7 +272,7 @@ test("campaign effect budget and expiry fail closed", async () => {
     });
     const short = await expiring.start(
       { ...input, durationHours: 1 },
-      { catalogDigest, profileDigest, runtimeScopeDigest },
+      { catalogDigest, profileDigest, runtimeScopeDigest, marketPolicyDigest },
     );
     at += 60 * 60_000 + 1;
     await assert.rejects(expiring.status(short.campaign_id), /rightout_campaign_not_found|rightout_campaign_expired/);

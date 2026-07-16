@@ -17,6 +17,23 @@ const status = {
   generated_at: "2026-07-14T12:00:00.000Z",
   cases,
 };
+const authorizationReferenceSha256 = "a".repeat(64);
+const deploymentEvidenceSha256 = "b".repeat(64);
+
+function canary(overrides = {}) {
+  return {
+    schemaVersion: 2,
+    profileId,
+    brokerId: "charlie",
+    kind: "direct_absence",
+    startedAt: "2026-07-13T11:30:00.000Z",
+    observedAt: "2026-07-14T11:30:00.000Z",
+    proofReference: "canary_0123456789abcdef01234567",
+    authorizationReferenceSha256,
+    deploymentEvidenceSha256,
+    ...overrides,
+  };
+}
 
 test("effectiveness keeps capability separate from operational proof and exposes denominators", () => {
   const report = buildEffectivenessReport(status);
@@ -26,36 +43,92 @@ test("effectiveness keeps capability separate from operational proof and exposes
   assert.deepEqual(report.provider_confirmation.rate_from_submission, { numerator: 2, denominator: 3, rate: 0.6667 });
   assert.deepEqual(report.reappearance.rate_from_confirmation, { numerator: 1, denominator: 2, rate: 0.5 });
   assert.equal(report.operational_effectiveness, "needs_evidence");
+  assert.equal(report.report_version, 2);
+  assert.equal(report.identity_accuracy.evidence_status, "needs_evidence");
+  assert.deepEqual(report.identity_accuracy.precision, { numerator: 0, denominator: 0, rate: null });
+  assert.equal(report.time_to_observed_outcome.evidenced, 0);
   assert.equal(report.invariants.technical_capability_used_as_effectiveness_proof, false);
   assert.equal(report.invariants.missing_denominators_hidden, false);
 });
 
-test("only scoped authorized canary facts can evidence operational effectiveness", () => {
-  const report = buildEffectivenessReport(status, [{
-    profileId,
-    brokerId: "charlie",
-    kind: "direct_absence",
-    observedAt: "2026-07-14T11:30:00.000Z",
-    proofReference: "canary_0123456789abcdef01234567",
-  }]);
+test("identity and outcome canaries expose exact denominators and time to outcome", () => {
+  const report = buildEffectivenessReport(status, [
+    canary({
+      brokerId: "alpha",
+      kind: "identity_reviewed",
+      identityOutcome: "true_positive",
+      startedAt: "2026-07-14T08:00:00.000Z",
+      observedAt: "2026-07-14T08:30:00.000Z",
+      proofReference: "canary_111111111111111111111111",
+    }),
+    canary({
+      brokerId: "bravo",
+      kind: "identity_reviewed",
+      identityOutcome: "false_positive",
+      startedAt: "2026-07-14T08:00:00.000Z",
+      observedAt: "2026-07-14T08:45:00.000Z",
+      proofReference: "canary_222222222222222222222222",
+    }),
+    canary({
+      brokerId: "delta",
+      kind: "identity_reviewed",
+      identityOutcome: "false_negative",
+      startedAt: "2026-07-14T08:00:00.000Z",
+      observedAt: "2026-07-14T09:00:00.000Z",
+      proofReference: "canary_333333333333333333333333",
+    }),
+    canary({
+      brokerId: "echo",
+      kind: "identity_reviewed",
+      identityOutcome: "true_negative",
+      startedAt: "2026-07-14T08:00:00.000Z",
+      observedAt: "2026-07-14T09:15:00.000Z",
+      proofReference: "canary_444444444444444444444444",
+    }),
+    canary(),
+  ]);
   assert.equal(report.operational_effectiveness, "evidenced_by_authorized_canaries");
+  assert.deepEqual(report.identity_accuracy.precision, { numerator: 1, denominator: 2, rate: 0.5 });
+  assert.deepEqual(report.identity_accuracy.recall, { numerator: 1, denominator: 2, rate: 0.5 });
+  assert.deepEqual(report.identity_accuracy.accuracy, { numerator: 2, denominator: 4, rate: 0.5 });
   assert.equal(report.authorized_canaries.by_kind.direct_absence, 1);
-  assert.deepEqual(report.authorized_canaries.proof_references, ["canary_0123456789abcdef01234567"]);
+  assert.equal(report.authorized_canaries.covered_brokers, 5);
+  assert.deepEqual(report.authorized_canaries.coverage_rate, { numerator: 5, denominator: 5, rate: 1 });
+  assert.deepEqual(report.time_to_observed_outcome, {
+    evidenced: 1,
+    minimum_hours: 24,
+    median_hours: 24,
+    average_hours: 24,
+    maximum_hours: 24,
+  });
   assert.doesNotMatch(JSON.stringify(report), /@|https?:\/\//u);
 });
 
+test("outcome-only canaries remain partial rather than proving effectiveness", () => {
+  const report = buildEffectivenessReport(status, [canary()]);
+  assert.equal(report.operational_effectiveness, "partially_evidenced_by_authorized_canaries");
+  assert.equal(report.identity_accuracy.evidence_status, "needs_evidence");
+  assert.equal(report.invariants.identity_and_outcome_evidence_both_required, true);
+});
+
 test("effectiveness rejects cross-profile, unknown-broker, duplicate, and malformed canaries", () => {
-  const base = {
-    profileId,
-    brokerId: "alpha",
-    kind: "controller_confirmed",
-    observedAt: "2026-07-14T11:30:00.000Z",
-    proofReference: "canary_0123456789abcdef01234567",
-  };
+  const base = canary({ kind: "controller_confirmed" });
   assert.throws(() => buildEffectivenessReport(status, [{ ...base, profileId: "profile_ffffffffffffffff" }]), /canary_invalid/);
   assert.throws(() => buildEffectivenessReport(status, [{ ...base, brokerId: "unknown" }]), /canary_invalid/);
   assert.throws(() => buildEffectivenessReport(status, [base, { ...base, brokerId: "bravo" }]), /canary_invalid/);
   assert.throws(() => buildEffectivenessReport(status, [{ ...base, proofReference: "raw-proof" }]), /canary_invalid/);
+  assert.throws(() => buildEffectivenessReport(status, [{ ...base, schemaVersion: 1 }]), /canary_invalid/);
+  assert.throws(() => buildEffectivenessReport(status, [{ ...base, authorizationReferenceSha256: "weak" }]), /canary_invalid/);
+  assert.throws(() => buildEffectivenessReport(status, [{ ...base, startedAt: "2026-07-13T11:30:00Z" }]), /canary_invalid/);
+  assert.throws(() => buildEffectivenessReport(status, [{ ...base, identityOutcome: "true_positive" }]), /canary_invalid/);
+  assert.throws(() => buildEffectivenessReport(status, [{
+    ...base,
+    kind: "identity_reviewed",
+  }]), /canary_invalid/);
+  assert.throws(() => buildEffectivenessReport(status, [{
+    ...base,
+    startedAt: "2025-01-01T00:00:00.000Z",
+  }]), /canary_invalid/);
   assert.throws(() => buildEffectivenessReport(status, [{ ...base, brokerId: "bravo" }]), /state_conflict/);
   assert.throws(() => buildEffectivenessReport(status, [{ ...base, observedAt: "2026-07-14T12:30:00.000Z" }]), /state_conflict/);
 });

@@ -189,12 +189,27 @@ link open as `verification_opened`/processing, not deletion.
 
 ## California DROP and other registries
 
-For an eligible California profile, DROP is the highest-leverage lane. State
-account creation and identity verification are human. After the operator has
-personally verified that the filing occurred, call
+For an eligible California profile, DROP is the highest-leverage registry lane.
+State account creation, login, residency, and identity verification are human.
+After the operator has personally verified that the filing occurred, call
 `rightout_record_drop_filed(profileId)` under its separate native approval. It
 creates one durable `ca_drop` case scoped to the current official registry
-snapshot. It does not claim non-registered or FCRA data was deleted.
+snapshot, tracks the 2026-08-01 processing boundary, a 90-day ordinary
+processing deadline, and 45-day checkpoints. It does not claim non-registered
+or FCRA data was deleted.
+
+Beginning with the official status window, a person may inspect DROP and call
+`rightout_record_drop_status(profileId, observedStatus)` under a new exact
+approval. Record only the literal observed state. `deleted` remains a portal
+claim and must stay `deletion_confirmed: false`, with no confirmation scope.
+Never infer record-level deletion from a government status.
+
+For GPC, RightOut does not configure a browser, extension, or site. After the
+operator personally verifies a native browser setting or browser extension,
+`rightout_record_gpc_observed(profileId, surface)` may record the local
+preference. It is an opt-out-of-sale/sharing signal, not a deletion request or
+deletion proof. Per-site receipt, legal effect outside California, and provider
+compliance remain `needs_evidence`.
 
 Use `rightout_registry_search` for public controller routing. Do not return raw
 registry contact addresses or treat registration as proof the broker holds the
@@ -223,6 +238,8 @@ autonomous run.
   unindexed URLs were not checked.
 - `confirmed_removed` from a controller response is limited to that controller
   and reviewed identifiers.
+- DROP portal status and GPC preference state never contribute to
+  `confirmed_removed`.
 - Use `rightout_due_rechecks` in an official OpenClaw Cron turn. A third-party
   plugin cannot self-schedule the next session turn.
 - Use `rightout_export_report` for Markdown, structured JSON, and Google

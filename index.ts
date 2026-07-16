@@ -46,6 +46,14 @@ import { createEvidenceVault } from "./lib/evidence-vault.mjs";
 import { createCustomTargetVault } from "./lib/custom-targets.mjs";
 import { assertFreshCatalogEntries, catalogPolicyHealth } from "./lib/catalog-health.mjs";
 import {
+  assertMarketRouteExecution,
+  assertMarketRightsExecution,
+  assertProfileEligibleForMarketRoute,
+  marketPolicyDigest,
+  marketPolicyHealth,
+  marketPolicyOperatorHealth,
+} from "./lib/market-readiness.mjs";
+import {
   RIGHTOUT_DIRECT_SCAN_POLICY_VERSION,
   directScanApprovalDescription,
   directScanScopeBinding,
@@ -94,6 +102,19 @@ import {
   REGISTRY_PORTALS,
   registrySummary,
 } from "./lib/registry.mjs";
+import {
+  dropContractDigest,
+  dropFiledScopeBinding,
+  dropRegistrySnapshot,
+  dropStatusScopeBinding,
+  validateDropStatusInput,
+} from "./lib/drop.mjs";
+import {
+  buildGpcObservation,
+  gpcObservationScopeBinding,
+  gpcPreferenceStatus,
+  validateGpcObservationInput,
+} from "./lib/preference-controls.mjs";
 import {
   assertParityCatalogFresh,
   assertParityCatalogRouteFresh,
@@ -252,11 +273,16 @@ type TeamAccessRecord = {
 };
 
 type EffectivenessCanary = {
+  schemaVersion: 2;
   profileId: string;
   brokerId: string;
-  kind: "submission_delivered" | "controller_confirmed" | "direct_absence" | "reappearance";
+  kind: "identity_reviewed" | "submission_delivered" | "controller_confirmed" | "direct_absence" | "reappearance" | "human_handoff";
+  identityOutcome?: "true_positive" | "false_positive" | "false_negative" | "true_negative";
+  startedAt: string;
   observedAt: string;
   proofReference: string;
+  authorizationReferenceSha256: string;
+  deploymentEvidenceSha256: string;
 };
 
 type RightOutConfig = {
@@ -537,8 +563,9 @@ const RemovalParameters = Type.Object(
     requestKind: Type.Union([
       Type.Literal("delete_and_opt_out"),
       Type.Literal("gdpr_erasure_objection"),
+      Type.Literal("uk_erasure_objection"),
     ], {
-      description: "Catalog-validated US delete/opt-out or EU GDPR erasure/objection request.",
+      description: "Catalog-validated US delete/opt-out, EU GDPR erasure/objection, or separately contracted UK erasure/objection request.",
     }),
     campaignId: CampaignIdParameter,
   },
@@ -550,6 +577,39 @@ const CaseParameters = Type.Object(
     profileId: Type.String({
       pattern: "^profile_[a-f0-9]{16,32}$",
       description: "Opaque operator-configured profile reference. Contains no personal data.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const DropStatusParameters = Type.Object(
+  {
+    profileId: Type.String({
+      pattern: "^profile_[a-f0-9]{16,32}$",
+      description: "Opaque operator-configured profile reference. Contains no personal data.",
+    }),
+    observedStatus: Type.Union([
+      Type.Literal("pending"),
+      Type.Literal("deleted"),
+      Type.Literal("needs_manual_check"),
+    ], {
+      description: "Exact status personally observed in DROP. Even 'deleted' remains a portal claim, not direct deletion proof.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const GpcObservationParameters = Type.Object(
+  {
+    profileId: Type.String({
+      pattern: "^profile_[a-f0-9]{16,32}$",
+      description: "Opaque operator-configured profile reference. Contains no personal data.",
+    }),
+    surface: Type.Union([
+      Type.Literal("browser_native_setting"),
+      Type.Literal("browser_extension"),
+    ], {
+      description: "Browser surface personally checked by the operator. RightOut does not configure the browser.",
     }),
   },
   { additionalProperties: false },
@@ -569,7 +629,7 @@ const EmptyParameters = Type.Object({}, { additionalProperties: false });
 const ControllerOutcomeParameters = Type.Object(
   {
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
-    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU or US controller whose response was reviewed by the operator." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU, UK, or US controller whose response was reviewed by the operator." }),
     outcome: Type.Union([
       Type.Literal("processing_acknowledged"),
       Type.Literal("erasure_confirmed"),
@@ -590,7 +650,7 @@ const ControllerOutcomeParameters = Type.Object(
 const ControllerReplyPollParameters = Type.Object(
   {
     profileId: Type.String({ pattern: "^profile_[a-f0-9]{16,32}$", description: "Opaque private profile reference." }),
-    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU or US controller with an already submitted email request." }),
+    brokerId: Type.String({ pattern: "^[a-z0-9_]{2,24}$", description: "Catalog EU, UK, or US controller with an already submitted email request." }),
   },
   { additionalProperties: false },
 );
@@ -866,6 +926,25 @@ function catalogDigest(catalog: Record<string, unknown>): string {
   return createHash("sha256").update(JSON.stringify(catalog)).digest("hex");
 }
 
+function assertParityRouteMarketContract(
+  route: Record<string, any>,
+  executionClass: "provider_delete_opt_out" | "publisher_browser_or_form" = "provider_delete_opt_out",
+): Record<string, any> {
+  return assertMarketRouteExecution({
+    jurisdictions: route.execution_jurisdictions,
+    marketIds: route.execution_market_ids,
+    executionClass,
+    now: Date.now(),
+  }) as Record<string, any>;
+}
+
+function assertParityProfileMarketEligibility(route: Record<string, any>, profile: Record<string, any>): void {
+  assertProfileEligibleForMarketRoute({
+    routeJurisdictions: route.execution_jurisdictions,
+    profileJurisdictions: profile.jurisdictions,
+  });
+}
+
 function assertCampaignCatalogScope(catalog: Record<string, unknown>, input: PublicCampaignStartInput): void {
   const rows = Array.isArray(catalog.brokers) ? catalog.brokers : [];
   const known = new Set(rows.flatMap((row) => (
@@ -877,8 +956,14 @@ function assertCampaignCatalogScope(catalog: Record<string, unknown>, input: Pub
 }
 
 type PublicScanInput = { profileId: string; brokerIds: string[] };
-type PublicRemovalInput = { profileId: string; brokerId: string; requestKind: "delete_and_opt_out" | "gdpr_erasure_objection" };
+type PublicRemovalInput = {
+  profileId: string;
+  brokerId: string;
+  requestKind: "delete_and_opt_out" | "gdpr_erasure_objection" | "uk_erasure_objection";
+};
 type PublicCaseInput = { profileId: string };
+type PublicDropStatusInput = PublicCaseInput & { observedStatus: "pending" | "deleted" | "needs_manual_check" };
+type PublicGpcObservationInput = PublicCaseInput & { surface: "browser_native_setting" | "browser_extension" };
 type PublicDashboardExportInput = { format: "html" | "json" };
 type PublicControllerOutcomeInput = PublicCaseInput & {
   brokerId: string;
@@ -1226,11 +1311,6 @@ function sensitiveFormStepScopeBinding(session: Record<string, any>, input: { se
   ]);
 }
 
-function dropFiledScopeBinding(profileId: string, registryCount: number): string {
-  if (!/^profile_[a-f0-9]{16,32}$/.test(profileId) || !Number.isInteger(registryCount) || registryCount < 1) throw new Error("rightout_drop_attestation_invalid");
-  return JSON.stringify(["california_drop_filed_v1", profileId, registryCount, "2026-08-01"]);
-}
-
 function assertSupportedBrokerScope(catalog: Record<string, unknown>, input: PublicScanInput): void {
   const brokers = Array.isArray(catalog.brokers) ? catalog.brokers : [];
   for (const brokerId of input.brokerIds) {
@@ -1358,6 +1438,8 @@ function resolveControllerOutcomeBroker(catalog: Record<string, unknown>, input:
   }
   const requestKind = raw.process_class === "eu_controller_email_erasure"
     ? "gdpr_erasure_objection"
+    : raw.process_class === "uk_controller_email_erasure"
+      ? "uk_erasure_objection"
     : raw.process_class === "us_data_broker_email_deletion"
       ? "delete_and_opt_out"
       : null;
@@ -1365,7 +1447,7 @@ function resolveControllerOutcomeBroker(catalog: Record<string, unknown>, input:
   const euOnly = new Set(["erasure_confirmed", "partial_erasure"]);
   const usOnly = new Set(["deletion_confirmed", "partial_deletion"]);
   if (
-    (raw.process_class === "eu_controller_email_erasure" && usOnly.has(input.outcome))
+    (["eu_controller_email_erasure", "uk_controller_email_erasure"].includes(raw.process_class) && usOnly.has(input.outcome))
     || (raw.process_class === "us_data_broker_email_deletion" && euOnly.has(input.outcome))
   ) throw new Error("unsupported_controller_outcome_lane");
   return resolveRemovalCatalogEntry(catalog, {
@@ -1553,7 +1635,28 @@ export default definePluginEntry({
         assertCampaignCatalogScope(await combinedScanCatalog(), input);
         return;
       }
-      assertCampaignCatalogScope(await parityCatalogPromise, input);
+      const parity = await parityCatalogPromise;
+      assertCampaignCatalogScope(parity, input);
+      for (const brokerId of input.brokerIds) {
+        const route = resolveParityBroker(parity, brokerId);
+        assertParityRouteMarketContract(
+          route,
+          input.effects.some((effect) => ["publisher_discover", "direct_recheck"].includes(effect))
+            ? "publisher_browser_or_form"
+            : "provider_delete_opt_out",
+        );
+      }
+    }
+
+    async function assertAutonomousCampaignProfileMarkets(
+      input: PublicCampaignStartInput,
+      profile: Record<string, any>,
+    ): Promise<void> {
+      if (input.effects.length === 1 && input.effects[0] === "discover") return;
+      const parity = await parityCatalogPromise;
+      for (const brokerId of input.brokerIds) {
+        assertParityProfileMarketEligibility(resolveParityBroker(parity, brokerId), profile);
+      }
     }
 
     async function combinedVerificationCatalog(): Promise<Record<string, any>> {
@@ -1764,6 +1867,11 @@ export default definePluginEntry({
       maxEntries: 20,
       defaultTtlMs: 45 * 24 * 60 * 60_000,
     });
+    const preferenceStore = openRightOutStore<Record<string, unknown>>({
+      namespace: "rightout-preference-controls-v1",
+      maxEntries: 100,
+      defaultTtlMs: stateRetentionDays * 24 * 60 * 60_000,
+    });
     const paritySourceStore = openRightOutStore<Record<string, unknown>>({
       namespace: "rightout-parity-source-health-v1",
       maxEntries: 2,
@@ -1774,6 +1882,46 @@ export default definePluginEntry({
       maxEntries: 100,
       defaultTtlMs: 24 * 60 * 60_000,
     });
+
+    function gpcPreferenceKey(profileId: string): string {
+      if (!/^profile_[a-f0-9]{16,32}$/.test(profileId)) throw new Error("invalid_profile_ref");
+      return `gpc_${createHash("sha256").update(profileId).digest("hex")}`;
+    }
+
+    async function preferenceControls(profileId: string): Promise<Record<string, unknown>[]> {
+      const current = await preferenceStore.lookup(gpcPreferenceKey(profileId));
+      if (current !== undefined && current.profileId !== profileId) throw new Error("rightout_gpc_status_invalid");
+      return [gpcPreferenceStatus(current)];
+    }
+
+    async function gpcCurrentProofReference(profileId: string): Promise<string | null> {
+      const current = await preferenceStore.lookup(gpcPreferenceKey(profileId));
+      if (current === undefined) return null;
+      if (current.profileId !== profileId) throw new Error("rightout_gpc_status_invalid");
+      const status = gpcPreferenceStatus(current);
+      return Array.isArray(status.proof_references) ? status.proof_references[0] ?? null : null;
+    }
+
+    async function dropCaseBindingContext(profileId: string): Promise<Record<string, string>> {
+      const status = await caseLedger.status(profileId);
+      const drop = status.cases.find((item: Record<string, any>) => item.broker_id === "ca_drop");
+      const latestProofReference = Array.isArray(drop?.proof_references)
+        ? [...drop.proof_references].reverse().find((value) => typeof value === "string" && /^drop_[a-f0-9]{16,64}$/.test(value))
+        : undefined;
+      if (
+        !drop || drop.mechanism !== "california_drop"
+        || drop.mechanism_contract_digest !== dropContractDigest()
+        || typeof drop.mechanism_registry_snapshot_digest !== "string"
+        || !/^[a-f0-9]{64}$/.test(drop.mechanism_registry_snapshot_digest)
+        || typeof latestProofReference !== "string"
+        || drop.mechanism_deletion_confirmed !== false
+      ) throw new Error("rightout_drop_status_not_ready");
+      return {
+        contractDigest: drop.mechanism_contract_digest,
+        registrySnapshotDigest: drop.mechanism_registry_snapshot_digest,
+        latestProofReference,
+      };
+    }
 
     function portalFlowKey(profileId: string, brokerId: string): string {
       return `portal_${createHash("sha256").update(JSON.stringify([profileId, brokerId])).digest("hex")}`;
@@ -1893,11 +2041,13 @@ export default definePluginEntry({
           subject_ref: measured.subject_ref,
           operational_effectiveness: measured.operational_effectiveness,
           discovery: measured.discovery,
+          identity_accuracy: measured.identity_accuracy,
           submission: measured.submission,
           provider_confirmation: measured.provider_confirmation,
           reappearance: measured.reappearance,
           uncertainty: measured.uncertainty,
           human_handoff: measured.human_handoff,
+          time_to_observed_outcome: measured.time_to_observed_outcome,
         });
       }
       const authorized = new Set(member.authorized_profile_ids);
@@ -1907,6 +2057,7 @@ export default definePluginEntry({
         typeof item.next_recheck_at === "string" && Date.parse(item.next_recheck_at) <= Date.now()
       )).length;
       const evidencedCount = effectiveness.filter((item) => item.operational_effectiveness === "evidenced_by_authorized_canaries").length;
+      const partialCount = effectiveness.filter((item) => item.operational_effectiveness === "partially_evidenced_by_authorized_canaries").length;
       return {
         dashboard_version: 1,
         generated_at: new Date().toISOString(),
@@ -1919,7 +2070,7 @@ export default definePluginEntry({
         effectiveness,
         operational_effectiveness: evidencedCount === effectiveness.length && evidencedCount > 0
           ? "evidenced_by_authorized_canaries"
-          : evidencedCount > 0 ? "partially_evidenced_by_authorized_canaries" : "needs_evidence",
+          : evidencedCount > 0 || partialCount > 0 ? "partially_evidenced_by_authorized_canaries" : "needs_evidence",
         due_now: dueNow,
         evidence_reference_count: evidenceReferenceCount,
         route_health: {
@@ -1937,6 +2088,7 @@ export default definePluginEntry({
         catalogDigest: await campaignCatalogDigestPromise,
         recipeDigest: recipePack.recipe_digest,
         runtimeScopeDigest: configuredRuntimeScopeDigest(),
+        marketPolicyDigest: marketPolicyDigest({ now: Date.now() }),
       });
     }
 
@@ -1944,11 +2096,16 @@ export default definePluginEntry({
       const worker = await workerLedger.status(workerId);
       const campaign = await campaignLedger.status(worker.campaign_id);
       if (campaign.status === "active") {
+        const currentMarketPolicyDigest = marketPolicyDigest({ now: Date.now() });
+        await campaignLedger.assertMarketPolicy(campaign.campaign_id, {
+          marketPolicyDigest: currentMarketPolicyDigest,
+        });
         const profileDigest = await ensureImmutableProfileSnapshot(campaign.subject_ref);
         await campaignLedger.assertScope(campaign.campaign_id, {
           profileId: campaign.subject_ref,
           profileDigest,
           runtimeScopeDigest: configuredRuntimeScopeDigest(),
+          marketPolicyDigest: currentMarketPolicyDigest,
         });
       }
       const session = trustedWorkerSession(context);
@@ -2300,16 +2457,23 @@ export default definePluginEntry({
       catalog: Record<string, unknown>,
       consume: boolean,
     ): Promise<boolean> {
+      if (!campaignId) return false;
+      const currentMarketPolicyDigest = marketPolicyDigest({ now: Date.now() });
+      await campaignLedger.assertMarketPolicy(campaignId, {
+        marketPolicyDigest: currentMarketPolicyDigest,
+      });
       const profileDigest = await ensureImmutableProfileSnapshot(profileId);
       const runtimeScopeDigest = configuredRuntimeScopeDigest();
-      if (!campaignId) return false;
       if (consume) {
         await campaignLedger.consume(campaignId, {
           profileId, effects, catalogDigest: await campaignCatalogDigestPromise, profileDigest, runtimeScopeDigest,
+          marketPolicyDigest: currentMarketPolicyDigest,
         });
         return true;
       }
-      const status = await campaignLedger.assertScope(campaignId, { profileId, profileDigest, runtimeScopeDigest });
+      const status = await campaignLedger.assertScope(campaignId, {
+        profileId, profileDigest, runtimeScopeDigest, marketPolicyDigest: currentMarketPolicyDigest,
+      });
       if (
         status.status !== "active" || status.subject_ref !== profileId
         || effects.some((item) => !status.broker_ids.includes(item.brokerId) || !status.effects.includes(item.effect))
@@ -2318,10 +2482,15 @@ export default definePluginEntry({
     }
 
     async function revalidateConsumedSessionEffect(session: Record<string, any>, effect: CampaignEffect["effect"]): Promise<void> {
+      const currentMarketPolicyDigest = marketPolicyDigest({ now: Date.now() });
+      await campaignLedger.assertMarketPolicy(session.campaignId, {
+        marketPolicyDigest: currentMarketPolicyDigest,
+      });
       const profileDigest = await ensureImmutableProfileSnapshot(session.profileId);
       const runtimeScopeDigest = configuredRuntimeScopeDigest();
       const status = await campaignLedger.assertScope(session.campaignId, {
         profileId: session.profileId, profileDigest, runtimeScopeDigest,
+        marketPolicyDigest: currentMarketPolicyDigest,
       });
       if (
         !["active", "completed"].includes(status.status)
@@ -2396,8 +2565,14 @@ export default definePluginEntry({
       effect: CampaignEffect["effect"],
     ): Promise<void> {
       try {
+        assertParityRouteMarketContract(
+          session.broker,
+          effect === "publisher_discover" ? "publisher_browser_or_form" : "provider_delete_opt_out",
+        );
         if (effect === "submit_form") {
-          parityFormAttestationSnapshot(api.pluginConfig as RightOutConfig | undefined, session.profileId, session.brokerId);
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          parityFormAttestationSnapshot(config, session.profileId, session.brokerId);
+          assertParityProfileMarketEligibility(session.broker, parseRemovalProfile(config!.profiles![session.profileId].payload) as Record<string, any>);
         }
         if (effect === "publisher_discover") {
           const config = api.pluginConfig as RightOutConfig | undefined;
@@ -2409,6 +2584,7 @@ export default definePluginEntry({
           if (typeof payload !== "string" || scanProfileDigest(payload) !== attestations.authorizedProfileDigests[session.profileId]) {
             throw new Error("rightout_direct_scan_profile_snapshot_changed");
           }
+          assertParityProfileMarketEligibility(session.broker, parseRemovalProfile(payload) as Record<string, any>);
         }
         assertPublisherAutomationPermission(
           api.pluginConfig as RightOutConfig | undefined,
@@ -2698,7 +2874,9 @@ export default definePluginEntry({
         || !Array.isArray(removalAttestations?.authorizedBrokerIds)
         || removalAttestations.authorizedBrokerIds.length < 1
         || !Array.isArray(removalAttestations?.authorizedRequestKinds)
-        || !removalAttestations.authorizedRequestKinds.some((kind: string) => ["delete_and_opt_out", "gdpr_erasure_objection"].includes(kind))
+        || !removalAttestations.authorizedRequestKinds.some((kind: string) => (
+          ["delete_and_opt_out", "gdpr_erasure_objection", "uk_erasure_objection"].includes(kind)
+        ))
         || typeof removalAttestations?.smtpTransportDigest !== "string"
         || !/^[a-f0-9]{64}$/.test(removalAttestations.smtpTransportDigest)
       )) {
@@ -2864,6 +3042,8 @@ export default definePluginEntry({
         "rightout_refresh_registries",
         "rightout_refresh_parity_sources",
         "rightout_record_drop_filed",
+        "rightout_record_drop_status",
+        "rightout_record_gpc_observed",
         "rightout_submit_parity_email",
         "rightout_begin_webmail_session",
         "rightout_webmail_session_step",
@@ -2998,6 +3178,8 @@ export default definePluginEntry({
         "rightout_refresh_registries",
         "rightout_refresh_parity_sources",
         "rightout_record_drop_filed",
+        "rightout_record_drop_status",
+        "rightout_record_gpc_observed",
         "rightout_form_session_step",
         "rightout_worker_enable",
         "rightout_worker_resume",
@@ -3017,6 +3199,7 @@ export default definePluginEntry({
             profileId: campaign.subject_ref,
             profileDigest,
             runtimeScopeDigest: configuredRuntimeScopeDigest(),
+            marketPolicyDigest: marketPolicyDigest({ now: Date.now() }),
           });
           const session = trustedWorkerSession(hookContext as Record<string, any>);
           const policyDigest = await currentWorkerPolicyDigest();
@@ -3154,7 +3337,8 @@ export default definePluginEntry({
           });
           await assertCampaignPublisherPermissions(input, routingScope);
           const digest = await campaignCatalogDigestPromise;
-          const binding = campaignScopeBinding(input, digest, routingScope.routingDigest);
+          const currentMarketPolicyDigest = marketPolicyDigest({ now: Date.now() });
+          const binding = campaignScopeBinding(input, digest, routingScope.routingDigest, currentMarketPolicyDigest);
           const toolCallId = event.toolCallId;
           return {
             params: input,
@@ -3205,7 +3389,7 @@ export default definePluginEntry({
           if (!profile.jurisdictions.includes("US-CA")) throw new Error("rightout_drop_ineligible");
           const registry = await registryMeta();
           if (registry.state !== "registry_ready" || !Number.isInteger(registry.record_count) || registry.record_count < 1) throw new Error("rightout_drop_registry_invalid");
-          const binding = dropFiledScopeBinding(input.profileId, registry.record_count);
+          const binding = dropFiledScopeBinding(input.profileId, registry);
           const toolCallId = event.toolCallId;
           return {
             params: input,
@@ -3223,6 +3407,55 @@ export default definePluginEntry({
           };
         } catch {
           return { block: true, blockReason: "California DROP filing requires an eligible profile, current official registry snapshot, and operator attestation" };
+        }
+      }
+      if (event.toolName === "rightout_record_drop_status") {
+        try {
+          const input = validateDropStatusInput(event.params) as PublicDropStatusInput;
+          assertConfiguredProfile(input.profileId);
+          const caseContext = await dropCaseBindingContext(input.profileId);
+          const binding = dropStatusScopeBinding(input, caseContext);
+          const toolCallId = event.toolCallId;
+          return {
+            params: input,
+            requireApproval: {
+              title: "Record observed California DROP status",
+              description: `P ${input.profileId}; attest that DROP displayed '${input.observedStatus}'. This records a human-observed portal claim only, never direct deletion proof, and performs no provider action.`,
+              severity: "critical" as const,
+              allowedDecisions: ["allow-once", "deny"] as const,
+              timeoutMs: approvalTtlMs,
+              onResolution(decision: PluginApprovalResolution) {
+                if (decision === "allow-once") approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                else approvalBindings.delete(toolCallId);
+              },
+            },
+          };
+        } catch {
+          return { block: true, blockReason: "California DROP status requires an existing current human-filed DROP case and exact operator observation" };
+        }
+      }
+      if (event.toolName === "rightout_record_gpc_observed") {
+        try {
+          const input = validateGpcObservationInput(event.params) as PublicGpcObservationInput;
+          assertConfiguredProfile(input.profileId);
+          const binding = gpcObservationScopeBinding(input, await gpcCurrentProofReference(input.profileId));
+          const toolCallId = event.toolCallId;
+          return {
+            params: input,
+            requireApproval: {
+              title: "Record observed GPC preference",
+              description: `P ${input.profileId}; attest GPC is enabled via ${input.surface}. RightOut does not configure the browser or contact a site; GPC remains an opt-out preference, not deletion proof.`,
+              severity: "critical" as const,
+              allowedDecisions: ["allow-once", "deny"] as const,
+              timeoutMs: approvalTtlMs,
+              onResolution(decision: PluginApprovalResolution) {
+                if (decision === "allow-once") approvalBindings.set(toolCallId, { binding, expiresAt: Date.now() + approvalTtlMs, toolName: event.toolName });
+                else approvalBindings.delete(toolCallId);
+              },
+            },
+          };
+        } catch {
+          return { block: true, blockReason: "GPC observation requires a configured opaque profile and exact human-reviewed browser surface" };
         }
       }
       if (event.toolName === "rightout_rotate_state_key") {
@@ -3277,7 +3510,10 @@ export default definePluginEntry({
         try {
           const input = validateControllerOutcomeInput(event.params);
           const broker = resolveControllerOutcomeBroker(catalog, input);
-          if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.processClass) || broker.confirmationPolicy !== "submitted_until_controller_response") {
+          if (
+            !["eu_controller_email_erasure", "uk_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.processClass)
+            || broker.confirmationPolicy !== "submitted_until_controller_response"
+          ) {
             throw new Error("unsupported_controller_outcome_lane");
           }
           const candidate = await controllerCandidateForOutcome(input);
@@ -3405,6 +3641,11 @@ export default definePluginEntry({
           const input = validateRemovalPublicToolInput(scoped.params) as PublicRemovalInput;
           const broker = resolveRemovalCatalogEntry(catalog, input);
           assertFreshCatalogEntries(catalog, [input.brokerId]);
+          assertMarketRightsExecution({
+            jurisdictions: broker.eligibleJurisdictions,
+            executionClass: "controller_request",
+            now: Date.now(),
+          });
           const attestations = removalAttestationSnapshot(config, input);
           const dedupeKey = removalDedupeKey(input);
           if (submittedScopes.has(dedupeKey)) return { block: true, blockReason: "duplicate RightOut removal request is cooling down" };
@@ -3441,6 +3682,11 @@ export default definePluginEntry({
           const scoped = splitCampaignParams(event.params);
           const input = validateFormRemovalInput(scoped.params) as PublicRemovalInput;
           const broker = resolveFormCatalogEntry(catalog, input);
+          assertMarketRightsExecution({
+            jurisdictions: broker.eligibleJurisdictions,
+            executionClass: "provider_delete_opt_out",
+            now: Date.now(),
+          });
           const browserScope = browserApprovalRoutingScope(config, { browserRequired: true, effects: ["submit_form"] });
           if (browserScope.browserBackendMode === "not_required") throw new Error("rightout_browser_backend_invalid");
           assertPublisherAutomationPermission(
@@ -3826,7 +4072,7 @@ export default definePluginEntry({
       {
         name: "rightout_submit_removal",
         label: "RightOut submit removal",
-        description: "Send one catalog-locked US delete/opt-out or EU GDPR erasure/objection email through the approved SMTP account. Assisted calls use native allow-once; campaign calls use a matching finite grant. Submission is never reported as confirmed removal.",
+        description: "Send one catalog-locked US, EU/EEA, or separately contracted UK rights email through the approved SMTP account. Assisted calls use native allow-once; campaign calls use a matching finite grant. Submission is never reported as confirmed removal.",
         parameters: RemovalParameters,
         async execute(toolCallId, params, signal) {
           let input: PublicRemovalInput;
@@ -3842,6 +4088,11 @@ export default definePluginEntry({
           const catalog = await catalogPromise;
           const broker = resolveRemovalCatalogEntry(catalog, input);
           assertFreshCatalogEntries(catalog, [input.brokerId]);
+          assertMarketRightsExecution({
+            jurisdictions: broker.eligibleJurisdictions,
+            executionClass: "controller_request",
+            now: Date.now(),
+          });
           let attestations: RemovalAttestationSnapshot | undefined;
           try {
             attestations = removalAttestationSnapshot(config, input);
@@ -4060,14 +4311,19 @@ export default definePluginEntry({
         parameters: ParityEmailParameters,
         async execute(toolCallId, params, signal) {
           const input = validateFormSessionBeginInput(params);
+          const parityCatalog = await parityCatalogPromise;
+          const broker = resolveParityBroker(parityCatalog, input.brokerId);
+          assertParityRouteMarketContract(broker);
+          if (typeof broker.rescue_email !== "string") throw new Error("rightout_parity_email_lane_invalid");
+          await assertParityRescueFresh(input.brokerId);
           const config = api.pluginConfig as RightOutConfig | undefined;
           if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string" || !config.smtpTransport) {
             throw new Error("rightout_not_configured");
           }
-          const parityCatalog = await parityCatalogPromise;
-          const broker = resolveParityBroker(parityCatalog, input.brokerId);
-          if (typeof broker.rescue_email !== "string") throw new Error("rightout_parity_email_lane_invalid");
-          await assertParityRescueFresh(input.brokerId);
+          assertParityProfileMarketEligibility(
+            broker,
+            parseRemovalProfile(config.profiles[input.profileId].payload) as Record<string, any>,
+          );
           const coreCatalog = await catalogPromise;
           await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], coreCatalog, false);
           let listingUrl;
@@ -4146,12 +4402,17 @@ export default definePluginEntry({
         parameters: ParityEmailParameters,
         async execute(toolCallId, params, signal) {
           const input = validateFormSessionBeginInput(params);
-          const config = api.pluginConfig as RightOutConfig | undefined;
-          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") throw new Error("rightout_not_configured");
           const parityCatalog = await parityCatalogPromise;
           const broker = resolveParityBroker(parityCatalog, input.brokerId);
+          assertParityRouteMarketContract(broker);
           if (typeof broker.rescue_email !== "string") throw new Error("rightout_parity_email_lane_invalid");
           await assertParityRescueFresh(input.brokerId);
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") throw new Error("rightout_not_configured");
+          assertParityProfileMarketEligibility(
+            broker,
+            parseRemovalProfile(config.profiles[input.profileId].payload) as Record<string, any>,
+          );
           const coreCatalog = await catalogPromise;
           await authorizeCampaignEffects(input.campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "submit_email" }], coreCatalog, true);
           let listingUrl;
@@ -4207,6 +4468,19 @@ export default definePluginEntry({
           const input = validateWebmailSessionStepInput(params);
           await pruneTransientState();
           const session = activeWebmailSession(input.sessionId);
+          if (input.action.kind !== "close") {
+            try {
+              const parityRoute = session.parityBroker ?? session.broker;
+              assertParityRouteMarketContract(parityRoute);
+              const config = api.pluginConfig as RightOutConfig | undefined;
+              const profilePayload = config?.profiles?.[session.profileId]?.payload;
+              if (typeof profilePayload !== "string") throw new Error("rightout_not_configured");
+              assertParityProfileMarketEligibility(parityRoute, parseRemovalProfile(profilePayload) as Record<string, any>);
+            } catch (error) {
+              await invalidateBrowserSession(input.sessionId, session);
+              throw error;
+            }
+          }
           const coreCatalog = await catalogPromise;
           if (session.webmailMode === "verification") {
             if (input.action.kind === "fill" || (input.action.kind === "click" && input.action.purpose === "send")) {
@@ -4520,13 +4794,14 @@ export default definePluginEntry({
         parameters: WebmailVerificationBeginParameters,
         async execute(_toolCallId, params, signal) {
           const input = validateWebmailVerificationBeginInput(params);
-          const config = api.pluginConfig as RightOutConfig | undefined;
-          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") throw new Error("rightout_not_configured");
           const verificationCatalog = await combinedVerificationCatalog();
           const broker = resolveVerificationCatalogEntry(verificationCatalog, { profileId: input.profileId, brokerId: input.brokerId });
           const parityCatalog = await parityCatalogPromise;
           const parityBroker = resolveParityBroker(parityCatalog, input.brokerId);
+          assertParityRouteMarketContract(parityBroker);
           await assertParityRouteFresh(input.brokerId);
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") throw new Error("rightout_not_configured");
           const browserControl = resolveBrowserControl(toolContext as Record<string, any>, config);
           const browserBackend = resolveBrowserBackend(toolContext as Record<string, any>, config);
           if (!browserBackend.webmail_ready || typeof browserControl.bridgeUrl !== "string" || !browserControl.browserProfile) {
@@ -4544,6 +4819,7 @@ export default definePluginEntry({
             },
             attestations,
           });
+          assertParityProfileMarketEligibility(parityBroker, preflight.profile as Record<string, any>);
           const caseContext = await caseLedger.verificationContext(input.profileId, input.brokerId, ["submitted", "verification_pending"]);
           const unresolvedOpen = await verificationOpenDedupe.lookup(verificationOpenDedupeKey(
             input.profileId,
@@ -4624,6 +4900,11 @@ export default definePluginEntry({
           const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await catalogPromise;
           const broker = resolveFormCatalogEntry(catalog, input);
+          assertMarketRightsExecution({
+            jurisdictions: broker.eligibleJurisdictions,
+            executionClass: "provider_delete_opt_out",
+            now: Date.now(),
+          });
           const permissionRoutingScope = browserApprovalRoutingScope(config, { browserRequired: true, effects: ["submit_form"] });
           if (permissionRoutingScope.browserBackendMode === "not_required") throw new Error("rightout_browser_backend_invalid");
           assertPublisherAutomationPermission(
@@ -4760,9 +5041,11 @@ export default definePluginEntry({
             throw new Error("rightout_approval_binding_failed");
           }
           const approvalBoundary = campaignId ? "finite_campaign_grant" : "assisted_allow_once";
-          const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await combinedVerificationCatalog();
           const broker = resolveVerificationCatalogEntry(catalog, input);
+          const parityRoute = resolveParityBroker(await parityCatalogPromise, input.brokerId);
+          assertParityRouteMarketContract(parityRoute);
+          const config = api.pluginConfig as RightOutConfig | undefined;
           await assertParityRouteFresh(input.brokerId);
           await pruneTransientState();
           if (broker.openLinkMode === "browser_same_profile_required" && await portalFlowStore.lookup(portalFlowKey(input.profileId, input.brokerId))) {
@@ -4792,6 +5075,7 @@ export default definePluginEntry({
             imapTransport: config.imapTransport,
             attestations,
           });
+          assertParityProfileMarketEligibility(parityRoute, preflight.profile as Record<string, any>);
           await authorizeCampaignEffects(campaignId, input.profileId, [{ brokerId: input.brokerId, effect: "poll_verification" }], catalog, true);
           const result = await pollImapVerification({
             transport: preflight.imap,
@@ -4936,9 +5220,11 @@ export default definePluginEntry({
           }
           catch { throw new Error("rightout_approval_binding_failed"); }
           const approvalBoundary = campaignId ? "finite_campaign_grant" : "assisted_allow_once";
-          const config = api.pluginConfig as RightOutConfig | undefined;
           const catalog = await combinedVerificationCatalog();
           const broker = resolveVerificationCatalogEntry(catalog, input);
+          const parityRoute = resolveParityBroker(await parityCatalogPromise, input.brokerId);
+          assertParityRouteMarketContract(parityRoute);
+          const config = api.pluginConfig as RightOutConfig | undefined;
           const openPermissionScope = browserApprovalRoutingScope(config, {
             browserRequired: broker.openLinkMode === "browser_same_profile_required",
             effects: ["open_verification"],
@@ -4989,13 +5275,14 @@ export default definePluginEntry({
             || token.submissionAt !== context.submitted_at
             || token.submissionReference !== context.submission_proof_reference
           ) throw new Error("rightout_verification_handle_expired");
-          validateVerificationPreflight({
+          const preflight = validateVerificationPreflight({
             input,
             catalog,
             profilePayload: config.profiles[input.profileId].payload,
             imapTransport: config.imapTransport,
             attestations,
           });
+          assertParityProfileMarketEligibility(parityRoute, preflight.profile as Record<string, any>);
           if (broker.openLinkMode === "browser_same_profile_required" && !campaignId) {
             throw new Error("rightout_peopleconnect_campaign_required");
           }
@@ -5023,8 +5310,7 @@ export default definePluginEntry({
             let sessionId: string | undefined;
             try {
               const browserControl = sameProfileBrowserControl!;
-              const parity = await parityCatalogPromise;
-              const portalBroker = resolveParityBroker(parity, input.brokerId) as Record<string, any>;
+              const portalBroker = parityRoute as Record<string, any>;
               const profile = parseRemovalProfile(config.profiles[input.profileId].payload) as Record<string, any>;
               const values = formProfileValues(profile);
               const disclosureFields = ["full_name", "date_of_birth"];
@@ -5462,7 +5748,7 @@ export default definePluginEntry({
           }
           const config = api.pluginConfig as RightOutConfig | undefined;
           if (!stateRotationReady(config)) throw new Error("rightout_state_rotation_not_configured");
-          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceState, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, paritySourceEntries] = await Promise.all([
+          const [cases, profileSnapshots, verificationHandles, controllerReplyHandles, evidenceState, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, registryEntries, preferenceEntries, paritySourceEntries] = await Promise.all([
             caseStore.reencrypt(),
             profileSnapshotStore.reencrypt(),
             verificationTokens.reencrypt(),
@@ -5476,6 +5762,7 @@ export default definePluginEntry({
             campaignStore.reencrypt(),
             workerStore.reencrypt(),
             registryStore.reencrypt(),
+            preferenceStore.reencrypt(),
             paritySourceStore.reencrypt(),
           ]);
           const report = {
@@ -5497,6 +5784,7 @@ export default definePluginEntry({
               campaigns,
               autonomy_workers: workers,
               registry_entries: registryEntries,
+              preference_entries: preferenceEntries,
               parity_source_entries: paritySourceEntries,
             },
             previous_key_count: config.previousStateEncryptionKeys.length,
@@ -5530,7 +5818,7 @@ export default definePluginEntry({
           if (!stateEncryptionReady(config)) throw new Error("rightout_not_configured");
           const activeSessionsInvalidated = await invalidateBrowserSessions((session) => session.profileId === input.profileId);
           const activePortalFlowsInvalidated = await invalidatePortalFlows((flow) => flow.profileId === input.profileId);
-          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceState, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers] = await Promise.all([
+          const [caseDeleted, profileSnapshotDeleted, verificationHandles, controllerReplyHandles, evidenceState, customTargetEntries, verificationOpenGuards, portalFlows, listingHandles, dedupeRecords, campaigns, workers, preferenceEntries] = await Promise.all([
             caseLedger.purge(input.profileId),
             profileSnapshotStore.delete(input.profileId),
             purgeProfileEntries(verificationTokens, input.profileId),
@@ -5543,6 +5831,7 @@ export default definePluginEntry({
             purgeProfileEntries(submissionDedupe, input.profileId),
             purgeProfileEntries(campaignStore, input.profileId),
             purgeProfileEntries(workerStore, input.profileId),
+            purgeProfileEntries(preferenceStore, input.profileId),
           ]);
           submittedScopes.clear();
           const report = {
@@ -5564,6 +5853,7 @@ export default definePluginEntry({
               dedupe_records: dedupeRecords,
               campaigns,
               autonomy_workers: workers,
+              preference_entries: preferenceEntries,
               active_sessions: activeSessionsInvalidated.invalidated,
               active_verified_portal_flows: activePortalFlowsInvalidated,
               webmail_drafts_discarded: activeSessionsInvalidated.drafts_discarded,
@@ -5587,7 +5877,7 @@ export default definePluginEntry({
       {
         name: "rightout_record_controller_outcome",
         label: "RightOut record controller outcome",
-        description: "Record one operator-reviewed EU or US controller response in the encrypted case ledger. Requires native allow-once approval and performs no provider write. SMTP acceptance alone is never sufficient.",
+        description: "Record one operator-reviewed EU, UK, or US controller response in the encrypted case ledger. Requires native allow-once approval and performs no provider write. SMTP acceptance alone is never sufficient.",
         parameters: ControllerOutcomeParameters,
         async execute(toolCallId, params) {
           let input: PublicControllerOutcomeInput;
@@ -5692,9 +5982,10 @@ export default definePluginEntry({
         parameters: DiscoverySessionBeginParameters,
         async execute(_toolCallId, params, signal) {
           const input = validateDiscoverySessionBeginInput(params);
-          const config = api.pluginConfig as RightOutConfig | undefined;
           const parityCatalog = await parityCatalogPromise;
           const broker = resolveParityBroker(parityCatalog, input.brokerId);
+          assertParityRouteMarketContract(broker, "publisher_browser_or_form");
+          const config = api.pluginConfig as RightOutConfig | undefined;
           const selectedBackend = input.browserBackend ?? config?.browserBackendMode ?? "managed_openclaw";
           assertPublisherAutomationPermission(config, broker, await providerTermsPromise, "publisher_discover", { browserBackend: selectedBackend });
           const profilePayload = config?.profiles?.[input.profileId]?.payload;
@@ -5714,6 +6005,7 @@ export default definePluginEntry({
             throw new Error("rightout_direct_scan_profile_snapshot_changed");
           }
           const profile = parseRemovalProfile(profilePayload) as Record<string, any>;
+          assertParityProfileMarketEligibility(broker, profile);
           const values = discoveryProfileValues(profile);
           if (typeof values.full_name !== "string") throw new Error("rightout_discovery_profile_field_missing");
           const browserControl = resolveBrowserControl(toolContext as Record<string, any>, config, selectedBackend);
@@ -5942,13 +6234,10 @@ export default definePluginEntry({
         parameters: FormSessionBeginParameters,
         async execute(_toolCallId, params, signal) {
           const input = validateFormSessionBeginInput(params);
-          await pruneTransientState();
-          const config = api.pluginConfig as RightOutConfig | undefined;
-          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") {
-            throw new Error("rightout_not_configured");
-          }
           const parityCatalog = await parityCatalogPromise;
           const broker = resolveParityBroker(parityCatalog, input.brokerId);
+          assertParityRouteMarketContract(broker);
+          await pruneTransientState();
           if (
             broker.method !== "web_form"
             || [
@@ -5957,6 +6246,10 @@ export default definePluginEntry({
             ].includes(broker.source_status)
           ) {
             throw new Error("rightout_parity_route_not_executable");
+          }
+          const config = api.pluginConfig as RightOutConfig | undefined;
+          if (!stateEncryptionReady(config) || typeof config.profiles?.[input.profileId]?.payload !== "string") {
+            throw new Error("rightout_not_configured");
           }
           parityFormAttestationSnapshot(config, input.profileId, input.brokerId);
           const selectedBackend = config?.browserBackendMode ?? "managed_openclaw";
@@ -5969,6 +6262,7 @@ export default definePluginEntry({
           await ensureImmutableProfileSnapshot(input.profileId);
           const coreCatalog = await catalogPromise;
           const profile = parseRemovalProfile(config.profiles[input.profileId].payload) as Record<string, any>;
+          assertParityProfileMarketEligibility(broker, profile);
           let listingUrl;
           if (broker.disclosure_fields.includes("listing_url")) {
             if (!input.listingHandle) throw new Error("rightout_form_listing_handle_required");
@@ -6440,20 +6734,26 @@ export default definePluginEntry({
             effects: input.effects,
           });
           await assertCampaignPublisherPermissions(input, routingScope);
+          const currentMarketPolicyDigest = marketPolicyDigest({ now: Date.now() });
           pruneApprovalState();
           const approval = approvalBindings.get(toolCallId);
           approvalBindings.delete(toolCallId);
           if (
             !approval || approval.toolName !== "rightout_start_campaign"
-            || approval.binding !== campaignScopeBinding(input, digest, routingScope.routingDigest)
+            || approval.binding !== campaignScopeBinding(input, digest, routingScope.routingDigest, currentMarketPolicyDigest)
           ) throw new Error("rightout_approval_binding_failed");
           assertConfiguredProfile(input.profileId);
           const profilePayload = (api.pluginConfig as RightOutConfig).profiles![input.profileId].payload;
           if (input.effects.includes("discover")) scanProfileDigest(profilePayload);
-          if (input.effects.some((effect) => effect !== "discover")) parseRemovalProfile(profilePayload);
+          if (input.effects.some((effect) => effect !== "discover")) {
+            const profile = parseRemovalProfile(profilePayload) as Record<string, any>;
+            await assertAutonomousCampaignProfileMarkets(input, profile);
+          }
           const profileDigest = await ensureImmutableProfileSnapshot(input.profileId);
           const runtimeScopeDigest = configuredRuntimeScopeDigest();
-          const report = await campaignLedger.start(input, { catalogDigest: digest, profileDigest, runtimeScopeDigest });
+          const report = await campaignLedger.start(input, {
+            catalogDigest: digest, profileDigest, runtimeScopeDigest, marketPolicyDigest: currentMarketPolicyDigest,
+          });
           const details = {
             report_version: 1,
             ...report,
@@ -6505,11 +6805,16 @@ export default definePluginEntry({
           raw_pii_in_report: false,
         };
       }
+      const currentMarketPolicyDigest = marketPolicyDigest({ now: Date.now() });
+      await campaignLedger.assertMarketPolicy(campaignId, {
+        marketPolicyDigest: currentMarketPolicyDigest,
+      });
       const profileDigest = await ensureImmutableProfileSnapshot(initial.subject_ref);
       const campaign = await campaignLedger.assertScope(campaignId, {
         profileId: initial.subject_ref,
         profileDigest,
         runtimeScopeDigest: configuredRuntimeScopeDigest(),
+        marketPolicyDigest: currentMarketPolicyDigest,
       });
       const [caseStatus, parity, core] = await Promise.all([
         caseLedger.status(campaign.subject_ref),
@@ -6594,6 +6899,7 @@ export default definePluginEntry({
             profileId: campaign.subject_ref,
             profileDigest,
             runtimeScopeDigest: configuredRuntimeScopeDigest(),
+            marketPolicyDigest: marketPolicyDigest({ now: Date.now() }),
           });
           const session = trustedWorkerSession(toolContext as Record<string, any>);
           const policyDigest = await currentWorkerPolicyDigest();
@@ -6942,7 +7248,10 @@ export default definePluginEntry({
           const input = validateCaseInput(params);
           assertConfiguredProfile(input.profileId);
           await ensureImmutableProfileSnapshot(input.profileId);
-          const report = await caseLedger.status(input.profileId);
+          const report = {
+            ...await caseLedger.status(input.profileId),
+            preference_controls: await preferenceControls(input.profileId),
+          };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
       },
@@ -6959,7 +7268,10 @@ export default definePluginEntry({
           const input = validateCaseInput(params);
           assertConfiguredProfile(input.profileId);
           await ensureImmutableProfileSnapshot(input.profileId);
-          const report = createReportExport(await caseLedger.status(input.profileId));
+          const report = createReportExport({
+            ...await caseLedger.status(input.profileId),
+            preference_controls: await preferenceControls(input.profileId),
+          });
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
       },
@@ -7063,22 +7375,119 @@ export default definePluginEntry({
           const profile = parseRemovalProfile(config!.profiles![input.profileId].payload);
           if (!profile.jurisdictions.includes("US-CA")) throw new Error("rightout_drop_ineligible");
           const registry = await registryMeta();
-          if (registry.state !== "registry_ready" || !Number.isInteger(registry.record_count) || registry.record_count < 1) throw new Error("rightout_drop_registry_invalid");
+          const registrySnapshot = dropRegistrySnapshot(registry);
           await pruneTransientState();
           const approval = approvalBindings.get(toolCallId);
           approvalBindings.delete(toolCallId);
-          if (!approval || approval.toolName !== "rightout_record_drop_filed" || approval.binding !== dropFiledScopeBinding(input.profileId, registry.record_count)) {
+          if (!approval || approval.toolName !== "rightout_record_drop_filed" || approval.binding !== dropFiledScopeBinding(input.profileId, registry)) {
             throw new Error("rightout_approval_binding_failed");
           }
           const outcome = await caseLedger.recordDropFiled(input.profileId, {
-            registryCount: registry.record_count,
-            processingStart: "2026-08-01T00:00:00.000Z",
+            registryCount: registrySnapshot.record_count,
+            registrySnapshotDigest: registrySnapshot.registry_snapshot_digest,
           });
           const report = {
             report_version: 1, subject_ref: input.profileId, broker_id: "ca_drop", state: outcome.state,
-            registry_scope: registry.record_count, proof_references: [outcome.proof_reference], next_recheck_at: outcome.next_recheck_at,
+            phase: outcome.schedule.phase_at_filing,
+            registry_scope: registrySnapshot.record_count,
+            registry_snapshot_digest: registrySnapshot.registry_snapshot_digest,
+            processing_starts_at: outcome.schedule.processing_starts_at,
+            ordinary_deadline_at: outcome.schedule.ordinary_deadline_at,
+            proof_references: [outcome.proof_reference],
+            next_recheck_at: outcome.next_recheck_at,
+            deletion_confirmed: false,
+            confirmation_scope: null,
+            portal_status_is_direct_deletion_proof: false,
             portal_action_performed_by_rightout: false, human_identity_verification_required: true,
-            coverage_gap: "nonregistered_brokers_and_fcra_exceptions_not_covered", provider_reads: 0, provider_writes: 0, raw_pii_in_report: false,
+            coverage_gap: "portal_status_not_direct_deletion_proof_nonregistered_and_fcra_gaps_remain",
+            provider_reads: 0, provider_writes: 0, raw_pii_in_report: false,
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_record_drop_status",
+        label: "RightOut record observed California DROP status",
+        description: "Record an operator-observed DROP portal status against an existing current filing. Requires native allow-once approval, performs no portal action, and never converts a portal claim into direct deletion proof.",
+        parameters: DropStatusParameters,
+        async execute(toolCallId, params) {
+          let input: PublicDropStatusInput;
+          try { input = validateDropStatusInput(params) as PublicDropStatusInput; }
+          catch { throw new Error("rightout_approval_binding_failed"); }
+          assertConfiguredProfile(input.profileId);
+          await ensureImmutableProfileSnapshot(input.profileId);
+          const caseContext = await dropCaseBindingContext(input.profileId);
+          await pruneTransientState();
+          const approval = approvalBindings.get(toolCallId);
+          approvalBindings.delete(toolCallId);
+          if (
+            !approval || approval.toolName !== "rightout_record_drop_status"
+            || approval.binding !== dropStatusScopeBinding(input, caseContext)
+          ) throw new Error("rightout_approval_binding_failed");
+          const outcome = await caseLedger.recordDropStatus(input.profileId, input.observedStatus);
+          const report = {
+            report_version: 1,
+            subject_ref: input.profileId,
+            broker_id: "ca_drop",
+            state: outcome.state,
+            observed_status: outcome.observed_status,
+            mechanism_status: outcome.mechanism_status,
+            proof_references: [outcome.proof_reference],
+            next_recheck_at: outcome.next_recheck_at,
+            deletion_confirmed: false,
+            confirmation_scope: null,
+            portal_status_is_direct_deletion_proof: false,
+            portal_action_performed_by_rightout: false,
+            operator_attestation: "native_openclaw_allow_once_human_observation",
+            provider_reads: 0,
+            provider_writes: 0,
+            raw_pii_in_report: false,
+          };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+        },
+      },
+      { optional: true },
+    );
+
+    api.registerTool(
+      {
+        name: "rightout_record_gpc_observed",
+        label: "RightOut record observed GPC preference",
+        description: "Record that an operator personally verified GPC in a supported browser surface. Requires native allow-once approval, performs no browser or provider action, and never represents a deletion request or deletion proof.",
+        parameters: GpcObservationParameters,
+        async execute(toolCallId, params) {
+          let input: PublicGpcObservationInput;
+          try { input = validateGpcObservationInput(params) as PublicGpcObservationInput; }
+          catch { throw new Error("rightout_approval_binding_failed"); }
+          await pruneTransientState();
+          const currentProofReference = await gpcCurrentProofReference(input.profileId);
+          const approval = approvalBindings.get(toolCallId);
+          approvalBindings.delete(toolCallId);
+          if (
+            !approval || approval.toolName !== "rightout_record_gpc_observed"
+            || approval.binding !== gpcObservationScopeBinding(input, currentProofReference)
+          ) throw new Error("rightout_approval_binding_failed");
+          assertConfiguredProfile(input.profileId);
+          await ensureImmutableProfileSnapshot(input.profileId);
+          const observation = buildGpcObservation(input);
+          await preferenceStore.register(gpcPreferenceKey(input.profileId), observation);
+          const status = gpcPreferenceStatus(observation);
+          const report = {
+            report_version: 1,
+            subject_ref: input.profileId,
+            ...status,
+            browser_configuration_performed_by_rightout: false,
+            site_compliance_verified: false,
+            deletion_request: false,
+            deletion_confirmed: false,
+            operator_attestation: "native_openclaw_allow_once_human_observation",
+            provider_reads: 0,
+            provider_writes: 0,
+            raw_pii_in_report: false,
           };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
@@ -7133,7 +7542,11 @@ export default definePluginEntry({
           if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) {
             throw new Error("rightout_catalog_health_input_invalid");
           }
-          const report = catalogPolicyHealth(await catalogPromise);
+          const now = Date.now();
+          const report = {
+            ...catalogPolicyHealth(await catalogPromise, { now }),
+            market_readiness: marketPolicyHealth({ now }),
+          };
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
       },
@@ -7163,6 +7576,7 @@ export default definePluginEntry({
           } catch { /* no exact logged-in browser profile is configured */ }
           const verificationMode = config?.imapTransport ? "imap"
             : browserVerificationTransportReady(config, browser) ? "browser_webmail" : "unavailable";
+          const marketPolicy = marketPolicyOperatorHealth({ now: Date.now() });
           const missing = [
             ...(stateEncryptionReady(config) ? [] : ["stateEncryptionKey_secretref"]),
             ...(profileIds.length ? [] : ["profiles_secretref"]),
@@ -7200,6 +7614,8 @@ export default definePluginEntry({
               },
             },
             selected_autonomous_modes: { browser: browser.selected, email_send: emailMode, verification: verificationMode },
+            market_policy: marketPolicy,
+            warnings: marketPolicy.source_warnings,
             readiness_scope: "configuration_only_run_rightout_doctor_for_live_browser_probe",
             missing, configuration_mutated: false,
             provider_reads: 0, provider_writes: 0, raw_pii_in_report: false,
@@ -7223,6 +7639,7 @@ export default definePluginEntry({
           const registry = await registryMeta();
           const paritySource = await paritySourceStore.lookup("latest") as Record<string, any> | undefined;
           const authorization = await providerAuthorizationHealth(config);
+          const marketPolicy = marketPolicyOperatorHealth({ now: Date.now() });
           const browser = resolveBrowserBackend(toolContext as Record<string, any>, config);
           const browserControlTransport = resolveBrowserControlTransport(toolContext as Record<string, any>, config);
           const browserProbe = browser.configured
@@ -7261,6 +7678,7 @@ export default definePluginEntry({
             official_registry_snapshot: registry.state === "registry_ready",
             official_parity_source_snapshot: Boolean(paritySource?.generated_at) && Number(paritySource?.probed_routes) > 0,
             parity_source_probed_routes: Number(paritySource?.probed_routes ?? 0),
+            market_policy_core_sources_current: marketPolicy.all_core_sources_current,
             lane_authorization_ready: authorization.any_publisher_lane_authorized,
             authorized_submit_form_routes: authorization.authorized_route_counts.submit_form,
             authorized_source_refresh_routes: authorization.authorized_route_counts.source_refresh,
@@ -7291,6 +7709,8 @@ export default definePluginEntry({
             supported_browser_backends: browser.supported,
             browser_probe: { selected: browserProbe, remote_cloud_fallback: remoteCloudProbe },
             provider_authorization: authorization,
+            market_policy: marketPolicy,
+            warnings: marketPolicy.source_warnings,
             readiness: {
               software_release_ready: parity.release_ready,
               local_runtime_prerequisites_ready: localRuntimeReady,

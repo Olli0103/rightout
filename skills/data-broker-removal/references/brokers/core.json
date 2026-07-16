@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "catalog_id": "rightout-clean-room-core",
   "catalog_license": "MIT",
   "catalog_policy": "Official-source facts and URLs with original RightOut notes only. No third-party broker-list records or prose.",
@@ -27,7 +27,7 @@
       ],
       "approval_gate": "send_request",
       "human_only": true,
-      "last_verified": "2026-07-11",
+      "last_verified": "2026-07-16",
       "freshness_days": 180,
       "source_use_policy": "official-facts-only-no-content-copy",
       "sources": [
@@ -36,10 +36,10 @@
           "title": "Delete Request and Opt-out Platform",
           "publisher": "California Privacy Protection Agency",
           "fact_scope": "facts_and_official_url_only",
-          "last_verified": "2026-07-11"
+          "last_verified": "2026-07-16"
         }
       ],
-      "notes": "Eligibility-specific government platform. The public runner never files a request. A future integration must verify residency and use a human-only platform approval."
+      "notes": "Eligibility-specific government platform. RightOut records only a human-verified filing and later human-observed portal status. Government login and identity verification remain human-only. Broker processing begins 2026-08-01; the operational tracker uses the official 90-day processing window and 45-day broker access cycle. A portal status, including deleted, is not direct record-level deletion proof."
     },
     {
       "id": "google_results_about_you",
@@ -777,6 +777,59 @@
       "eu_process": {"effect_scope": "controller_wide_request_subject_to_identification", "erasure_semantics": "controller_erasure_request_not_yet_confirmed", "one_click_level": "not_one_click_controller_email", "official_action_url": "https://www.cognism.com/en/privacy-policy"},
       "removal": {"supported": true, "channel": "email", "request_kinds": ["gdpr_erasure_objection"], "template_id": "gdpr_erasure_objection_v1", "recipient": "privacy@cognism.com", "smtp_recipient_domain": "cognism.com", "disclosure_fields": ["full_name", "contact_email", "country"], "eligible_jurisdictions": ["EU", "EEA"], "identity_verification": "broker_may_request_follow_up", "confirmation_policy": "submitted_until_controller_response", "discovery_requirement": "not_required_for_data_subject_request", "processing_days": 30, "policy_url": "https://www.cognism.com/en/privacy-policy", "policy_revision": "reviewed-2026-07-12", "last_verified": "2026-07-12"},
       "notes": "Cognism's current policy covers its business-contact platform, lists deletion rights, and permits requests through privacy@cognism.com. Name is included because the official process locates professional profiles rather than device-only data."
+    },
+    {
+      "id": "cognism_uk",
+      "name": "Cognism UK rights",
+      "category": "data_broker",
+      "process_class": "uk_controller_email_erasure",
+      "jurisdictions": ["UK"],
+      "official_url": "https://www.cognism.com/en/privacy-policy",
+      "official_domains": ["cognism.com"],
+      "lane": "email",
+      "scan": {
+        "supported": false,
+        "manual_only": true,
+        "jurisdiction_variant_of": "cognism_eu",
+        "reason": "same_provider_domain_uses_cognism_eu_for_public_index_discovery"
+      },
+      "required_fields": ["full_name", "contact_email", "country"],
+      "prerequisites": ["subject_authorization", "native_openclaw_plugin_approval", "uk_residency"],
+      "approval_gate": "send_request",
+      "human_only": false,
+      "last_verified": "2026-07-16",
+      "freshness_days": 63,
+      "source_use_policy": "official-facts-only-no-content-copy",
+      "sources": [{"url": "https://www.cognism.com/en/privacy-policy", "title": "Cognism Privacy Policy, version 12 January 2026", "publisher": "Cognism Limited", "fact_scope": "official_uk_erasure_objection_identity_ico_and_privacy_email_submission_facts_only", "last_verified": "2026-07-16"}],
+      "uk_process": {
+        "effect_scope": "controller_wide_request_subject_to_identification",
+        "erasure_semantics": "controller_erasure_request_not_yet_confirmed",
+        "rights_basis": "uk_gdpr_and_data_protection_act_2018_as_amended",
+        "deadline_policy": "one_calendar_month_conservative_recheck_v1",
+        "identity_policy": "controller_may_request_proportionate_follow_up_human_review",
+        "one_click_level": "not_one_click_controller_email",
+        "official_action_url": "https://www.cognism.com/en/privacy-policy"
+      },
+      "removal": {
+        "supported": true,
+        "channel": "email",
+        "request_kinds": ["uk_erasure_objection"],
+        "template_id": "uk_erasure_objection_v1",
+        "rights_contract_id": "uk_controller_erasure_objection_v1",
+        "recipient": "privacy@cognism.com",
+        "smtp_recipient_domain": "cognism.com",
+        "disclosure_fields": ["full_name", "contact_email", "country"],
+        "eligible_jurisdictions": ["UK"],
+        "identity_verification": "controller_may_request_proportionate_follow_up_human_review",
+        "confirmation_policy": "submitted_until_controller_response",
+        "discovery_requirement": "not_required_for_data_subject_request",
+        "processing_days": 28,
+        "deadline_policy": "one_calendar_month_conservative_recheck_v1",
+        "policy_url": "https://www.cognism.com/en/privacy-policy",
+        "policy_revision": "reviewed-2026-07-16",
+        "last_verified": "2026-07-16"
+      },
+      "notes": "Cognism's version 12 January 2026 policy expressly covers people based in the EU, EEA, and UK, identifies Cognism Limited in England, lists erasure and objection rights, permits requests through privacy@cognism.com, allows proportionate identity follow-up, and names the ICO. This UK route is a separate contract and never reuses the EU template, process class, eligibility gate, or deadline."
     },
     {
       "id": "lusha_eu",

@@ -13,7 +13,7 @@ Proceed only when all of the following are evidenced outside the model:
 - Brave, SMTP, IMAP, secret storage, retention, and transfer terms are approved;
 - OpenClaw config, secret, security, runtime-inspection, and doctor checks pass;
 - `openclaw plugins inspect rightout --runtime --json` proves the installed
-  package exposes the exact v0.9.0 50-tool contract; a source checkout alone is
+  package exposes the exact v0.10.0 52-tool contract; a source checkout alone is
   not runtime evidence;
 - the catalog-health report has zero stale entries;
 - the profile uses SecretRefs and contains only the minimum identifiers needed;
@@ -61,8 +61,14 @@ Record only:
 - duplicate-write count, unexpected disclosure count, and operator handoffs;
 - worker lease/checkpoint/revoke state and scheduler-vs-handoff status;
 - optional `canary_<opaque>` proof references for a state-consistent delivered
-  submission, controller confirmation, direct absence, or reappearance—never
-  the raw evidence behind the reference;
+  identity review, delivered submission, controller confirmation, direct
+  absence, reappearance, or human handoff—never the raw evidence behind the
+  reference;
+- Canary records use schema v2 and include an opaque profile and broker,
+  `startedAt`, `observedAt`, the proof reference, a SHA-256 authorization
+  reference, and a SHA-256 deployment-evidence reference. Identity reviews also
+  carry exactly one of `true_positive`, `false_positive`, `false_negative`, or
+  `true_negative`;
 - whether the documented retention and purge behavior completed.
 
 Never archive raw names, addresses, emails, phones, queries, listing URLs,
@@ -74,7 +80,11 @@ or screenshots containing them.
 The canary passes only when approvals cannot be replayed, no raw PII appears in
 tool output or the case ledger, disclosures match the catalog, duplicate writes
 are zero, restart recovery is deterministic, ambiguous outcomes fail closed,
-and purge/retention behavior matches policy. A broker's eventual action remains
+and purge/retention behavior matches policy. Operational effectiveness requires
+both reviewed identity observations with visible precision/recall denominators
+and at least one scoped provider-outcome, direct-absence, or reappearance fact.
+Delivery or outcome evidence alone remains only
+`partially_evidenced_by_authorized_canaries`. A broker's eventual action remains
 narrow evidence for that controller and identifier set—not proof of universal
 deletion or future non-reappearance.
 
