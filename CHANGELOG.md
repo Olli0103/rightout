@@ -2,6 +2,38 @@
 
 All notable changes to RightOut are documented here.
 
+## 0.10.0 - 2026-07-16
+
+- Added a machine-readable, PII-free market-readiness contract for EU/EEA,
+  UK, California, other US states, Canada, Brazil, Australia, Japan,
+  Singapore, India, and unknown markets, with official-source review dates,
+  safe defaults, and explicit `needs_evidence` gaps.
+- Bound campaign approvals, durable workers, controller requests, browser
+  forms, and all 22 parity routes to the current market-policy digest and
+  profile jurisdiction; unsupported or review-due execution now stops before
+  SecretRef access or provider I/O.
+- Added a separately contracted `cognism_uk` controller-email lane with UK-only
+  request kind, template, eligibility, proportional identity handoff, rights
+  digest, and conservative one-calendar-month recheck policy.
+- Added schema-v2 authorized-canary facts with exact authorization and
+  deployment-evidence digests, identity precision/recall/accuracy,
+  time-to-outcome, broker coverage, and a default `needs_evidence` verdict when
+  identity and scoped outcome evidence are incomplete.
+- Expanded California DROP from a filing checkpoint into phase-aware,
+  human-observed status tracking with the official 90-day processing window
+  and 45-day broker cycle, while keeping portal identity and submission outside
+  RightOut and never treating a portal status as direct deletion proof.
+- Added human-verified local Global Privacy Control state for a browser setting
+  or extension. RightOut performs no browser or provider I/O, and GPC remains
+  an opt-out preference rather than a deletion request or compliance proof.
+- Hardened the new policy contracts against in-process mutation, bound DROP
+  approvals and evidence to the exact fresh official registry snapshot, and
+  rejected stale concurrent DROP/GPC approvals and non-canonical canary times.
+- Expanded the manifest to 52 tools, catalog schema to v7, reviewed catalog to
+  57 entries, and executable email/removal inventory to 29 targets while
+  retaining the exact 22-route Unbroker technical baseline and default-denied
+  provider automation.
+
 ## 0.9.0 - 2026-07-14
 
 - Added encrypted durable campaign workers with trusted-session binding,
