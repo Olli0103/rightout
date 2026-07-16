@@ -155,7 +155,7 @@ Official source:
 
 - [Microsoft Exchange Online Basic authentication deprecation](https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/deprecation-of-basic-authentication-exchange-online).
 
-RightOut 0.9.0 adds mutually exclusive short-lived OAuth2 bearer authentication
+RightOut 0.10.0 retains mutually exclusive short-lived OAuth2 bearer authentication
 to the existing pinned SMTP providers and Gmail IMAP contract. Tokens must be
 SecretRefs with a one-minute-to-24-hour future lifetime and are bound into
 protocol-separated transport digests. This does **not** add Microsoft 365:

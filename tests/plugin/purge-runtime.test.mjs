@@ -46,6 +46,14 @@ test("subject purge is separately approved and removes only local encrypted subj
   await verification.register("verify_0123456789abcdef01234567", { profileId, brokerId: "beenverified" });
   await listings.register("listing_0123456789abcdef01234567", { profileId, brokerId: "beenverified" });
   await dedupe.register("dedupe_" + "a".repeat(64), { profileId, brokerId: "beenverified", channel: "smtp_email" });
+  const gpcInput = { profileId, surface: "browser_extension" };
+  const gpcApproval = await beforeToolCall({
+    toolName: "rightout_record_gpc_observed", params: gpcInput, toolCallId: "purge-gpc",
+  });
+  gpcApproval.requireApproval.onResolution("allow-once");
+  await tools.get("rightout_record_gpc_observed").execute("purge-gpc", gpcInput);
+  const preferences = openStore(stateDir, "rightout-preference-controls-v1");
+  assert.equal((await preferences.entries()).length, 1);
 
   const evidence = await tools.get("rightout_create_evidence_snapshot").execute("purge-evidence-create", {
     profileId, brokerId: "beenverified",
@@ -72,7 +80,7 @@ test("subject purge is separately approved and removes only local encrypted subj
   assert.equal(result.details.state, "local_subject_state_purged");
   assert.deepEqual(result.details.deleted, {
     case_record: 1,
-    profile_snapshot: 0,
+    profile_snapshot: 1,
     verification_handles: 1,
     controller_reply_candidates: 0,
     evidence_exports: 1,
@@ -84,6 +92,7 @@ test("subject purge is separately approved and removes only local encrypted subj
     dedupe_records: 1,
     campaigns: 0,
     autonomy_workers: 0,
+    preference_entries: 1,
     active_sessions: 0,
     active_verified_portal_flows: 0,
     webmail_drafts_discarded: 0,
@@ -98,5 +107,6 @@ test("subject purge is separately approved and removes only local encrypted subj
   assert.equal(await cases.lookup(profileId), undefined);
   assert.equal(await verification.lookup("verify_0123456789abcdef01234567"), undefined);
   assert.equal(await listings.lookup("listing_0123456789abcdef01234567"), undefined);
+  assert.equal((await preferences.entries()).length, 0);
   assert.equal(existsSync(evidenceExportPath), false);
 });

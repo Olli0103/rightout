@@ -33,7 +33,7 @@ async function registerRuntime(stateDir) {
   const tools = new Map();
   const removalAttestations = {
     rightoutRemovalPolicyAccepted: true,
-    rightoutRemovalPolicyVersion: "2026-07-12-eu1",
+    rightoutRemovalPolicyVersion: "2026-07-16-global2",
     subjectConsentReviewed: true,
     smtpAccountAuthorized: true,
     minimumDisclosureAccepted: true,

@@ -1,6 +1,6 @@
 # Broker coverage
 
-Review date: 2026-07-13. Counts describe software/source contracts, not proven
+Review date: 2026-07-16. Counts describe software/source contracts, not proven
 real-world removals.
 
 ## Exact pinned Unbroker surface
@@ -33,11 +33,12 @@ reported as a form submission or confirmed removal.
 
 | Capability | Additional coverage |
 | --- | ---: |
-| Core catalog entries | 56 |
+| Core catalog entries | 57 |
 | Combined Brave index discovery lanes | 56 code-enforced: 30 people-search plus 26 EU/US controller or B2B domains; three controller portal entries remain `human_only` |
 | Global autonomous scan batching | deterministic groups of four across an exact scan-only campaign scope |
-| Independently locked core removal targets | 28 |
+| Independently locked core removal targets | 29 |
 | EU/EEA controller email targets | 18 |
+| UK controller email targets | 1 separate `cognism_uk` request/identity/deadline contract |
 | US core executable targets | 10 |
 | Live official California registry snapshot | complete official CSV is parsed and encrypted; the runtime snapshot count is authoritative and intentionally not hard-coded |
 | Other official registry portals | Vermont, Oregon, Texas |
@@ -51,7 +52,14 @@ For controller, adtech, and B2B brokers an absent index hit is especially weak:
 the service may hold private or identifier-linked data without publishing a
 person-search page, so RightOut reports only `inconclusive`.
 California DROP is a separate human-verified, registry-wide route; it excludes
-non-registered brokers and may not delete FCRA-regulated data.
+non-registered brokers and may not delete FCRA-regulated data. RightOut tracks
+the official processing phase, 90-day ordinary window, and 45-day checkpoints
+only after human filing/inspection. A displayed `deleted` state is not direct
+record-level proof and never enters `confirmed_removed`.
+
+GPC is a separate human-verified browser preference record. RightOut does not
+configure the browser or contact sites, and per-site receipt/compliance remains
+`needs_evidence`. GPC never enters removal counts.
 
 The public provider-terms review found zero affirmative automation permissions,
 8 explicit prohibitions, and 14 `needs_evidence` routes. This is an operational

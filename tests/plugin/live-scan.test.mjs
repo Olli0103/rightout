@@ -518,6 +518,8 @@ test("plugin manifest declares the full autonomous campaign surface with correct
     "rightout_refresh_registries",
     "rightout_registry_status",
     "rightout_record_drop_filed",
+    "rightout_record_drop_status",
+    "rightout_record_gpc_observed",
     "rightout_registry_search",
     "rightout_unbroker_parity_health",
     "rightout_refresh_parity_sources",
@@ -537,7 +539,7 @@ test("plugin manifest declares the full autonomous campaign surface with correct
   assert.equal(manifest.toolMetadata.rightout_submit_removal.replaySafe, false);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.optional, true);
   assert.equal(manifest.toolMetadata.rightout_submit_form_removal.replaySafe, false);
-  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_poll_controller_reply", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_create_evidence_snapshot", "rightout_export_evidence", "rightout_export_dashboard", "rightout_reconcile_submission", "rightout_rotate_state_key", "rightout_start_campaign", "rightout_worker_enable", "rightout_worker_tick", "rightout_worker_complete", "rightout_worker_resume", "rightout_worker_revoke", "rightout_revoke_campaign", "rightout_refresh_registries", "rightout_refresh_parity_sources", "rightout_record_drop_filed", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step", "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step", "rightout_begin_form_session", "rightout_form_session_step"]) {
+  for (const name of ["rightout_direct_rescan", "rightout_poll_verification", "rightout_poll_controller_reply", "rightout_open_verification", "rightout_purge_subject_state", "rightout_record_controller_outcome", "rightout_create_evidence_snapshot", "rightout_export_evidence", "rightout_export_dashboard", "rightout_reconcile_submission", "rightout_rotate_state_key", "rightout_start_campaign", "rightout_worker_enable", "rightout_worker_tick", "rightout_worker_complete", "rightout_worker_resume", "rightout_worker_revoke", "rightout_revoke_campaign", "rightout_refresh_registries", "rightout_refresh_parity_sources", "rightout_record_drop_filed", "rightout_record_drop_status", "rightout_record_gpc_observed", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step", "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step", "rightout_begin_form_session", "rightout_form_session_step"]) {
     assert.equal(manifest.toolMetadata[name].optional, true);
     assert.equal(manifest.toolMetadata[name].replaySafe, false);
   }
@@ -591,14 +593,29 @@ test("plugin manifest declares the full autonomous campaign surface with correct
     manifest.configSchema.properties.profiles.additionalProperties.properties.payload.type,
     ["string", "object"],
   );
-  assert.equal(manifest.configSchema.properties.removalAttestations.properties.rightoutRemovalPolicyVersion.const, "2026-07-12-eu1");
+  assert.equal(manifest.configSchema.properties.removalAttestations.properties.rightoutRemovalPolicyVersion.const, "2026-07-16-global2");
   assert.deepEqual(
     manifest.configSchema.properties.removalAttestations.properties.authorizedRequestKinds.items.enum,
-    ["delete_and_opt_out", "gdpr_erasure_objection"],
+    ["delete_and_opt_out", "gdpr_erasure_objection", "uk_erasure_objection"],
+  );
+  assert.equal(
+    manifest.configSchema.properties.controllerReplyAttestations.properties.rightoutControllerReplyPolicyVersion.const,
+    "2026-07-16-global2",
   );
   assert.deepEqual(manifest.skills, ["./skills"]);
   assert.deepEqual(manifest.configSchema.properties.teamAccess.additionalProperties.properties.role.enum, ["owner", "manager", "viewer"]);
   assert.equal(manifest.configSchema.properties.effectivenessCanaries.additionalProperties.maxItems, 500);
+  const canarySchema = manifest.configSchema.properties.effectivenessCanaries.additionalProperties.items;
+  assert.equal(canarySchema.properties.schemaVersion.const, 2);
+  assert.deepEqual(canarySchema.required, [
+    "schemaVersion", "profileId", "brokerId", "kind", "startedAt", "observedAt",
+    "proofReference", "authorizationReferenceSha256", "deploymentEvidenceSha256",
+  ]);
+  assert.deepEqual(canarySchema.properties.kind.enum, [
+    "identity_reviewed", "submission_delivered", "controller_confirmed",
+    "direct_absence", "reappearance", "human_handoff",
+  ]);
+  assert.equal(canarySchema.allOf[0].then.required[0], "identityOutcome");
 });
 
 test("runtime hook requires allow-once or deny and fails closed", async () => {
@@ -631,7 +648,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       return value;
     },
   });
-  assert.equal(tools.length, 50);
+  assert.equal(tools.length, 52);
   assert.equal(tools[0].tool.name, "rightout_live_scan");
   assert.equal(tools[1].tool.name, "rightout_direct_rescan");
   assert.equal(tools[2].tool.name, "rightout_submit_removal");
@@ -641,9 +658,12 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   const healthTool = tools.find(({ tool }) => tool.name === "rightout_catalog_health").tool;
   const health = await healthTool.execute("catalog-health", {});
   assert.equal(health.details.network_requests, 0);
-  assert.equal(health.details.catalog_entries, 56);
+  assert.equal(health.details.catalog_entries, 57);
   assert.equal(health.details.summary.stale, 0);
   assert.equal(health.details.live_provider_io_allowed, true);
+  assert.equal(health.details.market_readiness.market_count, 11);
+  assert.equal(health.details.market_readiness.network_requests, 0);
+  assert.equal(health.details.market_readiness.markets.every((market) => market.operational_authority === "diagnostic_only_not_authorization"), true);
   const decision = await hooks.get("before_tool_call")({ toolName: "rightout_live_scan", params: toolInput, toolCallId: "call-approved" });
   assert.deepEqual(decision.requireApproval.allowedDecisions, ["allow-once", "deny"]);
   assert.equal(decision.requireApproval.timeoutMs, 120_000);
@@ -689,6 +709,8 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
       "rightout_refresh_registries",
       "rightout_refresh_parity_sources",
       "rightout_record_drop_filed",
+      "rightout_record_drop_status",
+      "rightout_record_gpc_observed",
       "rightout_submit_parity_email",
       "rightout_begin_webmail_session",
       "rightout_webmail_session_step",
@@ -775,7 +797,7 @@ test("runtime hook requires allow-once or deny and fails closed", async () => {
   configuredPluginConfig.profiles[toolInput.profileId].payload = JSON.stringify({ ...privateProfile, fullName: "Changed Example" });
   await assert.rejects(
     tools[0].tool.execute("call-profile-snapshot", toolInput),
-    /rightout_profile_snapshot_changed/,
+    /rightout_(?:scan_)?profile_snapshot_changed/,
   );
   configuredPluginConfig.profiles[toolInput.profileId].payload = profilePayload;
 

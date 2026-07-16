@@ -22,11 +22,14 @@ exact broker list while it fits the Gateway limit, effect names, lifetime, and
 budget. The pinned 22-broker set uses the human-readable `Unbroker pinned 22`
 label; all requested effects are always named with readable lifecycle labels.
 The binding contains the complete normalized broker/effect scope, catalog
-digest, and approval-time routing digest rather than relying on display text.
+digest, current market-policy digest, and approval-time routing digest rather
+than relying on display text. A source-review or regulatory phase transition
+changes that digest and invalidates the unused approval.
 
 The grant is encrypted at rest. Each in-scope provider effect revalidates the
-profile, broker, effect class, catalog digest, expiry, revocation status, and
-remaining budget before execution, then atomically consumes budget. It cannot
+profile, broker, effect class, catalog digest, market-policy digest, expiry,
+revocation status, and remaining budget before execution, then atomically
+consumes budget. It cannot
 authorize another profile/broker/effect, widen itself, renew itself, bypass
 catalog/consent/transport checks, or survive completion, expiry, or revocation.
 
@@ -35,6 +38,12 @@ written provider authorization bound to the reviewed terms contract digest.
 Current public review records 8 explicit prohibitions and 14 `needs_evidence`
 routes, so the default autonomous form count is zero. Subject/operator consent
 never substitutes for publisher permission.
+
+Every parity provider request also carries exact `execution_jurisdictions`,
+`execution_market_ids`, and a closed `provider_request_contract`. Missing,
+widened, substituted, review-due, or stale route markets stop before profile
+SecretRef use or provider I/O. Subject eligibility is checked separately after
+profile resolution and before any provider effect.
 
 `rightout_campaign_next` is replay-safe and returns one deterministic in-scope
 command, source/human gate, or `done_for_now` digest. It does not execute network
@@ -65,7 +74,7 @@ field.
 | Live scan | profile and at most 100 exact brokers, Brave policy/profile digest; long approval labels use a count plus immutable set digest while the binding retains every broker ID | publisher read, mail, form, removal |
 | Publisher browser discovery | profile, broker, official main-page origins, current written provider authorization, separate campaign effect | Brave scope, arbitrary top-level navigation, write, identity claim |
 | Direct recheck | profile, broker, encrypted listing handle, publisher policy | other URL, redirect, write |
-| SMTP removal | profile, broker, request kind, recipient, SMTP snapshot | retry, another broker, completion claim |
+| SMTP removal | profile, broker, market-specific request kind/contract, recipient, SMTP snapshot | retry, another broker, EU/UK contract substitution, completion claim |
 | Browser form | profile, broker, catalog route/fields, current written provider authorization | arbitrary browsing, CAPTCHA/ID, a route authorized only by subject consent |
 | Inbox poll | profile, broker, read-only mailbox snapshot | link open or write |
 | Controller-reply poll | profile, broker, read-only Gmail snapshot, exact outgoing Message-ID thread | automatic controller outcome, write, unrelated message |
@@ -101,6 +110,8 @@ The following never inherit campaign authority:
 - static local dashboard export;
 - worker enable and resume;
 - California DROP filing attestation;
+- California DROP portal-status observation;
+- GPC browser-setting/extension observation;
 - campaign revocation;
 - official parity-source refresh;
 - official CPPA registry refresh.
@@ -118,6 +129,9 @@ Configuration attestations bind exact profile and transport snapshots, policy
 revisions, jurisdiction, and minimum disclosure. Separately, provider permission
 records bind a current written-authorization reference to the exact reviewed
 terms contract. Neither is legal certification.
+
+Campaign grants created before the market-policy binding existed are not
+upgraded or renewed. They fail closed and require a new native approval.
 
 OpenClaw resolves active SecretRefs eagerly at Gateway activation into an
 in-memory snapshot. RightOut does not claim otherwise. External subject-PII or

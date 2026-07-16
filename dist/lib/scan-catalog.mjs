@@ -32,6 +32,9 @@ export function buildCombinedScanCatalog(coreCatalog, parityCatalog) {
     for (const entry of rows(coreCatalog)) {
         if (!entry || typeof entry !== "object" || Array.isArray(entry) || typeof entry.id !== "string")
             continue;
+        if (entry.scan?.supported === false && typeof entry.scan?.jurisdiction_variant_of === "string") {
+            continue;
+        }
         if (entry.category === "data_broker"
             && entry.scan?.supported !== true
             && !hasFailClosedScanGate(entry)) {

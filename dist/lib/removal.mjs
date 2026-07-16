@@ -1,5 +1,6 @@
 import { createHash, randomUUID, scryptSync } from "node:crypto";
 import { ISO_COUNTRIES } from "./countries.mjs";
+import { assertUkRightsCatalogRoute, calculateUkRightsResponseWindow, UK_RIGHTS_CONTRACT, } from "./uk-rights.mjs";
 const SAFE_ID = /^[a-z0-9_]{2,24}$/;
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_EMAIL = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
@@ -9,8 +10,8 @@ const SAFE_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a
 const SAFE_SHA256 = /^[a-f0-9]{64}$/;
 const SAFE_PHONE = /^\+?[0-9][0-9 .()-]{5,30}$/;
 const SAFE_MOBILE_ADVERTISING_ID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-const REQUEST_KINDS = new Set(["delete_and_opt_out", "gdpr_erasure_objection"]);
-const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-12-eu1";
+const REQUEST_KINDS = new Set(["delete_and_opt_out", "gdpr_erasure_objection", "uk_erasure_objection"]);
+const RIGHTOUT_REMOVAL_POLICY_VERSION = "2026-07-16-global2";
 const EU_EEA_COUNTRIES = new Set([
     "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
     "IS", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI",
@@ -359,7 +360,7 @@ function cleanRemovalEntry(catalog, input) {
         || !Array.isArray(removal.request_kinds)
         || !removal.request_kinds.includes(input.requestKind)
         || !["submitted_until_later_rescan", "submitted_until_controller_response"].includes(removal.confirmation_policy)
-        || removal.identity_verification !== "broker_may_request_follow_up") {
+        || !["broker_may_request_follow_up", UK_RIGHTS_CONTRACT.identity_policy].includes(removal.identity_verification)) {
         throw new Error("unsupported_removal_lane");
     }
     const recipient = cleanEmail(removal.recipient, "recipient");
@@ -373,17 +374,18 @@ function cleanRemovalEntry(catalog, input) {
     const disclosureFields = cleanStringArray(removal.disclosure_fields, "field", /^[a-z_]{2,32}$/, 12);
     const allowedDisclosureSets = input.requestKind === "delete_and_opt_out"
         ? [["contact_email", "country", "full_name", "region"]]
-        : [
+        : input.requestKind === "gdpr_erasure_objection" ? [
             ["contact_email", "country"],
             ["contact_email", "country", "full_name"],
             ["contact_email", "country", "mobile_advertising_id"],
-        ];
+        ] : [["contact_email", "country", "full_name"]];
     if (!allowedDisclosureSets.some((fields) => disclosureFields.join(",") === fields.join(","))) {
         throw new Error("unsupported_removal_lane");
     }
     const templateId = cleanString(removal.template_id, "template_id", 8, 40);
     if ((input.requestKind === "delete_and_opt_out" && templateId !== "us_delete_opt_out_v1")
-        || (input.requestKind === "gdpr_erasure_objection" && templateId !== "gdpr_erasure_objection_v1"))
+        || (input.requestKind === "gdpr_erasure_objection" && templateId !== "gdpr_erasure_objection_v1")
+        || (input.requestKind === "uk_erasure_objection" && templateId !== UK_RIGHTS_CONTRACT.template_id))
         throw new Error("unsupported_removal_lane");
     const discoveryRequirement = cleanString(removal.discovery_requirement, "discovery_requirement", 8, 64);
     if (!["prior_discovery_required", "not_required_for_data_subject_request"].includes(discoveryRequirement)) {
@@ -394,25 +396,34 @@ function cleanRemovalEntry(catalog, input) {
         throw new Error("unsupported_removal_lane");
     const isPeopleSearch = broker.category === "people_search";
     const isEuController = broker.category === "data_broker" && broker.process_class === "eu_controller_email_erasure";
+    const isUkController = broker.category === "data_broker" && broker.process_class === UK_RIGHTS_CONTRACT.process_class;
     const isUsDataBroker = broker.category === "data_broker" && broker.process_class === "us_data_broker_email_deletion";
+    const ukContract = isUkController ? assertUkRightsCatalogRoute(broker, removal) : {};
     if ((isPeopleSearch && (input.requestKind !== "delete_and_opt_out"
         || removal.confirmation_policy !== "submitted_until_later_rescan"
-        || broker.process_class !== "us_people_search_removal"))
+        || broker.process_class !== "us_people_search_removal"
+        || removal.identity_verification !== "broker_may_request_follow_up"))
         || (isEuController && (input.requestKind !== "gdpr_erasure_objection"
+            || removal.confirmation_policy !== "submitted_until_controller_response"
+            || removal.identity_verification !== "broker_may_request_follow_up"))
+        || (isUkController && (input.requestKind !== UK_RIGHTS_CONTRACT.request_kind
             || removal.confirmation_policy !== "submitted_until_controller_response"))
         || (isUsDataBroker && (input.requestKind !== "delete_and_opt_out"
-            || removal.confirmation_policy !== "submitted_until_controller_response"))
-        || (!isPeopleSearch && !isEuController && !isUsDataBroker))
+            || removal.confirmation_policy !== "submitted_until_controller_response"
+            || removal.identity_verification !== "broker_may_request_follow_up"))
+        || (!isPeopleSearch && !isEuController && !isUkController && !isUsDataBroker))
         throw new Error("unsupported_removal_lane");
     const processingDays = removal.processing_days;
     if (!Number.isInteger(processingDays)
         || (isPeopleSearch && processingDays !== 14)
         || (isEuController && processingDays !== 30)
+        || (isUkController && processingDays !== 28)
         || (isUsDataBroker && processingDays !== 45))
         throw new Error("unsupported_removal_lane");
     const eligibleJurisdictions = cleanStringArray(removal.eligible_jurisdictions, "jurisdiction", SAFE_JURISDICTION, 12);
     if ((isPeopleSearch && eligibleJurisdictions.join(",") !== "US-CA")
         || (isEuController && eligibleJurisdictions.join(",") !== "EEA,EU")
+        || (isUkController && eligibleJurisdictions.join(",") !== "UK")
         || (isUsDataBroker && eligibleJurisdictions.join(",") !== "US-CA"))
         throw new Error("unsupported_removal_lane");
     return {
@@ -429,6 +440,7 @@ function cleanRemovalEntry(catalog, input) {
         processingDays,
         policyRevision: cleanString(removal.policy_revision, "policy_revision", 8, 32),
         lastVerified: cleanString(removal.last_verified, "last_verified", 10, 10),
+        ...ukContract,
     };
 }
 export function resolveRemovalCatalogEntry(catalog, input) {
@@ -490,6 +502,11 @@ function assertEligible(profile, broker) {
             || !profile.jurisdictions.some((jurisdiction) => jurisdiction === "EU" || jurisdiction === "EEA"))) {
         throw new Error("profile_not_eligible_for_removal_lane");
     }
+    if (broker.eligibleJurisdictions.includes("UK")
+        && (profile.country !== "GB"
+            || !profile.jurisdictions.includes("UK"))) {
+        throw new Error("profile_not_eligible_for_removal_lane");
+    }
     if (!broker.eligibleJurisdictions.some((jurisdiction) => profile.jurisdictions.includes(jurisdiction))) {
         throw new Error("profile_not_eligible_for_removal_lane");
     }
@@ -529,6 +546,27 @@ function disclosureLines(profile, broker) {
 }
 function renderRequest(profile, broker) {
     const fields = disclosureLines(profile, broker);
+    if (broker.templateId === UK_RIGHTS_CONTRACT.template_id) {
+        return {
+            subject: "UK data-protection request: erasure and objection",
+            text: [
+                `Hello ${broker.name} Privacy Team,`,
+                "",
+                "I wish to exercise my right to erasure under the UK GDPR and applicable UK data-protection law. I also object to processing for direct marketing, including related profiling. Where consent is relied on, I withdraw it.",
+                "",
+                "Please use only the following information to identify and process this request:",
+                "",
+                ...fields,
+                "",
+                "Please confirm receipt and the outcome within the applicable UK response period. If you cannot erase any data, please explain the applicable basis or exception.",
+                "",
+                "If you have reasonable doubts about my identity, please request only information that is necessary and proportionate. Do not request identity documents unless they are necessary for this request.",
+                "",
+                "Regards,",
+                profile.fullName,
+            ].join("\n"),
+        };
+    }
     if (broker.templateId === "gdpr_erasure_objection_v1") {
         return {
             subject: "GDPR request: erasure and objection",
@@ -593,7 +631,11 @@ function acceptedAddresses(value) {
 export function removalApprovalDescription(input, broker) {
     const publicInput = validateRemovalPublicToolInput(input);
     const cleanBroker = broker ?? { name: publicInput.brokerId, recipient: "catalog-locked", disclosureFields: [] };
-    const requestLabel = publicInput.requestKind === "gdpr_erasure_objection" ? "GDPR erasure+objection" : "delete+opt-out";
+    const requestLabel = publicInput.requestKind === "gdpr_erasure_objection"
+        ? "EU GDPR erasure+objection"
+        : publicInput.requestKind === UK_RIGHTS_CONTRACT.request_kind
+            ? "UK erasure+objection"
+            : "delete+opt-out";
     const text = `P ${publicInput.profileId}; ${cleanBroker.name} -> ${cleanBroker.recipient}. Send 1 ${requestLabel} email with ${cleanBroker.disclosureFields.join(",")}. External write; may require verification; no form/CAPTCHA.`;
     if (text.length > 256)
         throw new Error("approval_description_too_long");
@@ -642,8 +684,12 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
         throw new Error("rightout_removal_not_accepted");
     }
     const proofReference = `smtp_${createHash("sha256").update(messageId).digest("hex").slice(0, 24)}`;
+    const generatedAt = now().toISOString();
+    const responseWindow = broker.processClass === UK_RIGHTS_CONTRACT.process_class
+        ? calculateUkRightsResponseWindow(generatedAt)
+        : undefined;
     return {
-        report_version: 4,
+        report_version: 5,
         removal_id: `removal_${randomUUID().replaceAll("-", "")}`,
         subject_ref: publicInput.profileId,
         broker_id: broker.id,
@@ -651,7 +697,7 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
         process_class: broker.processClass,
         discovery_requirement: broker.discoveryRequirement,
         state: "submitted",
-        generated_at: now().toISOString(),
+        generated_at: generatedAt,
         approval_boundary: approvalBoundary,
         delivery: {
             channel: "smtp_email",
@@ -671,6 +717,15 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
             identity_documents: 0,
         },
         proof_references: [proofReference],
+        ...(responseWindow ? {
+            rights_contract: {
+                contract_id: broker.rightsContractId,
+                contract_digest: broker.rightsContractDigest,
+                reviewed_at: UK_RIGHTS_CONTRACT.reviewed_at,
+                next_review_at: UK_RIGHTS_CONTRACT.next_review_at,
+            },
+            response_window: responseWindow,
+        } : {}),
         coverage_gaps: broker.processClass === "eu_controller_email_erasure"
             ? [
                 "smtp_acceptance_is_not_controller_receipt",
@@ -679,20 +734,29 @@ export async function runRemovalSubmission({ input, catalog, profilePayload, smt
                 "controller_response_requires_human_review",
                 "no_universal_eu_broker_erasure_registry",
             ]
-            : broker.processClass === "us_data_broker_email_deletion"
+            : broker.processClass === UK_RIGHTS_CONTRACT.process_class
                 ? [
                     "smtp_acceptance_is_not_controller_receipt",
-                    "submission_is_not_deletion_confirmation",
-                    "controller_may_request_proportionate_identity_verification",
-                    "controller_response_requires_human_review",
-                    "california_drop_and_other_identifiers_not_checked",
+                    "submission_is_not_erasure_confirmation",
+                    "controller_may_request_only_necessary_proportionate_identity_information",
+                    "identity_clock_change_requires_human_reviewed_controller_evidence",
+                    "extension_or_public_holiday_adjustment_requires_human_review",
+                    "no_universal_uk_broker_erasure_registry",
                 ]
-                : [
-                    "smtp_acceptance_is_not_broker_receipt",
-                    "submission_is_not_removal_confirmation",
-                    "broker_may_request_additional_identity_verification",
-                    "later_read_only_rescan_required_before_confirmed_removed",
-                ],
+                : broker.processClass === "us_data_broker_email_deletion"
+                    ? [
+                        "smtp_acceptance_is_not_controller_receipt",
+                        "submission_is_not_deletion_confirmation",
+                        "controller_may_request_proportionate_identity_verification",
+                        "controller_response_requires_human_review",
+                        "california_drop_and_other_identifiers_not_checked",
+                    ]
+                    : [
+                        "smtp_acceptance_is_not_broker_receipt",
+                        "submission_is_not_removal_confirmation",
+                        "broker_may_request_additional_identity_verification",
+                        "later_read_only_rescan_required_before_confirmed_removed",
+                    ],
         invariants: {
             operator_attestations_checked: true,
             subject_consent_checked: true,

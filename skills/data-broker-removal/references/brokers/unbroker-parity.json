@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "reviewed_at": "2026-07-13",
   "reference_commit": "e589b739ca70eba00aa90fd3d0228bada00dbf8f",
   "policy": {
@@ -14,6 +14,9 @@
       "id": "addresses",
       "name": "Addresses.com",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://suppression.peopleconnect.us/login",
       "official_domains": [
         "addresses.com",
@@ -43,6 +46,9 @@
       "id": "advancedbackgroundchecks",
       "name": "AdvancedBackgroundChecks",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.advancedbackgroundchecks.com/opt-out",
       "official_domains": [
         "advancedbackgroundchecks.com"
@@ -72,6 +78,9 @@
       "id": "beenverified",
       "name": "BeenVerified",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.beenverified.com/svc/optout/search/optouts",
       "official_domains": [
         "beenverified.com"
@@ -103,6 +112,9 @@
       "id": "clustal",
       "name": "Clustal",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.clustal.org/privacy-control/",
       "official_domains": [
         "clustal.org"
@@ -132,6 +144,9 @@
       "id": "clustrmaps",
       "name": "ClustrMaps",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://clustrmaps.com/bl/opt-out",
       "official_domains": [
         "clustrmaps.com"
@@ -172,6 +187,9 @@
       "id": "cyberbackgroundchecks",
       "name": "CyberBackgroundChecks",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.cyberbackgroundchecks.com/removal",
       "official_domains": [
         "cyberbackgroundchecks.com"
@@ -203,6 +221,9 @@
       "id": "familytreenow",
       "name": "FamilyTreeNow",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.familytreenow.com/optout",
       "official_domains": [
         "familytreenow.com"
@@ -230,6 +251,9 @@
       "id": "fastpeoplesearch",
       "name": "FastPeopleSearch",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.fastpeoplesearch.com/removal",
       "official_domains": [
         "fastpeoplesearch.com"
@@ -259,6 +283,9 @@
       "id": "intelius",
       "name": "Intelius / PeopleConnect",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://suppression.peopleconnect.us/login",
       "official_domains": [
         "intelius.com",
@@ -291,6 +318,9 @@
       "id": "mylife",
       "name": "MyLife",
       "method": "phone",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.mylife.com/privacyrequest",
       "official_domains": [
         "mylife.com"
@@ -329,6 +359,9 @@
       "id": "nuwber",
       "name": "Nuwber",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://nuwber.com/removal/link",
       "official_domains": [
         "nuwber.com"
@@ -358,6 +391,9 @@
       "id": "peekyou",
       "name": "PeekYou",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.peekyou.com/about/contact/optout/",
       "official_domains": [
         "peekyou.com"
@@ -399,6 +435,9 @@
       "id": "peoplefinders",
       "name": "PeopleFinders",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.peoplefinders.com/opt-out",
       "official_domains": [
         "peoplefinders.com"
@@ -430,6 +469,9 @@
       "id": "radaris",
       "name": "Radaris",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://radaris.com/control-privacy",
       "official_domains": [
         "radaris.com"
@@ -459,6 +501,9 @@
       "id": "rehold",
       "name": "Rehold",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://rehold.com/control/privacy",
       "official_domains": [
         "rehold.com"
@@ -509,6 +554,9 @@
       "id": "searchpeoplefree",
       "name": "SearchPeopleFree",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.searchpeoplefree.com/opt-out",
       "official_domains": [
         "searchpeoplefree.com"
@@ -540,6 +588,9 @@
       "id": "socialcatfish",
       "name": "Social Catfish",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://socialcatfish.com/opt-out/?id=request_optout",
       "official_domains": [
         "socialcatfish.com"
@@ -569,6 +620,9 @@
       "id": "spokeo",
       "name": "Spokeo",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.spokeo.com/optout",
       "official_domains": [
         "spokeo.com"
@@ -607,6 +661,9 @@
       "id": "thatsthem",
       "name": "That’s Them",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://thatsthem.com/optout",
       "official_domains": [
         "thatsthem.com"
@@ -646,6 +703,9 @@
       "id": "truepeoplesearch",
       "name": "TruePeopleSearch",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.truepeoplesearch.com/removal",
       "official_domains": [
         "truepeoplesearch.com"
@@ -675,6 +735,9 @@
       "id": "usphonebook",
       "name": "USPhoneBook",
       "method": "web_form",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.usphonebook.com/opt-out",
       "official_domains": [
         "usphonebook.com"
@@ -706,6 +769,9 @@
       "id": "whitepages",
       "name": "Whitepages",
       "method": "email",
+      "execution_jurisdictions": ["US", "US-CA"],
+      "execution_market_ids": ["us_california", "us_other"],
+      "provider_request_contract": "us_provider_delete_opt_out_v1",
       "action_url": "https://www.whitepages.com/privacy/consumer-rights",
       "official_domains": [
         "whitepages.com",

@@ -1,13 +1,13 @@
 # Feature benchmark
 
-Review date: 2026-07-14. Unbroker reference: Hermes commit
+Review date: 2026-07-16. Unbroker reference: Hermes commit
 `e589b739ca70eba00aa90fd3d0228bada00dbf8f`. Comparisons use public product
 claims and clean-room facts; no competitor code, broker record, template,
 playbook, prose, or screenshot was copied.
 
 ## Pinned Unbroker comparison
 
-| Capability | RightOut 0.9.0 | Pinned Unbroker | Honest verdict |
+| Capability | RightOut 0.10.0 | Pinned Unbroker | Honest verdict |
 | --- | --- | --- | --- |
 | Broker IDs | exact 22 | 22 | exact |
 | Normalized method inventory | 20 form, one email, one phone handoff | 20 form, one email, one phone | exact inventory |
@@ -22,7 +22,8 @@ playbook, prose, or screenshot was copied.
 | Email send | password or short-lived OAuth2 pinned SMTP and redacted Gmail compose | SMTP and browser compose | equivalent outcome; RightOut adds a bearer-token contract without adding Microsoft 365 |
 | Inbound verification | authenticated Gmail IMAP plus bound Gmail browser profile and exact-thread authenticated controller reply candidates | IMAP and browser mail | equivalent transports; RightOut keeps candidates separate from human-approved outcomes |
 | Evidence | encrypted content-addressed sanitized snapshots plus separately approved redacted local export | screenshot/evidence workflow | equivalent opaque evidence function for the pinned capability; not a retrievable managed-service before/after image |
-| Registries and DROP | CA CSV, VT/OR/TX routing, human DROP filing | same classes | equivalent class |
+| Registries and DROP | CA CSV, VT/OR/TX routing, human DROP filing/status, phase-aware 90-day/45-day tracking; portal status never deletion proof | same registry/filing class | equivalent base class; RightOut adds explicit non-proof checkpoints |
+| GPC | human-verified local browser preference observation; zero browser/provider I/O; site compliance `needs_evidence` | not part of the pinned contract | separate safe preference feature, not removal |
 | Rechecks | exact known-listing set, timed absence, reappearance, durable worker scheduling or explicit Cron handoff | recurring rechecks/Cron | equivalent with narrower absence claim and stronger restart/lease semantics |
 | Reporting | Markdown, JSON, digest, Sheets-compatible rows, explicit effectiveness denominators, and static local dashboard | Markdown/digest/Sheets | equivalent core reporting plus structured local artifacts; real effectiveness still `needs_evidence` |
 | Ambiguous writes | durable intent, uncertain state, human reconciliation | durable ledger | stricter retry safety |

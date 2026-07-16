@@ -1,6 +1,6 @@
 # Privacy posture
 
-Review date: 2026-07-14. Engineering documentation, not legal advice or certification.
+Review date: 2026-07-16. Engineering documentation, not legal advice or certification.
 
 The model sees only opaque references, catalog field names, and current redacted
 browser refs. OpenClaw resolves active SecretRefs eagerly during Gateway
@@ -35,6 +35,7 @@ Removal disclosures are catalog-minimal. The core examples remain:
 
 - BeenVerified email: full name, contact email, region, country;
 - EU controller emails: contact email and country, plus full name only for Lead411, 6sense, Cognism, and Lusha;
+- UK Cognism controller email: full name, contact email, and country under a separate UK-only request, identity, eligibility, and calendar-month recheck contract;
 - California controller emails: full name, contact email, region, country;
 - PeopleConnect form initiation: contact email only.
 
@@ -43,7 +44,7 @@ recorded field categories. Generic form and Gmail sessions resolve those values
 inside the plugin; model-visible snapshots replace them with placeholders and
 strip unrelated inbox/message content.
 
-EU and US controller emails use fixed request templates and stop at `submitted`.
+EU, UK, and US controller emails use market-specific fixed request templates and stop at `submitted`.
 An exact recipient, post-submission, receiver-DKIM-authenticated, official-domain,
 Message-ID-thread reply may become an encrypted literal candidate. Conflicting,
 quoted, or unknown text and every proportionate identity follow-up remain human
@@ -97,10 +98,11 @@ destination gate, not only a release-time lint. A stale official source disables
 live provider I/O and appears in the PII-free catalog-health report until the
 source fact is reviewed and released again.
 
-Evidence semantics are deliberately scoped: `indirect_exposure` is an index or publisher-browser candidate signal; `submission_uncertain` is a write that must not be retried; `submitted` is outbound transport evidence; `verification_pending` is a form/mail step; `awaiting_processing` follows a broker link or first direct absence. People-search `confirmed_removed` requires prior removal plus two time-separated direct absences across the encrypted known listing set. EU and US controller emails never automatically enter it; a human-reviewed official response can confirm only `controller_response_only`. New/unindexed URLs, unidentified controller records, other identifiers, non-registered DROP targets, and FCRA exceptions are always gaps.
+Evidence semantics are deliberately scoped: `indirect_exposure` is an index or publisher-browser candidate signal; `submission_uncertain` is a write that must not be retried; `submitted` is outbound transport evidence; `verification_pending` is a form/mail step; `awaiting_processing` follows a broker link, processing checkpoint, or first direct absence. People-search `confirmed_removed` requires prior removal plus two time-separated direct absences across the encrypted known listing set. EU, UK, and US controller emails never automatically enter it; a human-reviewed official response can confirm only `controller_response_only`. A DROP portal status, including `deleted`, remains a human-observed platform claim with no confirmation scope. A GPC observation is only an opt-out preference and records neither a deletion request nor provider compliance. New/unindexed URLs, unidentified controller records, other identifiers, non-registered DROP targets, FCRA exceptions, and site-specific GPC compliance are always gaps.
 
 Effectiveness reports expose state-based numerators and denominators but default
-to `needs_evidence`. Only an explicit out-of-band authorized canary reference
+to `needs_evidence`. Only explicit versioned out-of-band authorized canary facts
+with opaque proof, authorization, and deployment-evidence references
 consistent with the profile, broker, state, and observation time can evidence a
 narrow operational outcome. Software capability, route count, SMTP acceptance,
 and CI success are never treated as deletion effectiveness.

@@ -1,6 +1,6 @@
 import { imapTransportDigest, validateImapConfig } from "./imap.mjs";
 import { parseRemovalProfile, removalMessageId, removalProfileDigest } from "./removal.mjs";
-export const RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION = "2026-07-14-eu1";
+export const RIGHTOUT_CONTROLLER_REPLY_POLICY_VERSION = "2026-07-16-global2";
 const SAFE_PROFILE_ID = /^profile_[a-f0-9]{16,32}$/;
 const SAFE_BROKER_ID = /^[a-z0-9_]{2,24}$/;
 const SAFE_SHA256 = /^[a-f0-9]{64}$/;
@@ -62,11 +62,15 @@ function controllerBroker(catalog, brokerId) {
     const broker = Array.isArray(catalog?.brokers) ? catalog.brokers.find((row) => row?.id === brokerId) : undefined;
     if (!broker || broker.removal?.supported !== true || broker.removal?.channel !== "email"
         || broker.removal?.confirmation_policy !== "submitted_until_controller_response"
-        || !["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.process_class)
+        || !["eu_controller_email_erasure", "uk_controller_email_erasure", "us_data_broker_email_deletion"].includes(broker.process_class)
         || !Array.isArray(broker.official_domains) || broker.official_domains.length < 1 || broker.official_domains.length > 12
         || broker.official_domains.some((domain) => typeof domain !== "string" || !SAFE_DOMAIN.test(domain)))
         throw new Error("rightout_controller_reply_lane_unsupported");
-    const requestKind = broker.process_class === "eu_controller_email_erasure" ? "gdpr_erasure_objection" : "delete_and_opt_out";
+    const requestKind = broker.process_class === "eu_controller_email_erasure"
+        ? "gdpr_erasure_objection"
+        : broker.process_class === "uk_controller_email_erasure"
+            ? "uk_erasure_objection"
+            : "delete_and_opt_out";
     return {
         id: broker.id,
         processClass: broker.process_class,
@@ -107,7 +111,7 @@ const SIGNALS = Object.freeze([
 const QUALIFIED_COMPLETION = /(?:\b(?:no|none|nothing|not|never|neither|nor|cannot|can't|couldn't|didn't|doesn't|hasn't|haven't|unable|without|except|although|though|however|but|retain|retained|remaining|remain(?:s|ed|ing)?|partially|nicht|nie|nichts|kein(?:e|en|er|es)?|keineswegs|keinesfalls|weder|noch|außer|jedoch|aber|allerdings|teilweise|behalten|verbleib(?:t|en)|aufbewahr(?:t|en))\b.{0,100}\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b)|(?:\b(?:erased|deleted|removed|completed|gelöscht|entfernt|abgeschlossen)\b.{0,100}\b(?:no|none|nothing|not|never|neither|nor|except|although|though|however|but|retain|retained|remaining|remain(?:s|ed|ing)?|partially|nicht|nie|nichts|kein(?:e|en|er|es)?|keineswegs|keinesfalls|weder|noch|außer|jedoch|aber|allerdings|teilweise|behalten|verbleib(?:t|en)|aufbewahr(?:t|en))\b)/iu;
 const UNQUALIFIED_COMPLETION = /(?:^|[.!?]\s+)(?:we have (?:successfully )?(?:erased|deleted|removed) (?:your |the )?(?:personal )?data(?: as requested)?|(?:your|the requested) (?:personal )?data (?:has|have) been (?:successfully )?(?:erased|deleted|removed)|(?:ihre|die angeforderten) (?:personenbezogenen )?daten wurden (?:vollständig )?(?:gelöscht|entfernt))(?:[.!?]|$)/iu;
 export function classifyControllerReply({ text, processClass }) {
-    if (!["eu_controller_email_erasure", "us_data_broker_email_deletion"].includes(processClass))
+    if (!["eu_controller_email_erasure", "uk_controller_email_erasure", "us_data_broker_email_deletion"].includes(processClass))
         throw new Error("rightout_controller_reply_lane_unsupported");
     const segment = responseSegment(text);
     if (QUALIFIED_COMPLETION.test(segment)) {
@@ -121,10 +125,11 @@ export function classifyControllerReply({ text, processClass }) {
         return { outcome_candidate: "needs_manual_check", confidence: "none", evidence_signals: matched.sort(), terminal: false };
     }
     const signal = matched[0];
+    const erasureProcess = ["eu_controller_email_erasure", "uk_controller_email_erasure"].includes(processClass);
     const outcome = signal === "partial"
-        ? processClass === "eu_controller_email_erasure" ? "partial_erasure" : "partial_deletion"
+        ? erasureProcess ? "partial_erasure" : "partial_deletion"
         : signal === "confirmed"
-            ? processClass === "eu_controller_email_erasure" ? "erasure_confirmed" : "deletion_confirmed"
+            ? erasureProcess ? "erasure_confirmed" : "deletion_confirmed"
             : signal === "identity" ? "identity_required"
                 : signal === "rejected" ? "request_rejected"
                     : "processing_acknowledged";

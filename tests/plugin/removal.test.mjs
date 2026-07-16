@@ -53,7 +53,7 @@ const smtpConfig = {
 const profilePayload = JSON.stringify(privateProfile);
 const removalAttestations = {
   rightoutRemovalPolicyAccepted: true,
-  rightoutRemovalPolicyVersion: "2026-07-12-eu1",
+  rightoutRemovalPolicyVersion: "2026-07-16-global2",
   subjectConsentReviewed: true,
   smtpAccountAuthorized: true,
   minimumDisclosureAccepted: true,
@@ -626,4 +626,48 @@ test("runtime uses a removal-specific allow-once binding that scan approval cann
   });
   assert.ok(piiFreeHook.requireApproval);
   piiFreeHook.requireApproval.onResolution("deny");
+});
+
+test("review-due California policy blocks a controller request before SecretRef use or provider I/O", async () => {
+  const originalNow = Date.now;
+  const originalFetch = globalThis.fetch;
+  let secretReads = 0;
+  let providerCalls = 0;
+  Date.now = () => Date.parse("2026-08-01T12:00:00.000Z");
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    throw new Error("provider I/O must not occur");
+  };
+  try {
+    let beforeToolCall;
+    const plugin = (await import("../../index.ts")).default;
+    const pluginConfig = {
+      get stateEncryptionKey() { secretReads += 1; return "dummy-state-key-with-more-than-32-characters"; },
+      get profiles() { secretReads += 1; return { [profileId]: { payload: profilePayload } }; },
+      get smtpTransport() { secretReads += 1; return smtpConfig; },
+      get removalAttestations() { secretReads += 1; return removalAttestations; },
+    };
+    plugin.register({
+      runtime: fakeRuntime(),
+      on(name, handler) { if (name === "before_tool_call") beforeToolCall = handler; },
+      registerTool() {},
+      registerSecurityAuditCollector() {},
+      pluginConfig,
+      resolvePath(value) { return value; },
+      logger: { info() {}, warn() {}, error() {}, debug() {} },
+    });
+    const readsBeforeHook = secretReads;
+    const result = await beforeToolCall({
+      toolName: "rightout_submit_removal",
+      params: toolInput,
+      toolCallId: "removal-market-source-review-due",
+    });
+    assert.equal(result.block, true);
+    assert.equal(result.requireApproval, undefined);
+    assert.equal(secretReads, readsBeforeHook);
+    assert.equal(providerCalls, 0);
+  } finally {
+    Date.now = originalNow;
+    globalThis.fetch = originalFetch;
+  }
 });

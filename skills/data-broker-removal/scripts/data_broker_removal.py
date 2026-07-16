@@ -461,6 +461,76 @@ def validate_eu_data_broker(
     validate_policy_revision(removal.get("policy_revision"), label, errors)
 
 
+def validate_uk_data_broker(
+    broker: dict[str, Any], official_domains: list[str], label: str,
+    freshness: int, today: dt.date, errors: list[str],
+) -> None:
+    if broker.get("process_class") != "uk_controller_email_erasure":
+        errors.append(f"{label} UK data-broker process class is invalid")
+    if broker.get("eu_process") is not None or broker.get("us_process") is not None:
+        errors.append(f"{label} UK data-broker lane must not reuse EU or US process metadata")
+    process = broker.get("uk_process")
+    expected_process = {
+        "effect_scope": "controller_wide_request_subject_to_identification",
+        "erasure_semantics": "controller_erasure_request_not_yet_confirmed",
+        "rights_basis": "uk_gdpr_and_data_protection_act_2018_as_amended",
+        "deadline_policy": "one_calendar_month_conservative_recheck_v1",
+        "identity_policy": "controller_may_request_proportionate_follow_up_human_review",
+        "one_click_level": "not_one_click_controller_email",
+        "official_action_url": broker.get("official_url"),
+    }
+    if not isinstance(process, dict) or process != expected_process:
+        errors.append(f"{label} UK process metadata is incomplete or mixed with another market")
+    else:
+        validate_catalog_url(process["official_action_url"], official_domains, label, "uk_process.official_action_url", errors)
+    scan = broker.get("scan")
+    if scan != {
+        "supported": False,
+        "manual_only": True,
+        "jurisdiction_variant_of": "cognism_eu",
+        "reason": "same_provider_domain_uses_cognism_eu_for_public_index_discovery",
+    }:
+        errors.append(f"{label} UK jurisdiction variant must not create a duplicate discovery lane")
+    expected_fields = ["full_name", "contact_email", "country"]
+    removal = broker.get("removal")
+    if not (
+        broker.get("jurisdictions") == ["UK"]
+        and broker.get("lane") == "email"
+        and broker.get("approval_gate") == "send_request"
+        and broker.get("human_only") is False
+        and isinstance(removal, dict)
+        and removal.get("supported") is True
+        and removal.get("channel") == "email"
+        and removal.get("request_kinds") == ["uk_erasure_objection"]
+        and removal.get("template_id") == "uk_erasure_objection_v1"
+        and removal.get("rights_contract_id") == "uk_controller_erasure_objection_v1"
+        and removal.get("identity_verification") == "controller_may_request_proportionate_follow_up_human_review"
+        and removal.get("confirmation_policy") == "submitted_until_controller_response"
+        and removal.get("discovery_requirement") == "not_required_for_data_subject_request"
+        and removal.get("processing_days") == 28
+        and removal.get("deadline_policy") == "one_calendar_month_conservative_recheck_v1"
+        and removal.get("eligible_jurisdictions") == ["UK"]
+        and removal.get("disclosure_fields") == expected_fields
+        and broker.get("required_fields") == expected_fields
+        and broker.get("prerequisites") == ["subject_authorization", "native_openclaw_plugin_approval", "uk_residency"]
+    ):
+        errors.append(f"{label} automated UK data-broker lane is incomplete")
+        return
+    validate_removal_recipient(removal, official_domains, label, "UK", errors)
+    validate_catalog_url(removal.get("policy_url"), official_domains, label, "removal.policy_url", errors)
+    policy_sources = policy_matched_sources(broker, removal)
+    if not any(
+        isinstance(source.get("fact_scope"), str)
+        and all(term in source["fact_scope"] for term in ("uk", "erasure", "objection", "identity", "ico", "email"))
+        for source in policy_sources
+    ):
+        errors.append(f"{label} UK email lane lacks UK-specific rights, identity, authority, and submission evidence")
+    removal_verified = parse_catalog_date(removal.get("last_verified"), label, "removal.last_verified", errors)
+    if removal_verified and (removal_verified > today or (today - removal_verified).days > freshness):
+        errors.append(f"{label} UK removal policy provenance is stale or future-dated")
+    validate_policy_revision(removal.get("policy_revision"), label, errors)
+
+
 def validate_us_data_broker(
     broker: dict[str, Any], official_domains: list[str], label: str,
     freshness: int, today: dt.date, errors: list[str],
@@ -526,8 +596,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
     errors: list[str] = []
     if not isinstance(catalog, dict):
         return ["catalog must be an object"]
-    if catalog.get("schema_version") != 6:
-        errors.append("catalog schema_version must be 6")
+    if catalog.get("schema_version") != 7:
+        errors.append("catalog schema_version must be 7")
     brokers = catalog.get("brokers")
     if not isinstance(brokers, list) or not brokers:
         return [*errors, "catalog brokers must be a non-empty list"]
@@ -679,6 +749,8 @@ def validate_catalog_data(catalog: Any, today: dt.date | None = None) -> list[st
                 errors.append(f"{label} data-broker id exceeds the public tool contract")
             if broker.get("process_class") == "us_data_broker_email_deletion":
                 validate_us_data_broker(broker, official_domains, label, freshness, today, errors)
+            elif broker.get("process_class") == "uk_controller_email_erasure":
+                validate_uk_data_broker(broker, official_domains, label, freshness, today, errors)
             else:
                 validate_eu_data_broker(broker, official_domains, label, freshness, today, errors)
         if category == "people_search":
@@ -1048,7 +1120,8 @@ def plan_for_subject(skill_dir: Path, subject: dict[str, Any]) -> dict[str, Any]
         "jurisdictions": sorted(jurisdictions),
         "consent_scope": subject.get("consent_scope", []),
         "case_count": len(cases),
-        "catalog_case_count": len(cases),
+        "catalog_case_count": len(catalog["brokers"]),
+        "eligible_catalog_case_count": len(cases),
         "fixture_case_count": 0,
         "cases": cases,
         "non_goals": ["legal advice", "hard CAPTCHA bypass", "public-record erasure", "provider writes without approval"],
@@ -1419,6 +1492,7 @@ def build_scan_report(plan: dict[str, Any]) -> dict[str, Any]:
         "coverage_gaps": [
             "offline_dummy_runner_performs_no_live_network_calls",
             "live_people_search_coverage_is_limited_to_supported_catalog_brokers",
+            "catalog_entries_outside_the_dummy_subject_jurisdictions_are_not_planned",
             "legal_registry_and_monitor_lanes_are_not_proof_of_personal_exposure",
             "synthetic_fixture_results_do_not_describe_a_real_person",
         ],
@@ -1485,6 +1559,7 @@ def build_report(plan: dict[str, Any], intelligence: dict[str, Any] | None = Non
         "coverage": {
             "case_count": plan["case_count"],
             "catalog_case_count": plan.get("catalog_case_count", plan["case_count"]),
+            "eligible_catalog_case_count": plan.get("eligible_catalog_case_count", plan.get("catalog_case_count", plan["case_count"])),
             "fixture_case_count": plan.get("fixture_case_count", 0),
             "categories": sorted({c.get("category", "unknown") for c in plan["cases"]}),
             "jurisdictions": plan.get("jurisdictions", []),
@@ -1723,7 +1798,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
             "rightout_start_campaign", "rightout_campaign_status", "rightout_campaign_next",
             "rightout_worker_enable", "rightout_worker_status", "rightout_worker_tick", "rightout_worker_complete", "rightout_worker_resume", "rightout_worker_revoke",
             "rightout_revoke_campaign",
-            "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed", "rightout_registry_search",
+            "rightout_refresh_registries", "rightout_registry_status", "rightout_record_drop_filed",
+            "rightout_record_drop_status", "rightout_record_gpc_observed", "rightout_registry_search",
             "rightout_unbroker_parity_health", "rightout_refresh_parity_sources", "rightout_submit_parity_email", "rightout_begin_webmail_session", "rightout_webmail_session_step",
             "rightout_begin_webmail_verification", "rightout_begin_discovery_session", "rightout_discovery_session_step",
             "rightout_begin_form_session", "rightout_form_session_step",

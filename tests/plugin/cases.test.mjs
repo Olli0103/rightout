@@ -298,7 +298,7 @@ test("ambiguous writes can resume only after operator-reviewed reconciliation", 
   assert.equal(status.cases[0].next_recheck_at, "2026-07-26T10:00:00.000Z");
 });
 
-test("human-reviewed EU and US controller outcomes are explicit and scoped", async () => {
+test("human-reviewed EU, UK, and US controller outcomes are explicit and scoped", async () => {
   const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-12T10:00:00Z") });
   await ledger.reserveSubmission(PROFILE, "fullenrich_eu", {
     channel: "smtp_email",
@@ -340,6 +340,36 @@ test("human-reviewed EU and US controller outcomes are explicit and scoped", asy
   assert.equal((await ledger.status(PROFILE)).counts.confirmed_removed, 2);
   await assert.rejects(
     ledger.recordControllerOutcome(PROFILE, "amplemarket_us", "erasure_confirmed", usBroker),
+    /unsupported_controller_outcome_lane/,
+  );
+  await ledger.reserveSubmission(PROFILE, "cognism_uk", {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted", subject_ref: PROFILE, broker_id: "cognism_uk",
+    process_class: "uk_controller_email_erasure",
+    generated_at: "2026-07-12T12:00:00Z", delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_4123456789abcdef01234567"],
+    disclosures: { to_broker: ["full_name", "contact_email", "country"] },
+    response_window: {
+      policy: "one_calendar_month_conservative_recheck_v1",
+      conservative_recheck_at: "2026-08-12T00:00:00.000Z",
+    },
+  }, 28);
+  const ukBroker = {
+    id: "cognism_uk",
+    process_class: "uk_controller_email_erasure",
+    removal: { confirmation_policy: "submitted_until_controller_response", processing_days: 28 },
+  };
+  const ukCase = (await ledger.status(PROFILE)).cases.find((item) => item.broker_id === "cognism_uk");
+  assert.equal(ukCase.next_recheck_at, "2026-08-12T00:00:00.000Z");
+  assert.equal(
+    (await ledger.recordControllerOutcome(PROFILE, "cognism_uk", "identity_required", ukBroker)).state,
+    "identity_verification_required",
+  );
+  await assert.rejects(
+    ledger.recordControllerOutcome(PROFILE, "cognism_uk", "deletion_confirmed", ukBroker),
     /unsupported_controller_outcome_lane/,
   );
   await ledger.reserveSubmission(PROFILE, "wiza_us", {
@@ -624,16 +654,70 @@ test("due returns only elapsed rechecks", async () => {
 });
 
 test("human-verified California DROP filing becomes one durable registry-wide case", async () => {
-  const ledger = createCaseLedger(memoryStore(), { now: () => new Date("2026-07-13T10:00:00Z") });
-  const filed = await ledger.recordDropFiled(PROFILE, { registryCount: 545, processingStart: "2026-08-01T00:00:00Z" });
-  assert.equal(filed.state, "awaiting_processing");
+  let current = "2026-07-13T10:00:00.000Z";
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date(current) });
+  const registrySnapshotDigest = "a".repeat(64);
+  const filed = await ledger.recordDropFiled(PROFILE, { registryCount: 545, registrySnapshotDigest });
+  assert.equal(filed.state, "submitted");
   assert.match(filed.proof_reference, /^drop_[a-f0-9]{24}$/);
   assert.equal(filed.next_recheck_at, "2026-08-01T00:00:00.000Z");
+  assert.equal(filed.schedule.phase_at_filing, "filed_before_broker_processing");
+  assert.equal(filed.schedule.ordinary_deadline_at, "2026-10-30T00:00:00.000Z");
+  assert.equal(filed.deletion_confirmed, false);
   const status = await ledger.status(PROFILE);
   const drop = status.cases.find((item) => item.broker_id === "ca_drop");
   assert.equal(drop.submission_channel, "california_drop_human_portal");
-  assert.equal(drop.coverage_gap, "nonregistered_brokers_and_fcra_exceptions_not_covered");
-  await assert.rejects(ledger.recordDropFiled(PROFILE, { registryCount: 545, processingStart: "2026-08-01T00:00:00Z" }), /already_recorded/);
+  assert.equal(drop.coverage_gap, "portal_status_not_direct_deletion_proof_nonregistered_and_fcra_gaps_remain");
+  assert.equal(drop.mechanism, "california_drop");
+  assert.equal(drop.mechanism_registry_snapshot_digest, registrySnapshotDigest);
+  assert.equal(drop.mechanism_deletion_confirmed, false);
+  assert.equal(status.metrics.confirmed_removed, 0);
+  await assert.rejects(ledger.recordDropStatus(PROFILE, "deleted"), /rightout_drop_status_invalid/);
+
+  current = "2026-08-02T10:00:00.000Z";
+  const observed = await ledger.recordDropStatus(PROFILE, "deleted");
+  assert.equal(observed.state, "awaiting_processing");
+  assert.equal(observed.deletion_confirmed, false);
+  assert.equal(observed.confirmation_scope, null);
+  assert.equal(observed.next_recheck_at, "2026-09-16T10:00:00.000Z");
+  const after = await ledger.status(PROFILE);
+  const observedDrop = after.cases.find((item) => item.broker_id === "ca_drop");
+  assert.equal(observedDrop.mechanism_status, "human_observed_deleted");
+  assert.equal(observedDrop.mechanism_deletion_confirmed, false);
+  assert.equal(observedDrop.removal_confirmation_scope, null);
+  assert.equal(after.metrics.confirmed_removed, 0);
+  await assert.rejects(ledger.recordDropFiled(PROFILE, { registryCount: 545, registrySnapshotDigest }), /already_recorded/);
+});
+
+test("pending DROP status is capped at the ordinary deadline and becomes a human task after it", async () => {
+  let current = "2026-08-02T10:00:00.000Z";
+  const ledger = createCaseLedger(memoryStore(), { now: () => new Date(current) });
+  const filed = await ledger.recordDropFiled(PROFILE, { registryCount: 545, registrySnapshotDigest: "b".repeat(64) });
+  assert.equal(filed.state, "awaiting_processing");
+  assert.equal(filed.schedule.ordinary_deadline_at, "2026-10-31T10:00:00.000Z");
+
+  current = "2026-10-20T10:00:00.000Z";
+  const pending = await ledger.recordDropStatus(PROFILE, "pending");
+  assert.equal(pending.state, "awaiting_processing");
+  assert.equal(pending.next_recheck_at, "2026-10-31T10:00:00.000Z");
+
+  current = "2026-10-31T10:00:00.000Z";
+  const overdue = await ledger.recordDropStatus(PROFILE, "pending");
+  assert.equal(overdue.state, "human_task_queued");
+  assert.equal(overdue.next_recheck_at, null);
+  const status = await ledger.status(PROFILE);
+  assert.equal(status.cases.find((item) => item.broker_id === "ca_drop").human_task_reason, "drop_ordinary_processing_deadline_elapsed");
+  assert.equal(status.metrics.confirmed_removed, 0);
+});
+
+test("DROP status rejects a corrupted mechanism schedule instead of trusting local state", async () => {
+  const store = memoryStore();
+  const ledger = createCaseLedger(store, { now: () => new Date("2026-08-02T10:00:00.000Z") });
+  await ledger.recordDropFiled(PROFILE, { registryCount: 545, registrySnapshotDigest: "c".repeat(64) });
+  const corrupted = store.values.get(PROFILE);
+  corrupted.brokers.ca_drop.mechanism_deadline_at = "2099-01-01T00:00:00.000Z";
+  store.values.set(PROFILE, corrupted);
+  await assert.rejects(ledger.recordDropStatus(PROFILE, "pending"), /rightout_drop_status_not_ready/);
 });
 
 test("removal and form submission require prior discovery evidence", async () => {

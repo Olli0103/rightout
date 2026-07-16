@@ -105,6 +105,9 @@ test("literal controller classifications remain candidates and conflicting or qu
     text: "We have successfully erased your personal data.", processClass: "eu_controller_email_erasure",
   }).outcome_candidate, "erasure_confirmed");
   assert.equal(classifyControllerReply({
+    text: "We have successfully erased your personal data.", processClass: "uk_controller_email_erasure",
+  }).outcome_candidate, "erasure_confirmed");
+  assert.equal(classifyControllerReply({
     text: "We have successfully deleted your personal data.", processClass: "us_data_broker_email_deletion",
   }).outcome_candidate, "deletion_confirmed");
   assert.equal(classifyControllerReply({

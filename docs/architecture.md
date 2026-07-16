@@ -24,6 +24,8 @@ OpenClaw activation-time SecretRef snapshot; RightOut post-approval use/prefligh
       +-- password/OAuth Gmail IMAP -----------> opaque verification / controller candidate
       +-- bound browser mail -------------------> authenticated opaque confirmation control
       +-- domain-bound confirmation GET --------> awaiting_processing
+      +-- human DROP filing/status -------------> submitted / awaiting_processing, never confirmed
+      +-- human GPC observation ----------------> local preference, never deletion
       |
 durable encrypted PII-safe case ledger in the OpenClaw state directory
       +-- encrypted content-addressed evidence vault
@@ -31,6 +33,7 @@ durable encrypted PII-safe case ledger in the OpenClaw state directory
       +-- next actions
       +-- case status
       +-- due rechecks and effectiveness metrics
+      +-- preference-control status
       +-- Markdown / JSON / Google Sheets rows
       +-- static local HTML/JSON dashboard export
 ```
@@ -43,8 +46,32 @@ Gateway activation into an in-memory snapshot. RightOut reads/uses those values
 only after an exact assisted binding or matching campaign. The plugin hook owns
 single-use bindings keyed to host tool-call IDs. Autonomous effects match an
 encrypted finite campaign containing exact profile, brokers, effect classes,
-combined catalog/provider-terms digest, runtime-scope digest, expiry, and budget.
+combined catalog/provider-terms digest, market-policy digest, runtime-scope
+digest, expiry, and budget.
 Caller JSON, prose consent, or an unrelated approval are never security boundaries.
+
+Each normalized parity route separately declares exact US/California execution
+jurisdictions, matching market-policy IDs, and one provider-request contract.
+Runtime validates that complete route contract before resolving the subject
+profile, then checks subject eligibility before provider I/O. Route eligibility
+does not create a universal privacy right or provider authorization.
+
+The core UK email path is separately keyed as `cognism_uk`. It binds a UK-only
+process class, request kind, template, eligibility set, proportional identity
+handoff, rights-contract digest, and conservative one-calendar-month recheck.
+It is not an alias for `cognism_eu`, and the catalog validator rejects either
+market's template, identity rule, timing, or eligibility when substituted into
+the other.
+
+California DROP is a separate mechanism contract. Government account access,
+residency/identity proof, filing, and status inspection remain human. The
+ledger records the current registry scope, the 2026-08-01 processing boundary,
+the ordinary 90-day window, and 45-day checkpoints. A human-observed portal
+`deleted` claim cannot set `confirmed_removed`, a confirmation timestamp, or a
+confirmation scope. GPC is stored in a separate encrypted preference namespace
+only after a human checks a supported browser setting or extension. It performs
+zero browser/provider I/O and cannot become a deletion request, deletion proof,
+or site-compliance claim.
 
 An optional encrypted worker record adds a second boundary: campaign, signed
 recipe pack, runtime policy, and one-way trusted-session digests must still
@@ -112,7 +139,7 @@ automatic controller outcomes.
 
 The ledger supports `new`, `searching`, `inconclusive`, `not_found`, `found`, `indirect_exposure`, `action_selected`, `submission_pending`, `submission_uncertain`, `submitted`, `verification_pending`, `awaiting_processing`, `identity_verification_required`, `partially_removed`, `request_rejected`, `confirmed_removed`, `reappeared`, `human_task_queued`, and `blocked`.
 
-For people-search cases, only a second time-separated trusted direct absence after a prior removal and after the durable recheck time can produce `confirmed_removed`; the scope is the encrypted known listing set. A separately approved, operator-reviewed EU or US controller response can confirm only `controller_response_only`. Only trusted direct presence can turn a listing-set confirmation into `reappeared`. Brave observations never downgrade a confirmed state because search indexes can be stale.
+For people-search cases, only a second time-separated trusted direct absence after a prior removal and after the durable recheck time can produce `confirmed_removed`; the scope is the encrypted known listing set. A separately approved, operator-reviewed EU, UK, or US controller response can confirm only `controller_response_only`. Only trusted direct presence can turn a listing-set confirmation into `reappeared`. Brave observations never downgrade a confirmed state because search indexes can be stale.
 
 Every SMTP/form effect first commits an encrypted `submission_pending` intent. A possibly-effectful failure becomes `submission_uncertain`; the planner blocks new external writes until a separately approved human reconciliation records either `provider_write_not_started` or `provider_write_confirmed`. Opaque listing handles are retained in the encrypted case record so a later worker or Cron turn can resume without raw URLs.
 

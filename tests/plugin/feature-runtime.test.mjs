@@ -65,6 +65,10 @@ test("setup, doctor, reports, and deterministic campaign control are executable 
   assert.equal(setup.details.capability_detection.browser, "managed_openclaw");
   assert.equal(setup.details.capability_detection.email_send, "unavailable");
   assert.ok(setup.details.missing.includes("braveApiKey_secretref"));
+  assert.equal(setup.details.market_policy.all_core_sources_current, true);
+  assert.deepEqual(setup.details.market_policy.core_markets.map((market) => market.market_id), ["eu_eea", "uk", "us_california"]);
+  assert.equal(setup.details.market_policy.operational_authority, "diagnostic_only_not_authorization");
+  assert.deepEqual(setup.details.warnings, []);
 
   const doctor = await tools.get("rightout_doctor").execute("doctor", {});
   assert.equal(doctor.details.state, "needs_attention");
@@ -77,6 +81,9 @@ test("setup, doctor, reports, and deterministic campaign control are executable 
   assert.equal(doctor.details.checks.brave_discovery, false);
   assert.equal(doctor.details.checks.email_send, false);
   assert.equal(doctor.details.checks.verification, false);
+  assert.equal(doctor.details.checks.market_policy_core_sources_current, true);
+  assert.equal(doctor.details.market_policy.full_policy_tool, "rightout_catalog_health");
+  assert.deepEqual(doctor.details.warnings, []);
 
   const parity = await tools.get("rightout_unbroker_parity_health").execute("parity", {});
   assert.equal(parity.details.broker_count, 22);

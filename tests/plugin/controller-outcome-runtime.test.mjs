@@ -10,7 +10,7 @@ import { createEncryptedFileKeyedStore } from "../../lib/file-keyed-store.mjs";
 const profileId = "profile_a1b2c3d4e5f60718";
 const stateKey = "dummy-state-key-with-more-than-32-characters";
 
-test("EU and US controller outcomes require separate human-review approvals", async () => {
+test("EU, UK, and US controller outcomes require separate human-review approvals", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "rightout-controller-outcome-"));
   const runtime = { state: { resolveStateDir() { return stateDir; } } };
   const plugin = (await import("../../index.ts")).default;
@@ -100,6 +100,42 @@ test("EU and US controller outcomes require separate human-review approvals", as
     toolCallId: "controller-us-crossed-semantics",
   });
   assert.equal(crossedSemantics.block, true);
+
+  await ledger.reserveSubmission(profileId, "cognism_uk", {
+    channel: "smtp_email",
+    discoveryRequirement: "not_required_for_data_subject_request",
+  });
+  await ledger.recordRemoval({
+    state: "submitted",
+    subject_ref: profileId,
+    broker_id: "cognism_uk",
+    process_class: "uk_controller_email_erasure",
+    generated_at: "2026-07-12T10:02:00Z",
+    delivery: { accepted_by_outbound_smtp: true },
+    proof_references: ["smtp_2123456789abcdef01234567"],
+    disclosures: { to_broker: ["full_name", "contact_email", "country"] },
+    response_window: {
+      policy: "one_calendar_month_conservative_recheck_v1",
+      conservative_recheck_at: "2026-08-12T00:00:00.000Z",
+    },
+  }, 28);
+  const ukInput = { profileId, brokerId: "cognism_uk", outcome: "erasure_confirmed" };
+  const ukApproved = await beforeToolCall({
+    toolName: "rightout_record_controller_outcome",
+    params: ukInput,
+    toolCallId: "controller-uk-approved",
+  });
+  ukApproved.requireApproval.onResolution("allow-once");
+  const ukResult = await tools.get("rightout_record_controller_outcome").execute("controller-uk-approved", ukInput);
+  assert.equal(ukResult.details.state, "confirmed_removed");
+  assert.equal(ukResult.details.removal_confirmation_scope, "controller_response_only");
+  assert.equal((await ledger.status(profileId)).counts.confirmed_removed, 3);
+  const ukCrossedSemantics = await beforeToolCall({
+    toolName: "rightout_record_controller_outcome",
+    params: { ...ukInput, outcome: "deletion_confirmed" },
+    toolCallId: "controller-uk-crossed-semantics",
+  });
+  assert.equal(ukCrossedSemantics.block, true);
 
   const unsupported = await beforeToolCall({
     toolName: "rightout_record_controller_outcome",

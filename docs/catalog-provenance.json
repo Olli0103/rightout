@@ -1,9 +1,9 @@
 {
-  "broker_count": 56,
+  "broker_count": 57,
   "catalog_id": "rightout-clean-room-core",
-  "catalog_schema_version": 6,
-  "catalog_sha256": "61d26b9f6303a6fe73023cad4ba2cf6023d9f10dccd00a107ef1322f42c3339c",
-  "normalized_source_facts_sha256": "2d51eface0d87ab268f9484929c0bc995361325228d4fdd891a6867e34de9f42",
+  "catalog_schema_version": 7,
+  "catalog_sha256": "64d65f24ff3abc987826f947109b3e80ddfbf4c5b99dcf948008c0ec0671e549",
+  "normalized_source_facts_sha256": "a0d9b65ef008a661857a6f4961bf711277ec0d06aa2621e5e534e320688af278",
   "schema_version": 1,
-  "source_count": 61
+  "source_count": 62
 }

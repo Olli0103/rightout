@@ -14,6 +14,12 @@ test("normalized Unbroker broker/method/route/input surface is exact", () => {
   assert.deepEqual(clean.health.externally_unavailable_routes, ["clustrmaps", "peekyou"]);
   assert.deepEqual(clean.health.equivalent_outcome_gaps, []);
   assert.equal(clean.health.release_ready, true);
+  assert.equal(clean.schema_version, 2);
+  assert.equal(clean.brokers.every((route) => (
+    JSON.stringify(route.execution_jurisdictions) === JSON.stringify(["US", "US-CA"])
+    && JSON.stringify(route.execution_market_ids) === JSON.stringify(["us_california", "us_other"])
+    && route.provider_request_contract === "us_provider_delete_opt_out_v1"
+  )), true);
   assert.equal(resolveParityBroker(catalog, "rehold").action_url, "https://rehold.com/control/privacy");
   assert.equal(resolveParityBroker(catalog, "peekyou").source_status, "observed_official_archive_external_unavailable");
   assert.equal(resolveParityBroker(catalog, "peekyou").rescue_email, "ccpa@peekyou.com");
@@ -52,6 +58,18 @@ test("parity catalog rejects count substitution, foreign domains, and unapproved
   const reholdEvidence = structuredClone(catalog);
   reholdEvidence.brokers.find((broker) => broker.id === "rehold").current_contract.evidence[0].fact_scope = "generic_homepage";
   assert.throws(() => validateParityCatalog(reholdEvidence), /rightout_parity_catalog_invalid/);
+
+  const missingMarket = structuredClone(catalog);
+  delete missingMarket.brokers[0].execution_market_ids;
+  assert.throws(() => validateParityCatalog(missingMarket), /rightout_parity_catalog_invalid/);
+
+  const widenedJurisdiction = structuredClone(catalog);
+  widenedJurisdiction.brokers[0].execution_jurisdictions.push("UK");
+  assert.throws(() => validateParityCatalog(widenedJurisdiction), /rightout_parity_catalog_invalid/);
+
+  const substitutedMarket = structuredClone(catalog);
+  substitutedMarket.brokers[0].execution_market_ids = ["us_other"];
+  assert.throws(() => validateParityCatalog(substitutedMarket), /rightout_parity_catalog_invalid/);
 });
 
 test("health separates normalized contract evidence from externally unavailable providers", () => {

@@ -16,13 +16,14 @@ const profileId = "profile_1122334455667788";
 
 function fixtureFor(broker) {
   const isEu = broker.process_class === "eu_controller_email_erasure";
+  const isUk = broker.process_class === "uk_controller_email_erasure";
   const profile = {
     fullName: "Avery Example",
-    city: isEu ? "Berlin" : "Exampleville",
-    region: isEu ? "BE" : "CA",
-    country: isEu ? "DE" : "US",
+    city: isEu ? "Berlin" : isUk ? "London" : "Exampleville",
+    region: isEu ? "BE" : isUk ? "ENG" : "CA",
+    country: isEu ? "DE" : isUk ? "GB" : "US",
     contactEmail: "avery@example.invalid",
-    jurisdictions: isEu ? ["DE", "EU", "EEA"] : ["US", "US-CA"],
+    jurisdictions: isEu ? ["DE", "EU", "EEA"] : isUk ? ["GB", "UK"] : ["US", "US-CA"],
     ...(broker.removal.disclosure_fields.includes("mobile_advertising_id")
       ? { mobileAdvertisingId: "12345678-1234-4234-9234-123456789abc" }
       : {}),
@@ -49,7 +50,7 @@ function fixtureFor(broker) {
   };
   const attestations = {
     rightoutRemovalPolicyAccepted: true,
-    rightoutRemovalPolicyVersion: "2026-07-12-eu1",
+    rightoutRemovalPolicyVersion: "2026-07-16-global2",
     subjectConsentReviewed: true,
     smtpAccountAuthorized: true,
     minimumDisclosureAccepted: true,
@@ -62,12 +63,13 @@ function fixtureFor(broker) {
   return { input, profile, profilePayload, smtpConfig, attestations };
 }
 
-test("catalog exposes twenty-eight independently locked executable removal targets", () => {
+test("catalog exposes twenty-nine independently locked executable removal targets", () => {
   const executable = catalog.brokers.filter((broker) => broker.removal?.supported === true && broker.human_only === false);
-  assert.equal(executable.length, 28);
-  assert.equal(new Set(executable.map((broker) => broker.id)).size, 28);
-  assert.equal(executable.filter((broker) => broker.removal.channel === "email").length, 27);
+  assert.equal(executable.length, 29);
+  assert.equal(new Set(executable.map((broker) => broker.id)).size, 29);
+  assert.equal(executable.filter((broker) => broker.removal.channel === "email").length, 28);
   assert.equal(executable.filter((broker) => broker.removal.channel === "browser_form").length, 1);
+  assert.equal(executable.filter((broker) => broker.process_class === "uk_controller_email_erasure").length, 1);
   assert.equal(executable.filter((broker) => broker.process_class === "us_data_broker_email_deletion").length, 8);
 });
 
