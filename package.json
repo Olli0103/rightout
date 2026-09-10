@@ -57,7 +57,7 @@
     "html-to-text": "10.0.0",
     "imapflow": "1.4.7",
     "mailparser": "3.9.14",
-    "nodemailer": "9.0.3",
+    "nodemailer": "9.1.1",
     "typebox": "1.3.6"
   },
   "devDependencies": {

@@ -12,7 +12,7 @@
         "html-to-text": "10.0.0",
         "imapflow": "1.4.7",
         "mailparser": "3.9.14",
-        "nodemailer": "9.0.3",
+        "nodemailer": "9.1.1",
         "typebox": "1.3.6"
       },
       "devDependencies": {
@@ -290,6 +290,15 @@
         "socks": "2.8.9"
       }
     },
+    "node_modules/imapflow/node_modules/nodemailer": {
+      "version": "9.0.3",
+      "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-9.0.3.tgz",
+      "integrity": "sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==",
+      "license": "MIT-0",
+      "engines": {
+        "node": ">=6.0.0"
+      }
+    },
     "node_modules/ip-address": {
       "version": "10.2.0",
       "resolved": "https://registry.npmjs.org/ip-address/-/ip-address-10.2.0.tgz",
@@ -369,10 +378,19 @@
         "tlds": "1.261.0"
       }
     },
-    "node_modules/nodemailer": {
+    "node_modules/mailparser/node_modules/nodemailer": {
       "version": "9.0.3",
       "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-9.0.3.tgz",
       "integrity": "sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==",
+      "license": "MIT-0",
+      "engines": {
+        "node": ">=6.0.0"
+      }
+    },
+    "node_modules/nodemailer": {
+      "version": "9.1.1",
+      "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-9.1.1.tgz",
+      "integrity": "sha512-izw9mVKFix6YSnC9eLgV6g1opl9DUlRio9ZNcq+Wu9Ujn2UwF+8Nl0B8nz22kEC+CTZCvinkxwJ0DeFbb6NwcQ==",
       "license": "MIT-0",
       "engines": {
         "node": ">=6.0.0"
