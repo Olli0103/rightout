@@ -64,7 +64,7 @@
     "@types/mailparser": "3.4.6",
     "@types/node": "24.10.1",
     "@types/nodemailer": "^8.0.1",
-    "openclaw": "2026.6.11",
+    "openclaw": "2026.10.5",
     "typescript": "5.9.3",
     "yaml": "2.9.0"
   },
